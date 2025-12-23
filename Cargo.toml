@@ -43,6 +43,7 @@ recursive-protection = ["std", "recursive"]
 # Enable JSON output in the `cli` example:
 json_example = ["serde_json", "serde"]
 visitor = ["sqlparser_derive"]
+serde_json = ["dep:serde_json"]
 
 [dependencies]
 bigdecimal = { version = "0.4.1", features = ["serde"], optional = true }
