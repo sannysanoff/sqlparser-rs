@@ -22,10 +22,13 @@ use crate::{
     tokenizer::Token,
 };
 
-use super::{Dialect, Precedence};
+use super::{keywords::Keyword, Dialect, Precedence};
+
+const RESERVED_KEYWORDS_FOR_SELECT_ITEM_OPERATOR: [Keyword; 1] = [Keyword::CONNECT_BY_ROOT];
 
 /// A [`Dialect`] for [Oracle Databases](https://docs.oracle.com/en/database/oracle/oracle-database/21/sqlrf/index.html)
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct OracleDialect;
 
 impl Dialect for OracleDialect {
@@ -83,10 +86,10 @@ impl Dialect for OracleDialect {
     }
 
     fn get_next_precedence(&self, parser: &Parser) -> Option<Result<u8, ParserError>> {
-        let t = parser.peek_token();
+        let t = parser.peek_token_ref();
         debug!("get_next_precedence() {t:?}");
 
-        match t.token {
+        match &t.token {
             Token::StringConcat => Some(Ok(self.prec_value(Precedence::PlusMinus))),
             _ => None,
         }
@@ -96,7 +99,24 @@ impl Dialect for OracleDialect {
         true
     }
 
+    fn get_reserved_keywords_for_select_item_operator(&self) -> &[Keyword] {
+        &RESERVED_KEYWORDS_FOR_SELECT_ITEM_OPERATOR
+    }
+
     fn supports_quote_delimited_string(&self) -> bool {
+        true
+    }
+
+    fn supports_comment_optimizer_hint(&self) -> bool {
+        true
+    }
+
+    fn supports_insert_table_alias(&self) -> bool {
+        true
+    }
+
+    /// See <https://docs.oracle.com/en/database/oracle/oracle-database/21/sqlrf/INSERT.html#GUID-903F8043-0254-4EE9-ACC1-CB8AC0AF3423__I2126242>
+    fn supports_insert_table_query(&self) -> bool {
         true
     }
 }

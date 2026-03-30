@@ -37,6 +37,7 @@ use sqlparser_derive::{Visit, VisitMut};
 /// expands to `pub const SELECT = "SELECT";`
 macro_rules! kw_def {
     ($ident:ident = $string_keyword:expr) => {
+        #[doc = concat!("The `", $string_keyword, "` SQL keyword.")]
         pub const $ident: &'static str = $string_keyword;
     };
     ($ident:ident) => {
@@ -54,16 +55,23 @@ macro_rules! define_keywords {
         #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
         #[allow(non_camel_case_types)]
+        /// An enumeration of SQL keywords recognized by the parser.
         pub enum Keyword {
+            /// Represents no keyword.
             NoKeyword,
-            $($ident),*
+            $(
+                #[doc = concat!("The `", stringify!($ident), "` SQL keyword.")]
+                $ident
+            ),*
         }
 
+        /// Array of all `Keyword` enum values in declaration order.
         pub const ALL_KEYWORDS_INDEX: &[Keyword] = &[
             $(Keyword::$ident),*
         ];
 
         $(kw_def!($ident $(= $string_keyword)?);)*
+        /// Array of all SQL keywords as string constants.
         pub const ALL_KEYWORDS: &[&str] = &[
             $($ident),*
         ];
@@ -137,6 +145,7 @@ define_keywords!(
     AVG,
     AVG_ROW_LENGTH,
     AVRO,
+    BACKUP,
     BACKWARD,
     BASE64,
     BASE_LOCATION,
@@ -194,6 +203,7 @@ define_keywords!(
     CENTURY,
     CHAIN,
     CHANGE,
+    CHANGES,
     CHANGE_TRACKING,
     CHANNEL,
     CHAR,
@@ -304,6 +314,7 @@ define_keywords!(
     DEFINE,
     DEFINED,
     DEFINER,
+    DELAY,
     DELAYED,
     DELAY_KEY_WRITE,
     DELEGATED,
@@ -325,7 +336,10 @@ define_keywords!(
     DISCARD,
     DISCONNECT,
     DISTINCT,
+    DISTINCTROW,
+    DISTKEY,
     DISTRIBUTE,
+    DISTSTYLE,
     DIV,
     DO,
     DOMAIN,
@@ -369,6 +383,7 @@ define_keywords!(
     ESCAPE,
     ESCAPED,
     ESTIMATE,
+    EVEN,
     EVENT,
     EVERY,
     EVOLVE,
@@ -547,6 +562,7 @@ define_keywords!(
     KEY_BLOCK_SIZE,
     KILL,
     LAG,
+    LAMBDA,
     LANGUAGE,
     LARGE,
     LAST,
@@ -559,6 +575,7 @@ define_keywords!(
     LEFT,
     LEFTARG,
     LEVEL,
+    LIFECYCLE,
     LIKE,
     LIKE_REGEX,
     LIMIT,
@@ -637,6 +654,7 @@ define_keywords!(
     MODIFIES,
     MODIFY,
     MODULE,
+    MODULUS,
     MONITOR,
     MONTH,
     MONTHS,
@@ -667,6 +685,7 @@ define_keywords!(
     NOCOMPRESS,
     NOCREATEDB,
     NOCREATEROLE,
+    NOCYCLE,
     NOINHERIT,
     NOLOGIN,
     NONE,
@@ -837,6 +856,7 @@ define_keywords!(
     RELAY,
     RELEASE,
     RELEASES,
+    REMAINDER,
     REMOTE,
     REMOVE,
     REMOVEQUOTES,
@@ -919,6 +939,7 @@ define_keywords!(
     SESSION_USER,
     SET,
     SETERROR,
+    SETOF,
     SETS,
     SETTINGS,
     SHARE,
@@ -936,6 +957,7 @@ define_keywords!(
     SOME,
     SORT,
     SORTED,
+    SORTKEY,
     SOURCE,
     SPATIAL,
     SPECIFIC,
@@ -945,6 +967,11 @@ define_keywords!(
     SQLEXCEPTION,
     SQLSTATE,
     SQLWARNING,
+    SQL_BIG_RESULT,
+    SQL_BUFFER_RESULT,
+    SQL_CALC_FOUND_ROWS,
+    SQL_NO_CACHE,
+    SQL_SMALL_RESULT,
     SQRT,
     SRID,
     STABLE,
@@ -1011,6 +1038,7 @@ define_keywords!(
     TEXT,
     TEXTFILE,
     THEN,
+    THROW,
     TIES,
     TIME,
     TIMEFORMAT,
@@ -1032,12 +1060,14 @@ define_keywords!(
     TOTP,
     TRACE,
     TRAILING,
+    TRAN,
     TRANSACTION,
     TRANSIENT,
     TRANSLATE,
     TRANSLATE_REGEX,
     TRANSLATION,
     TREAT,
+    TREE,
     TRIGGER,
     TRIM,
     TRIM_ARRAY,
@@ -1117,6 +1147,7 @@ define_keywords!(
     VIRTUAL,
     VOLATILE,
     VOLUME,
+    WAITFOR,
     WAREHOUSE,
     WAREHOUSES,
     WEEK,
@@ -1141,6 +1172,7 @@ define_keywords!(
     XOR,
     YEAR,
     YEARS,
+    YES,
     ZONE,
     ZORDER,
     ZSTD
@@ -1187,6 +1219,7 @@ pub const RESERVED_FOR_TABLE_ALIAS: &[Keyword] = &[
     Keyword::ANTI,
     Keyword::SEMI,
     Keyword::RETURNING,
+    Keyword::OUTPUT,
     Keyword::ASOF,
     Keyword::MATCH_CONDITION,
     // for MSSQL-specific OUTER APPLY (seems reserved in most dialects)
@@ -1241,15 +1274,16 @@ pub const RESERVED_FOR_COLUMN_ALIAS: &[Keyword] = &[
     Keyword::CLUSTER,
     Keyword::DISTRIBUTE,
     Keyword::RETURNING,
+    Keyword::VALUES,
     // Reserved only as a column alias in the `SELECT` clause
     Keyword::FROM,
     Keyword::INTO,
     Keyword::END,
 ];
 
-// Global list of reserved keywords allowed after FROM.
-// Parser should call Dialect::get_reserved_keyword_after_from
-// to allow for each dialect to customize the list.
+/// Global list of reserved keywords allowed after FROM.
+/// Parser should call Dialect::get_reserved_keyword_after_from
+/// to allow for each dialect to customize the list.
 pub const RESERVED_FOR_TABLE_FACTOR: &[Keyword] = &[
     Keyword::INTO,
     Keyword::LIMIT,

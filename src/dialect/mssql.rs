@@ -28,7 +28,8 @@ use crate::tokenizer::Token;
 use alloc::{vec, vec::Vec};
 
 /// A [`Dialect`] for [Microsoft SQL Server](https://www.microsoft.com/en-us/sql-server/)
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MsSqlDialect {}
 
 impl Dialect for MsSqlDialect {
@@ -107,7 +108,7 @@ impl Dialect for MsSqlDialect {
     }
 
     /// See: <https://learn.microsoft.com/en-us/sql/relational-databases/tables/querying-data-in-a-system-versioned-temporal-table>
-    fn supports_timestamp_versioning(&self) -> bool {
+    fn supports_table_versioning(&self) -> bool {
         true
     }
 
@@ -128,9 +129,30 @@ impl Dialect for MsSqlDialect {
 
     fn is_select_item_alias(&self, explicit: bool, kw: &Keyword, parser: &mut Parser) -> bool {
         match kw {
-            // List of keywords that cannot be used as select item aliases in MSSQL
-            // regardless of whether the alias is explicit or implicit
-            Keyword::IF | Keyword::ELSE => false,
+            // List of keywords that cannot be used as select item (column) aliases in MSSQL
+            // regardless of whether the alias is explicit or implicit.
+            //
+            // These are T-SQL statement-starting keywords; allowing them as implicit aliases
+            // causes the parser to consume the keyword as an alias for the previous expression,
+            // then fail on the token that follows (e.g. `TABLE`, `@var`, `sp_name`, …).
+            Keyword::IF
+            | Keyword::ELSE
+            | Keyword::DECLARE
+            | Keyword::EXEC
+            | Keyword::EXECUTE
+            | Keyword::INSERT
+            | Keyword::UPDATE
+            | Keyword::DELETE
+            | Keyword::DROP
+            | Keyword::CREATE
+            | Keyword::ALTER
+            | Keyword::TRUNCATE
+            | Keyword::PRINT
+            | Keyword::WHILE
+            | Keyword::RETURN
+            | Keyword::THROW
+            | Keyword::RAISERROR
+            | Keyword::MERGE => false,
             _ => explicit || self.is_column_alias(kw, parser),
         }
     }
@@ -138,14 +160,65 @@ impl Dialect for MsSqlDialect {
     fn is_table_factor_alias(&self, explicit: bool, kw: &Keyword, parser: &mut Parser) -> bool {
         match kw {
             // List of keywords that cannot be used as table aliases in MSSQL
-            // regardless of whether the alias is explicit or implicit
-            Keyword::IF | Keyword::ELSE => false,
+            // regardless of whether the alias is explicit or implicit.
+            //
+            // These are T-SQL statement-starting keywords. Without blocking them here,
+            // a bare `SELECT * FROM t` followed by a newline and one of these keywords
+            // would cause the parser to consume the keyword as a table alias for `t`,
+            // then fail on the token that follows (e.g. `@var`, `sp_name`, `TABLE`, …).
+            //
+            // `SET` is already covered by the global `RESERVED_FOR_TABLE_ALIAS` list;
+            // the keywords below are MSSQL-specific additions.
+            Keyword::IF
+            | Keyword::ELSE
+            | Keyword::DECLARE
+            | Keyword::EXEC
+            | Keyword::EXECUTE
+            | Keyword::INSERT
+            | Keyword::UPDATE
+            | Keyword::DELETE
+            | Keyword::DROP
+            | Keyword::CREATE
+            | Keyword::ALTER
+            | Keyword::TRUNCATE
+            | Keyword::PRINT
+            | Keyword::WHILE
+            | Keyword::RETURN
+            | Keyword::THROW
+            | Keyword::RAISERROR
+            | Keyword::MERGE => false,
             _ => explicit || self.is_table_alias(kw, parser),
         }
     }
 
     fn parse_statement(&self, parser: &mut Parser) -> Option<Result<Statement, ParserError>> {
-        if parser.peek_keyword(Keyword::IF) {
+        if parser.parse_keyword(Keyword::BEGIN) {
+            // Check if this is a BEGIN...END block rather than BEGIN TRANSACTION
+            let is_block = parser
+                .maybe_parse(|p| {
+                    if p.parse_transaction_modifier().is_some()
+                        || p.parse_one_of_keywords(&[
+                            Keyword::TRANSACTION,
+                            Keyword::WORK,
+                            Keyword::TRAN,
+                        ])
+                        .is_some()
+                        || matches!(p.peek_token_ref().token, Token::SemiColon | Token::EOF)
+                    {
+                        p.expected_ref("statement", p.peek_token_ref())
+                    } else {
+                        Ok(())
+                    }
+                })
+                .unwrap_or(None)
+                .is_some();
+            if is_block {
+                Some(parser.parse_begin_exception_end())
+            } else {
+                parser.prev_token();
+                None
+            }
+        } else if parser.peek_keyword(Keyword::IF) {
             Some(self.parse_if_stmt(parser))
         } else if parser.parse_keywords(&[Keyword::CREATE, Keyword::TRIGGER]) {
             Some(self.parse_create_trigger(parser, false))
@@ -158,6 +231,15 @@ impl Dialect for MsSqlDialect {
             Some(self.parse_create_trigger(parser, true))
         } else {
             None
+        }
+    }
+
+    fn get_next_precedence(&self, parser: &Parser) -> Option<Result<u8, ParserError>> {
+        let token = parser.peek_token_ref();
+        match &token.token {
+            // lowest prec to prevent it from turning into a binary op
+            Token::Colon => Some(Ok(self.prec_unknown())),
+            _ => None,
         }
     }
 }

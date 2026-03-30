@@ -141,7 +141,9 @@ fn parse_create_procedure() {
                     pipe_operators: vec![],
                     body: Box::new(SetExpr::Select(Box::new(Select {
                         select_token: AttachedToken::empty(),
+                        optimizer_hints: vec![],
                         distinct: None,
+                        select_modifiers: None,
                         top: None,
                         top_before_distinct: false,
                         projection: vec![SelectItem::UnnamedExpr(Expr::Value(
@@ -162,7 +164,7 @@ fn parse_create_procedure() {
                         window_before_qualify: false,
                         qualify: None,
                         value_table_mode: None,
-                        connect_by: None,
+                        connect_by: vec![],
                         flavor: SelectFlavor::Standard,
                     })))
                 }))],
@@ -253,7 +255,7 @@ fn parse_create_function() {
                     default_expr: None,
                 },
             ]),
-            return_type: Some(DataType::Int(None)),
+            return_type: Some(FunctionReturnType::DataType(DataType::Int(None))),
             function_body: Some(CreateFunctionBody::AsBeginEnd(BeginEndStatements {
                 begin_token: AttachedToken::empty(),
                 statements: vec![Statement::Return(ReturnStatement {
@@ -266,6 +268,8 @@ fn parse_create_function() {
             behavior: None,
             called_on_null: None,
             parallel: None,
+            security: None,
+            set_params: vec![],
             using: None,
             language: None,
             determinism_specifier: None,
@@ -426,7 +430,7 @@ fn parse_create_function_parameter_default_values() {
                 data_type: DataType::Int(None),
                 default_expr: Some(Expr::Value((number("42")).with_empty_span())),
             },]),
-            return_type: Some(DataType::Int(None)),
+            return_type: Some(FunctionReturnType::DataType(DataType::Int(None))),
             function_body: Some(CreateFunctionBody::AsBeginEnd(BeginEndStatements {
                 begin_token: AttachedToken::empty(),
                 statements: vec![Statement::Return(ReturnStatement {
@@ -439,6 +443,8 @@ fn parse_create_function_parameter_default_values() {
             behavior: None,
             called_on_null: None,
             parallel: None,
+            security: None,
+            set_params: vec![],
             using: None,
             language: None,
             determinism_specifier: None,
@@ -490,7 +496,7 @@ fn parse_mssql_openjson() {
                     json_expr: Expr::CompoundIdentifier(
                         vec![Ident::new("A"), Ident::new("param"),]
                     ),
-                    json_path: Some(Value::SingleQuotedString("$.config".into())),
+                    json_path: Some(Value::SingleQuotedString("$.config".into()).with_empty_span()),
                     columns: vec![
                         OpenJsonTableColumn {
                             name: Ident::new("kind"),
@@ -652,7 +658,7 @@ fn parse_mssql_openjson() {
                     json_expr: Expr::CompoundIdentifier(
                         vec![Ident::new("A"), Ident::new("param"),]
                     ),
-                    json_path: Some(Value::SingleQuotedString("$.config".into())),
+                    json_path: Some(Value::SingleQuotedString("$.config".into()).with_empty_span()),
                     columns: vec![],
                     alias: table_alias(true, "B")
                 },
@@ -1344,7 +1350,9 @@ fn parse_substring_in_select() {
 
                     body: Box::new(SetExpr::Select(Box::new(Select {
                         select_token: AttachedToken::empty(),
+                        optimizer_hints: vec![],
                         distinct: Some(Distinct::Distinct),
+                        select_modifiers: None,
                         top: None,
                         top_before_distinct: false,
                         projection: vec![SelectItem::UnnamedExpr(Expr::Substring {
@@ -1384,7 +1392,7 @@ fn parse_substring_in_select() {
                         qualify: None,
                         window_before_qualify: false,
                         value_table_mode: None,
-                        connect_by: None,
+                        connect_by: vec![],
                         flavor: SelectFlavor::Standard,
                     }))),
                     order_by: None,
@@ -1501,7 +1509,9 @@ fn parse_mssql_declare() {
 
                 body: Box::new(SetExpr::Select(Box::new(Select {
                     select_token: AttachedToken::empty(),
+                    optimizer_hints: vec![],
                     distinct: None,
+                    select_modifiers: None,
                     top: None,
                     top_before_distinct: false,
                     projection: vec![SelectItem::UnnamedExpr(Expr::BinaryOp {
@@ -1526,7 +1536,7 @@ fn parse_mssql_declare() {
                     window_before_qualify: false,
                     qualify: None,
                     value_table_mode: None,
-                    connect_by: None,
+                    connect_by: vec![],
                     flavor: SelectFlavor::Standard,
                 })))
             }))
@@ -1653,6 +1663,80 @@ fn test_parse_raiserror() {
 
     let sql = r#"RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState)"#;
     let _ = ms().verified_stmt(sql);
+}
+
+#[test]
+fn test_parse_throw() {
+    // THROW with arguments
+    let sql = r#"THROW 51000, 'Record does not exist.', 1"#;
+    let s = ms().verified_stmt(sql);
+    assert_eq!(
+        s,
+        Statement::Throw(ThrowStatement {
+            error_number: Some(Box::new(Expr::Value(
+                (Value::Number("51000".parse().unwrap(), false)).with_empty_span()
+            ))),
+            message: Some(Box::new(Expr::Value(
+                (Value::SingleQuotedString("Record does not exist.".to_string())).with_empty_span()
+            ))),
+            state: Some(Box::new(Expr::Value(
+                (Value::Number("1".parse().unwrap(), false)).with_empty_span()
+            ))),
+        })
+    );
+
+    // THROW with variable references
+    let sql = r#"THROW @ErrorNumber, @ErrorMessage, @ErrorState"#;
+    let _ = ms().verified_stmt(sql);
+
+    // Re-throw (no arguments)
+    let sql = r#"THROW"#;
+    let s = ms().verified_stmt(sql);
+    assert_eq!(
+        s,
+        Statement::Throw(ThrowStatement {
+            error_number: None,
+            message: None,
+            state: None,
+        })
+    );
+}
+
+#[test]
+fn test_parse_waitfor() {
+    // WAITFOR DELAY
+    let sql = "WAITFOR DELAY '00:00:05'";
+    let stmt = ms_and_generic().verified_stmt(sql);
+    assert_eq!(
+        stmt,
+        Statement::WaitFor(WaitForStatement {
+            wait_type: WaitForType::Delay,
+            expr: Expr::Value(
+                (Value::SingleQuotedString("00:00:05".to_string())).with_empty_span()
+            ),
+        })
+    );
+
+    // WAITFOR TIME
+    let sql = "WAITFOR TIME '14:30:00'";
+    let stmt = ms_and_generic().verified_stmt(sql);
+    assert_eq!(
+        stmt,
+        Statement::WaitFor(WaitForStatement {
+            wait_type: WaitForType::Time,
+            expr: Expr::Value(
+                (Value::SingleQuotedString("14:30:00".to_string())).with_empty_span()
+            ),
+        })
+    );
+
+    // WAITFOR DELAY with variable
+    let sql = "WAITFOR DELAY @WaitTime";
+    let _ = ms_and_generic().verified_stmt(sql);
+
+    // Error: WAITFOR without DELAY or TIME
+    let res = ms_and_generic().parse_sql_statements("WAITFOR '00:00:05'");
+    assert!(res.is_err());
 }
 
 #[test]
@@ -1897,8 +1981,11 @@ fn parse_create_table_with_valid_options() {
                 cluster_by: None,
                 clustered_by: None,
                 inherits: None,
+                partition_of: None,
+                for_values: None,
                 strict: false,
                 iceberg: false,
+                snapshot: false,
                 copy_grants: false,
                 enable_schema_evolution: None,
                 change_tracking: None,
@@ -1907,6 +1994,7 @@ fn parse_create_table_with_valid_options() {
                 default_ddl_collation: None,
                 with_aggregation_policy: None,
                 with_row_access_policy: None,
+                with_storage_lifecycle_policy: None,
                 with_tags: None,
                 base_location: None,
                 external_volume: None,
@@ -1920,6 +2008,10 @@ fn parse_create_table_with_valid_options() {
                 refresh_mode: None,
                 initialize: None,
                 require_user: false,
+                diststyle: None,
+                distkey: None,
+                sortkey: None,
+                backup: None,
             })
         );
     }
@@ -2031,6 +2123,7 @@ fn parse_create_table_with_identity_column() {
                 transient: false,
                 volatile: false,
                 iceberg: false,
+                snapshot: false,
                 name: ObjectName::from(vec![Ident {
                     value: "mytable".to_string(),
                     quote_style: None,
@@ -2064,6 +2157,8 @@ fn parse_create_table_with_identity_column() {
                 cluster_by: None,
                 clustered_by: None,
                 inherits: None,
+                partition_of: None,
+                for_values: None,
                 strict: false,
                 copy_grants: false,
                 enable_schema_evolution: None,
@@ -2073,6 +2168,7 @@ fn parse_create_table_with_identity_column() {
                 default_ddl_collation: None,
                 with_aggregation_policy: None,
                 with_row_access_policy: None,
+                with_storage_lifecycle_policy: None,
                 with_tags: None,
                 base_location: None,
                 external_volume: None,
@@ -2086,6 +2182,10 @@ fn parse_create_table_with_identity_column() {
                 refresh_mode: None,
                 initialize: None,
                 require_user: false,
+                diststyle: None,
+                distkey: None,
+                sortkey: None,
+                backup: None,
             }),
         );
     }
@@ -2542,4 +2642,221 @@ fn test_sql_keywords_as_column_aliases() {
                 .is_err());
         }
     }
+}
+
+#[test]
+fn parse_mssql_begin_end_block() {
+    // Single statement
+    let sql = "BEGIN SELECT 1; END";
+    let stmt = ms().verified_stmt(sql);
+    match &stmt {
+        Statement::StartTransaction {
+            begin,
+            has_end_keyword,
+            statements,
+            transaction,
+            modifier,
+            ..
+        } => {
+            assert!(begin);
+            assert!(has_end_keyword);
+            assert!(transaction.is_none());
+            assert!(modifier.is_none());
+            assert_eq!(statements.len(), 1);
+        }
+        _ => panic!("Expected StartTransaction, got: {stmt:?}"),
+    }
+
+    // Multiple statements
+    let sql = "BEGIN SELECT 1; SELECT 2; END";
+    let stmt = ms().verified_stmt(sql);
+    match &stmt {
+        Statement::StartTransaction {
+            statements,
+            has_end_keyword,
+            ..
+        } => {
+            assert!(has_end_keyword);
+            assert_eq!(statements.len(), 2);
+        }
+        _ => panic!("Expected StartTransaction, got: {stmt:?}"),
+    }
+
+    // DML inside BEGIN/END
+    let sql = "BEGIN INSERT INTO t VALUES (1); UPDATE t SET x = 2; END";
+    let stmt = ms().verified_stmt(sql);
+    match &stmt {
+        Statement::StartTransaction {
+            statements,
+            has_end_keyword,
+            ..
+        } => {
+            assert!(has_end_keyword);
+            assert_eq!(statements.len(), 2);
+        }
+        _ => panic!("Expected StartTransaction, got: {stmt:?}"),
+    }
+
+    // BEGIN TRANSACTION still works
+    let sql = "BEGIN TRANSACTION";
+    let stmt = ms().verified_stmt(sql);
+    match &stmt {
+        Statement::StartTransaction {
+            begin,
+            has_end_keyword,
+            transaction,
+            ..
+        } => {
+            assert!(begin);
+            assert!(!has_end_keyword);
+            assert!(transaction.is_some());
+        }
+        _ => panic!("Expected StartTransaction, got: {stmt:?}"),
+    }
+}
+
+/// MSSQL supports `TRAN` as shorthand for `TRANSACTION`.
+/// See <https://learn.microsoft.com/en-us/sql/t-sql/language-elements/begin-transaction-transact-sql>
+#[test]
+fn parse_mssql_tran_shorthand() {
+    // BEGIN TRAN
+    let sql = "BEGIN TRAN";
+    let stmt = ms().verified_stmt(sql);
+    match &stmt {
+        Statement::StartTransaction {
+            begin,
+            transaction,
+            has_end_keyword,
+            ..
+        } => {
+            assert!(begin);
+            assert_eq!(*transaction, Some(BeginTransactionKind::Tran));
+            assert!(!has_end_keyword);
+        }
+        _ => panic!("Expected StartTransaction, got: {stmt:?}"),
+    }
+
+    // COMMIT TRAN normalizes to COMMIT (same as COMMIT TRANSACTION)
+    ms().one_statement_parses_to("COMMIT TRAN", "COMMIT");
+
+    // ROLLBACK TRAN normalizes to ROLLBACK (same as ROLLBACK TRANSACTION)
+    ms().one_statement_parses_to("ROLLBACK TRAN", "ROLLBACK");
+}
+
+#[test]
+fn test_tsql_statement_keywords_not_implicit_aliases() {
+    // T-SQL statement-starting keywords must never be consumed as implicit
+    // aliases for a preceding SELECT item or table reference when using
+    // newline-delimited multi-statement scripts.
+
+    // Without the fix, the parser would consume a statement-starting keyword
+    // as an implicit alias for the preceding SELECT item or table reference,
+    // then fail on the next token. Verify parsing succeeds and each input
+    // produces the expected number of statements.
+
+    // Keywords that should not become implicit column aliases
+    let col_alias_cases: &[(&str, usize)] = &[
+        ("select 1\ndeclare @x as int", 2),
+        ("select 1\nexec sp_who", 2),
+        ("select 1\ninsert into t values (1)", 2),
+        ("select 1\nupdate t set col=1", 2),
+        ("select 1\ndelete from t", 2),
+        ("select 1\ndrop table t", 2),
+        ("select 1\ncreate table t (id int)", 2),
+        ("select 1\nalter table t add col int", 2),
+        ("select 1\nreturn", 2),
+    ];
+    for (sql, expected) in col_alias_cases {
+        let stmts = tsql()
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        assert_eq!(
+            stmts.len(),
+            *expected,
+            "expected {expected} stmts for: {sql:?}"
+        );
+    }
+
+    // Keywords that should not become implicit table aliases
+    let tbl_alias_cases: &[(&str, usize)] = &[
+        ("select * from t\ndeclare @x as int", 2),
+        ("select * from t\ndrop table t", 2),
+        ("select * from t\ncreate table u (id int)", 2),
+        ("select * from t\nexec sp_who", 2),
+    ];
+    for (sql, expected) in tbl_alias_cases {
+        let stmts = tsql()
+            .parse_sql_statements(sql)
+            .unwrap_or_else(|e| panic!("failed to parse {sql:?}: {e}"));
+        assert_eq!(
+            stmts.len(),
+            *expected,
+            "expected {expected} stmts for: {sql:?}"
+        );
+    }
+}
+
+#[test]
+fn test_exec_dynamic_sql() {
+    // EXEC (@sql) executes a dynamic SQL string held in a variable.
+    // It must parse as a single Execute statement and not attempt to parse
+    // parameters after the closing paren.
+    let stmts = tsql()
+        .parse_sql_statements("EXEC (@sql)")
+        .expect("EXEC (@sql) should parse");
+    assert_eq!(stmts.len(), 1);
+    assert!(
+        matches!(&stmts[0], Statement::Execute { .. }),
+        "expected Execute, got: {:?}",
+        stmts[0]
+    );
+
+    // Verify that a statement following EXEC (@sql) on the next line is parsed
+    // as a separate statement and not consumed as a parameter.
+    let stmts = tsql()
+        .parse_sql_statements("EXEC (@sql)\nDROP TABLE #tmp")
+        .expect("EXEC (@sql) followed by DROP TABLE should parse");
+    assert_eq!(stmts.len(), 2);
+}
+
+// MSSQL OUTPUT clause on INSERT/UPDATE/DELETE
+// https://learn.microsoft.com/en-us/sql/t-sql/queries/output-clause-transact-sql
+#[test]
+fn parse_mssql_insert_with_output() {
+    ms_and_generic().verified_stmt(
+        "INSERT INTO customers (name, email) OUTPUT INSERTED.id, INSERTED.name VALUES ('John', 'john@example.com')",
+    );
+}
+
+#[test]
+fn parse_mssql_insert_with_output_into() {
+    ms_and_generic().verified_stmt(
+        "INSERT INTO customers (name, email) OUTPUT INSERTED.id, INSERTED.name INTO @new_ids VALUES ('John', 'john@example.com')",
+    );
+}
+
+#[test]
+fn parse_mssql_delete_with_output() {
+    ms_and_generic().verified_stmt("DELETE FROM customers OUTPUT DELETED.* WHERE id = 1");
+}
+
+#[test]
+fn parse_mssql_delete_with_output_into() {
+    ms_and_generic().verified_stmt(
+        "DELETE FROM customers OUTPUT DELETED.id, DELETED.name INTO @deleted_rows WHERE active = 0",
+    );
+}
+
+#[test]
+fn parse_mssql_update_with_output() {
+    ms_and_generic().verified_stmt(
+        "UPDATE employees SET salary = salary * 1.1 OUTPUT INSERTED.id, DELETED.salary, INSERTED.salary WHERE department = 'Engineering'",
+    );
+}
+
+#[test]
+fn parse_mssql_update_with_output_into() {
+    ms_and_generic().verified_stmt(
+        "UPDATE employees SET salary = salary * 1.1 OUTPUT INSERTED.id, DELETED.salary, INSERTED.salary INTO @changes WHERE department = 'Engineering'",
+    );
 }
