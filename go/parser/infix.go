@@ -852,11 +852,16 @@ func (ep *ExpressionParser) parseRLikeExpr(left expr.Expr, negated bool, isRegex
 
 // parseDoubleColonCast parses PostgreSQL-style ::type cast
 func (ep *ExpressionParser) parseDoubleColonCast(left expr.Expr) (expr.Expr, error) {
-	// For now, return placeholder - full implementation requires data type parsing
+	// Parse the data type after ::
+	dataType, err := ep.parser.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+
 	return &expr.Cast{
 		Kind:     expr.CastDoubleColon,
 		Expr:     left,
-		DataType: "", // Would need to parse actual data type
+		DataType: dataType.String(),
 		SpanVal:  left.Span(),
 	}, nil
 }

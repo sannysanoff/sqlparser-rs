@@ -148,6 +148,12 @@ func (o *OrderByExpr) String() string {
 	return strings.Join(parts, "")
 }
 
+// exprNode is a marker method that identifies this type as an expression node.
+func (o *OrderByExpr) exprNode() {}
+
+// Span returns the source span of this node
+func (o *OrderByExpr) Span() span.Span { return o.span }
+
 // OrderByOptions represents ASC/DESC and NULLS FIRST/LAST options
 type OrderByOptions struct {
 	Asc        *bool

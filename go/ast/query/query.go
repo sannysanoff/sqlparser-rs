@@ -346,8 +346,7 @@ func (s *Select) String() string {
 		for i, f := range s.From {
 			fromStrs[i] = f.String()
 		}
-		parts = append(parts, "FROM")
-		parts = append(parts, fromStrs...)
+		parts = append(parts, "FROM "+strings.Join(fromStrs, ", "))
 	}
 	for _, lv := range s.LateralViews {
 		parts = append(parts, lv.String())

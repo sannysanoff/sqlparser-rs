@@ -212,7 +212,9 @@ func (i *Ident) String() string {
 	return i.Value
 }
 
-// ObjectNamePart represents a single part of an object name.
+// exprNode is a marker method that identifies this type as an expression node.
+func (i *Ident) exprNode() {}
+
 type ObjectNamePart struct {
 	SpanVal span.Span
 	Ident   *Ident
@@ -265,7 +267,14 @@ func (s *SqlOption) Span() span.Span {
 
 // String returns the SQL representation.
 func (s *SqlOption) String() string {
-	return fmt.Sprintf("%s=%s", s.Name.String(), s.Value.String())
+	valueStr := s.Value.String()
+	// Add quotes for string literal values stored in ValueExpr
+	if valExpr, ok := s.Value.(*ValueExpr); ok {
+		if _, isString := valExpr.Value.(string); isString {
+			valueStr = fmt.Sprintf("'%s'", valueStr)
+		}
+	}
+	return fmt.Sprintf("%s = %s", s.Name.String(), valueStr)
 }
 
 // ColumnOption represents a column option.

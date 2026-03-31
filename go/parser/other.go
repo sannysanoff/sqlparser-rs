@@ -273,11 +273,280 @@ func parseDescribe(p *Parser) (ast.Statement, error) {
 }
 
 // parseShow parses SHOW statements
+// parseShow parses SHOW statements
 func parseShow(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("SHOW statement parsing not yet fully implemented")
+	// Parse optional modifiers that can appear before the object type
+	var full, extended, global, session bool
+
+	// Try to parse optional modifiers
+	for {
+		switch {
+		case !full && p.PeekKeyword("FULL"):
+			full = p.ParseKeyword("FULL")
+		case !extended && p.PeekKeyword("EXTENDED"):
+			extended = p.ParseKeyword("EXTENDED")
+		case !global && p.PeekKeyword("GLOBAL"):
+			global = p.ParseKeyword("GLOBAL")
+		case !session && p.PeekKeyword("SESSION"):
+			session = p.ParseKeyword("SESSION")
+		default:
+			goto doneModifiers
+		}
+	}
+doneModifiers:
+
+	// Check for CREATE (e.g., SHOW CREATE TABLE)
+	if p.PeekKeyword("CREATE") {
+		return parseShowCreate(p)
+	}
+
+	// Determine the object type
+	switch {
+	case p.PeekKeyword("COLUMNS") || p.PeekKeyword("FIELDS"):
+		return parseShowColumns(p, extended, full)
+	case p.PeekKeyword("TABLES"):
+		return parseShowTables(p, extended, full)
+	case p.PeekKeyword("STATUS"):
+		return parseShowStatus(p, global, session)
+	case p.PeekKeyword("VARIABLES"):
+		return parseShowVariables(p, global, session)
+	case p.PeekKeyword("COLLATION"):
+		return parseShowCollation(p)
+	case p.PeekKeyword("CHARSET") || p.PeekKeyword("CHARACTER"):
+		return parseShowCharset(p)
+	default:
+		return nil, p.ExpectedRef("COLUMNS, FIELDS, TABLES, STATUS, VARIABLES, CREATE, COLLATION, CHARSET, or CHARACTER after SHOW", p.PeekTokenRef())
+	}
 }
 
-// parseSet parses SET statements
+// parseShowColumns parses SHOW COLUMNS/FIELDS statements
+func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
+	// Consume COLUMNS or FIELDS
+	p.AdvanceToken()
+
+	options := &expr.ShowStatementOptions{}
+
+	// Parse FROM or IN clause
+	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
+		clause := expr.ShowStatementInClauseFrom
+		if p.PeekKeyword("IN") {
+			clause = expr.ShowStatementInClauseIn
+		}
+		p.AdvanceToken()
+
+		// Parse table name
+		tableName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		options.ShowIn = &expr.ShowStatementIn{
+			Clause:     clause,
+			ParentName: tableName,
+		}
+
+		// Check for optional FROM db_name
+		if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
+			p.AdvanceToken()
+			dbName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Combine db.table
+			options.ShowIn.ParentName = &ast.ObjectName{
+				Parts: []ast.ObjectNamePart{
+					&ast.ObjectNamePartIdentifier{Ident: dbName},
+					&ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: tableName.Parts[0].(*ast.ObjectNamePartIdentifier).Ident.Value}},
+				},
+			}
+		}
+	}
+
+	// Parse optional LIKE or WHERE clause
+	if p.PeekKeyword("LIKE") {
+		p.AdvanceToken()
+		likePattern, err := p.ParseLikePattern()
+		if err != nil {
+			return nil, err
+		}
+		options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+		options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+	} else if p.PeekKeyword("WHERE") {
+		p.AdvanceToken()
+		exprParser := NewExpressionParser(p)
+		whereExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		options.Filter = &expr.ShowStatementFilter{Where: whereExpr}
+		options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+	}
+
+	return &statement.ShowColumns{
+		Extended:    extended,
+		Full:        full,
+		ShowOptions: options,
+	}, nil
+}
+
+// parseShowTables parses SHOW TABLES statements
+func parseShowTables(p *Parser, extended, full bool) (ast.Statement, error) {
+	p.AdvanceToken()
+
+	options := &expr.ShowStatementOptions{}
+
+	// Parse optional FROM/IN clause
+	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
+		clause := expr.ShowStatementInClauseFrom
+		if p.PeekKeyword("IN") {
+			clause = expr.ShowStatementInClauseIn
+		}
+		p.AdvanceToken()
+		dbName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		options.ShowIn = &expr.ShowStatementIn{
+			Clause:     clause,
+			ParentName: &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: dbName}}},
+		}
+	}
+
+	// Parse optional LIKE or WHERE clause
+	if p.PeekKeyword("LIKE") {
+		p.AdvanceToken()
+		likePattern, err := p.ParseLikePattern()
+		if err != nil {
+			return nil, err
+		}
+		options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+	} else if p.PeekKeyword("WHERE") {
+		p.AdvanceToken()
+		exprParser := NewExpressionParser(p)
+		whereExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		options.Filter = &expr.ShowStatementFilter{Where: whereExpr}
+	}
+
+	return &statement.ShowTables{
+		Extended:    extended,
+		Full:        full,
+		ShowOptions: options,
+	}, nil
+}
+
+// parseShowStatus parses SHOW STATUS statements
+func parseShowStatus(p *Parser, global, session bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	filter := parseShowFilter(p)
+	return &statement.ShowStatus{
+		Session: session,
+		Global:  global,
+		Filter:  filter,
+	}, nil
+}
+
+// parseShowVariables parses SHOW VARIABLES statements
+func parseShowVariables(p *Parser, global, session bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	filter := parseShowFilter(p)
+	return &statement.ShowVariables{
+		Session: session,
+		Global:  global,
+		Filter:  filter,
+	}, nil
+}
+
+// parseShowCreate parses SHOW CREATE statements
+func parseShowCreate(p *Parser) (ast.Statement, error) {
+	p.AdvanceToken()
+
+	var objType expr.ShowCreateObject
+	switch {
+	case p.PeekKeyword("TABLE"):
+		objType = expr.ShowCreateObjectTable
+		p.AdvanceToken()
+	case p.PeekKeyword("TRIGGER"):
+		objType = expr.ShowCreateObjectTrigger
+		p.AdvanceToken()
+	case p.PeekKeyword("EVENT"):
+		objType = expr.ShowCreateObjectEvent
+		p.AdvanceToken()
+	case p.PeekKeyword("FUNCTION"):
+		objType = expr.ShowCreateObjectFunction
+		p.AdvanceToken()
+	case p.PeekKeyword("PROCEDURE"):
+		objType = expr.ShowCreateObjectProcedure
+		p.AdvanceToken()
+	case p.PeekKeyword("VIEW"):
+		objType = expr.ShowCreateObjectView
+		p.AdvanceToken()
+	default:
+		return nil, p.ExpectedRef("TABLE, TRIGGER, EVENT, FUNCTION, PROCEDURE, or VIEW after SHOW CREATE", p.PeekTokenRef())
+	}
+
+	objName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.ShowCreate{
+		ObjType: objType,
+		ObjName: objName,
+	}, nil
+}
+
+// parseShowCollation parses SHOW COLLATION statements
+func parseShowCollation(p *Parser) (ast.Statement, error) {
+	p.AdvanceToken()
+	filter := parseShowFilter(p)
+	return &statement.ShowCollation{Filter: filter}, nil
+}
+
+// parseShowCharset parses SHOW CHARSET/CHARACTER SET statements
+func parseShowCharset(p *Parser) (ast.Statement, error) {
+	useCharacterSet := false
+	if p.PeekKeyword("CHARSET") {
+		p.AdvanceToken()
+	} else if p.PeekKeyword("CHARACTER") {
+		p.AdvanceToken()
+		useCharacterSet = true
+		if !p.ParseKeyword("SET") {
+			return nil, p.ExpectedRef("SET after CHARACTER", p.PeekTokenRef())
+		}
+	}
+	filter := parseShowFilter(p)
+	return &statement.ShowCharset{
+		Filter:          filter,
+		UseCharacterSet: useCharacterSet,
+	}, nil
+}
+
+// parseShowFilter parses an optional LIKE or WHERE clause for SHOW statements
+func parseShowFilter(p *Parser) *expr.ShowStatementFilter {
+	if p.PeekKeyword("LIKE") {
+		p.AdvanceToken()
+		likePattern, err := p.ParseLikePattern()
+		if err != nil {
+			return nil
+		}
+		return &expr.ShowStatementFilter{Like: &likePattern}
+	}
+
+	if p.PeekKeyword("WHERE") {
+		p.AdvanceToken()
+		exprParser := NewExpressionParser(p)
+		whereExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil
+		}
+		return &expr.ShowStatementFilter{Where: whereExpr}
+	}
+
+	return nil
+}
 func parseSet(p *Parser) (ast.Statement, error) {
 	// SET [ SESSION | LOCAL | GLOBAL ] variable = value [, ...]
 	// SET [ SESSION | LOCAL ] TIME ZONE { value | LOCAL | DEFAULT }
@@ -493,17 +762,49 @@ func parseComment(p *Parser) (ast.Statement, error) {
 
 // parseExplain parses EXPLAIN statements
 func parseExplain(p *Parser) (ast.Statement, error) {
+	return parseExplainWithAlias(p, expr.DescribeAliasExplain)
+}
+
+// parseExplainWithAlias parses EXPLAIN/DESCRIBE/DESC statements
+func parseExplainWithAlias(p *Parser, describeAlias expr.DescribeAlias) (ast.Statement, error) {
+	// Check for utility options in parentheses (PostgreSQL style)
+	// EXPLAIN (ANALYZE, VERBOSE) SELECT ...
+	var options []*expr.UtilityOption
+	if p.GetDialect().SupportsExplainWithUtilityOptions() {
+		if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+			opts, err := parseUtilityOptions(p)
+			if err != nil {
+				return nil, err
+			}
+			options = opts
+		}
+	}
+
+	// Check for QUERY PLAN syntax
+	if p.ParseKeyword("QUERY") {
+		// EXPLAIN QUERY PLAN
+		if !p.ParseKeyword("PLAN") {
+			return nil, fmt.Errorf("expected PLAN after QUERY, found: %v", p.PeekToken())
+		}
+		// Parse the statement after QUERY PLAN
+		stmt, err := p.ParseStatement()
+		if err != nil {
+			return nil, err
+		}
+		return &statement.Explain{
+			DescribeAlias: describeAlias,
+			Analyze:       false,
+			Verbose:       false,
+			QueryPlan:     true,
+			Estimate:      false,
+			Statement:     stmt,
+			Options:       options,
+		}, nil
+	}
+
 	// Parse optional flags
 	analyze := p.ParseKeyword("ANALYZE")
 	verbose := p.ParseKeyword("VERBOSE")
-
-	// Check for QUERY PLAN
-	queryPlan := false
-	if p.ParseKeyword("QUERY") {
-		if p.ParseKeyword("PLAN") {
-			queryPlan = true
-		}
-	}
 
 	// Check for ESTIMATE (Snowflake)
 	estimate := p.ParseKeyword("ESTIMATE")
@@ -516,30 +817,90 @@ func parseExplain(p *Parser) (ast.Statement, error) {
 			return nil, err
 		}
 		return &statement.Explain{
-			DescribeAlias: expr.DescribeAliasExplain,
+			DescribeAlias: describeAlias,
 			Analyze:       analyze,
 			Verbose:       verbose,
-			QueryPlan:     queryPlan,
+			QueryPlan:     false,
 			Estimate:      estimate,
 			Statement:     stmt,
+			Options:       options,
 		}, nil
 	}
 
-	// Parse as table name
+	// Parse as table name (DESCRIBE table_name)
 	tableName, err := p.ParseObjectName()
 	if err != nil {
 		return nil, err
 	}
+
 	return &statement.ExplainTable{
-		DescribeAlias:   expr.DescribeAliasExplain,
+		DescribeAlias:   describeAlias,
 		TableName:       tableName,
 		HasTableKeyword: false,
 	}, nil
 }
 
-// ParseAlter parses ALTER statements
-func ParseAlter(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("ALTER statement parsing not yet fully implemented")
+// parseUtilityOptions parses utility options in the form of `(option1, option2 arg2, option3 arg3, ...)`
+// Reference: src/parser/mod.rs parse_utility_options
+func parseUtilityOptions(p *Parser) ([]*expr.UtilityOption, error) {
+	// Expect opening parenthesis
+	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); !ok {
+		return nil, fmt.Errorf("expected opening parenthesis, found: %v", p.PeekToken())
+	}
+	p.NextToken() // consume LParen
+
+	var options []*expr.UtilityOption
+
+	// Handle empty parentheses
+	if _, ok := p.PeekToken().Token.(tokenizer.TokenRParen); ok {
+		p.NextToken() // consume RParen
+		return options, nil
+	}
+
+	for {
+		// Parse option name
+		_, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected identifier, found: %v", p.PeekToken())
+		}
+
+		// Check if there's an argument
+		nextToken := p.PeekToken()
+		if _, isComma := nextToken.Token.(tokenizer.TokenComma); isComma {
+			// No argument, just the option name
+			options = append(options, &expr.UtilityOption{})
+		} else if _, isRParen := nextToken.Token.(tokenizer.TokenRParen); isRParen {
+			// No argument, just the option name
+			options = append(options, &expr.UtilityOption{})
+		} else {
+			// Has argument - just consume tokens until comma or closing paren
+			// This is a simplified version - in practice we'd parse an expression
+			for {
+				next := p.PeekToken()
+				if _, isComma := next.Token.(tokenizer.TokenComma); isComma {
+					break
+				}
+				if _, isRParen := next.Token.(tokenizer.TokenRParen); isRParen {
+					break
+				}
+				p.NextToken()
+			}
+			options = append(options, &expr.UtilityOption{})
+		}
+
+		// Check for comma or closing parenthesis
+		nextToken = p.PeekToken()
+		if _, isRParen := nextToken.Token.(tokenizer.TokenRParen); isRParen {
+			p.NextToken() // consume RParen
+			break
+		} else if _, isComma := nextToken.Token.(tokenizer.TokenComma); isComma {
+			p.NextToken() // consume Comma
+		} else {
+			return nil, fmt.Errorf("expected comma or closing parenthesis, found: %v", nextToken)
+		}
+	}
+
+	return options, nil
 }
 
 // ParseExplain parses EXPLAIN statements
@@ -554,6 +915,30 @@ func ParseDescribe(p *Parser) (ast.Statement, error) {
 
 // ParseDescribeWithAlias parses DESCRIBE/DESC statements with the given alias
 func ParseDescribeWithAlias(p *Parser, keyword string) (ast.Statement, error) {
+	// Determine the alias based on the keyword used
+	var alias expr.DescribeAlias
+	switch keyword {
+	case "DESC":
+		alias = expr.DescribeAliasDesc
+	case "DESCRIBE":
+		alias = expr.DescribeAliasDescribe
+	default:
+		alias = expr.DescribeAliasDescribe
+	}
+
+	// Check if this looks like a statement (SELECT, INSERT, UPDATE, DELETE)
+	// DESCRIBE is an alias for EXPLAIN when followed by a statement
+	if p.PeekKeyword("SELECT") || p.PeekKeyword("INSERT") || p.PeekKeyword("UPDATE") || p.PeekKeyword("DELETE") {
+		return parseExplainWithAlias(p, alias)
+	}
+
+	// Check for utility options in parentheses (PostgreSQL style)
+	if p.GetDialect().SupportsExplainWithUtilityOptions() {
+		if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+			return parseExplainWithAlias(p, alias)
+		}
+	}
+
 	// Check for TABLE keyword (optional in some dialects)
 	hasTableKeyword := p.ParseKeyword("TABLE")
 
@@ -573,17 +958,6 @@ func ParseDescribeWithAlias(p *Parser, keyword string) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Determine the alias based on the keyword used
-	var alias expr.DescribeAlias
-	switch keyword {
-	case "DESC":
-		alias = expr.DescribeAliasDesc
-	case "DESCRIBE":
-		alias = expr.DescribeAliasDescribe
-	default:
-		alias = expr.DescribeAliasDescribe
-	}
-
 	return &statement.ExplainTable{
 		DescribeAlias:   alias,
 		TableName:       tableName,
@@ -594,7 +968,7 @@ func ParseDescribeWithAlias(p *Parser, keyword string) (ast.Statement, error) {
 
 // ParseShow parses SHOW statements
 func ParseShow(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("SHOW statement parsing not yet fully implemented")
+	return parseShow(p)
 }
 
 // ParseSet parses SET statements

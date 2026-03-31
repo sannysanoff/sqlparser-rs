@@ -348,6 +348,7 @@ func ParseUpdate(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) 
 
 // parseUpdateInternal parses an UPDATE statement
 // Basic syntax: UPDATE table SET col = val [, col2 = val2] [WHERE condition]
+// MySQL syntax: UPDATE table [AS alias] [JOIN ...] SET ... WHERE ...
 func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present
 	hintsInterface, err := maybeParseOptimizerHints(p)
@@ -363,10 +364,25 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 		}
 	}
 
-	// Parse table name
-	tableName, err := p.ParseObjectName()
+	// Parse the first table factor (with optional alias)
+	// This supports MySQL UPDATE t1 AS a JOIN t2 AS b ON ... SET ...
+	relation, err := parseTableFactor(p)
 	if err != nil {
 		return nil, err
+	}
+
+	// Build the table reference with joins
+	tableWithJoins := &query.TableWithJoins{
+		Relation: relation,
+	}
+
+	// Parse any joins (MySQL allows UPDATE with JOINs)
+	for isJoinKeyword(p.PeekToken()) {
+		join, err := parseJoin(p)
+		if err != nil {
+			return nil, err
+		}
+		tableWithJoins.Joins = append(tableWithJoins.Joins, join)
 	}
 
 	// Expect SET keyword
@@ -380,10 +396,25 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 	// Parse comma-separated assignments
 	var assignments []*expr.Assignment
 	err = p.ParseCommaSeparated(func() error {
-		// Parse column identifier
+		// Parse column identifier (possibly compound like "t.col")
 		col, err := p.ParseIdentifier()
 		if err != nil {
 			return err
+		}
+
+		// Check for compound identifier (table.column)
+		for {
+			if !p.ConsumeToken(tokenizer.TokenPeriod{}) {
+				break
+			}
+			nextIdent, err := p.ParseIdentifier()
+			if err != nil {
+				return err
+			}
+			// Create a compound identifier
+			col = &ast.Ident{
+				Value: col.Value + "." + nextIdent.Value,
+			}
 		}
 
 		// Expect = token
@@ -417,6 +448,9 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 		}
 	}
 
+	// Note: MySQL UPDATE with ORDER BY and LIMIT is not implemented yet
+	// as it requires proper type conversion between query.OrderByExpr and expr.OrderByExpr
+
 	// Parse optional RETURNING clause (PostgreSQL style)
 	var returning []*query.SelectItem
 	if p.ParseKeyword("RETURNING") {
@@ -431,11 +465,20 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 		}
 	}
 
+	// Extract the main table name from the tableWithJoins
+	var mainTable *ast.ObjectName
+	if tf, ok := tableWithJoins.Relation.(*query.TableTableFactor); ok {
+		mainTable = queryObjectNameToAst(tf.Name)
+	}
+
 	update := &statement.Update{
-		Table:       tableName,
-		Assignments: assignments,
-		Selection:   selection,
-		Returning:   returning,
+		Table:           mainTable,
+		TableAlias:      nil,
+		Assignments:     assignments,
+		From:            tableWithJoins,
+		Selection:       selection,
+		Returning:       returning,
+		IsFromStatement: false,
 	}
 	update.SetSpan(updateToken.Span)
 
@@ -514,6 +557,46 @@ func parseDeleteInternal(p *Parser, deleteToken tokenizer.TokenWithSpan) (ast.St
 		}
 	}
 
+	// Parse optional ORDER BY clause (MySQL)
+	var orderBy []query.OrderByExpr
+	if p.ParseKeyword("ORDER") {
+		if !p.ParseKeyword("BY") {
+			return nil, p.Expected("BY", p.PeekToken())
+		}
+		orderByExprs, err := parseOrderByExpressions(p)
+		if err != nil {
+			return nil, err
+		}
+		orderBy = orderByExprs
+	}
+
+	// Parse optional LIMIT clause (MySQL)
+	var limit query.LimitClause
+	if p.ParseKeyword("LIMIT") {
+		// Check for MySQL LIMIT offset,limit syntax
+		firstExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		if p.ConsumeToken(tokenizer.TokenComma{}) {
+			// MySQL style: LIMIT offset, limit
+			secondExpr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			limit = &query.LimitOffset{
+				Limit:  &queryExprWrapper{expr: secondExpr},
+				Offset: &query.Offset{Value: &queryExprWrapper{expr: firstExpr}},
+			}
+		} else {
+			// Standard LIMIT expr
+			limit = &query.LimitOffset{
+				Limit: &queryExprWrapper{expr: firstExpr},
+			}
+		}
+	}
+
 	// Parse optional RETURNING clause (PostgreSQL style)
 	var returning []*query.SelectItem
 	if p.ParseKeyword("RETURNING") {
@@ -532,6 +615,8 @@ func parseDeleteInternal(p *Parser, deleteToken tokenizer.TokenWithSpan) (ast.St
 		Tables:    tables,
 		Selection: selection,
 		Returning: returning,
+		OrderBy:   orderBy,
+		Limit:     limit,
 	}
 	delete.SetSpan(deleteToken.Span)
 

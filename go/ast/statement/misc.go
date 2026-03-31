@@ -670,9 +670,10 @@ func (s *ShowCreate) String() string {
 // ShowColumns represents a SHOW COLUMNS statement
 type ShowColumns struct {
 	BaseStatement
-	Extended    bool
-	Full        bool
-	ShowOptions *expr.ShowStatementOptions
+	Extended      bool
+	Full          bool
+	ExtendedFirst bool // true if EXTENDED appeared before FULL (to preserve order)
+	ShowOptions   *expr.ShowStatementOptions
 }
 
 func (s *ShowColumns) statementNode() {}
@@ -680,16 +681,28 @@ func (s *ShowColumns) statementNode() {}
 func (s *ShowColumns) String() string {
 	var f strings.Builder
 	f.WriteString("SHOW ")
-	if s.Full {
-		f.WriteString("FULL ")
-	}
-	if s.Extended {
-		f.WriteString("EXTENDED ")
+	// Preserve order of EXTENDED and FULL as they appeared
+	if s.Full && s.Extended {
+		if s.ExtendedFirst {
+			f.WriteString("EXTENDED FULL ")
+		} else {
+			f.WriteString("FULL EXTENDED ")
+		}
+	} else {
+		if s.Full {
+			f.WriteString("FULL ")
+		}
+		if s.Extended {
+			f.WriteString("EXTENDED ")
+		}
 	}
 	f.WriteString("COLUMNS")
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }
@@ -714,13 +727,16 @@ func (s *ShowDatabases) String() string {
 	if s.Terse {
 		f.WriteString("TERSE ")
 	}
-	if s.History {
-		f.WriteString("HISTORY ")
-	}
 	f.WriteString("DATABASES")
+	if s.History {
+		f.WriteString(" HISTORY")
+	}
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }
@@ -745,13 +761,16 @@ func (s *ShowSchemas) String() string {
 	if s.Terse {
 		f.WriteString("TERSE ")
 	}
-	if s.History {
-		f.WriteString("HISTORY ")
-	}
 	f.WriteString("SCHEMAS")
+	if s.History {
+		f.WriteString(" HISTORY")
+	}
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }
@@ -763,14 +782,19 @@ func (s *ShowSchemas) String() string {
 // ShowCharset represents a SHOW CHARSET statement
 type ShowCharset struct {
 	BaseStatement
-	Filter *expr.ShowStatementFilter
+	Filter          *expr.ShowStatementFilter
+	UseCharacterSet bool // true if "CHARACTER SET" was used instead of "CHARSET" // true if "CHARACTER SET" was used instead of "CHARSET"
 }
 
 func (s *ShowCharset) statementNode() {}
 
 func (s *ShowCharset) String() string {
 	var f strings.Builder
-	f.WriteString("SHOW CHARSET")
+	if s.UseCharacterSet {
+		f.WriteString("SHOW CHARACTER SET")
+	} else {
+		f.WriteString("SHOW CHARSET")
+	}
 	if s.Filter != nil {
 		f.WriteString(" ")
 		f.WriteString(s.Filter.String())
@@ -799,9 +823,15 @@ func (s *ShowObjects) String() string {
 		f.WriteString("TERSE ")
 	}
 	f.WriteString("OBJECTS")
+	if s.History {
+		f.WriteString(" HISTORY")
+	}
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }
@@ -813,12 +843,13 @@ func (s *ShowObjects) String() string {
 // ShowTables represents a SHOW TABLES statement
 type ShowTables struct {
 	BaseStatement
-	Terse       bool
-	History     bool
-	Extended    bool
-	Full        bool
-	External    bool
-	ShowOptions *expr.ShowStatementOptions
+	Terse         bool
+	History       bool
+	Extended      bool
+	Full          bool
+	ExtendedFirst bool // true if EXTENDED appeared before FULL (to preserve order)
+	External      bool
+	ShowOptions   *expr.ShowStatementOptions
 }
 
 func (s *ShowTables) statementNode() {}
@@ -829,22 +860,34 @@ func (s *ShowTables) String() string {
 	if s.Terse {
 		f.WriteString("TERSE ")
 	}
-	if s.History {
-		f.WriteString("HISTORY ")
-	}
-	if s.Full {
-		f.WriteString("FULL ")
-	}
-	if s.Extended {
-		f.WriteString("EXTENDED ")
+	// Preserve order of EXTENDED and FULL as they appeared
+	if s.Full && s.Extended {
+		if s.ExtendedFirst {
+			f.WriteString("EXTENDED FULL ")
+		} else {
+			f.WriteString("FULL EXTENDED ")
+		}
+	} else {
+		if s.Full {
+			f.WriteString("FULL ")
+		}
+		if s.Extended {
+			f.WriteString("EXTENDED ")
+		}
 	}
 	if s.External {
 		f.WriteString("EXTERNAL ")
 	}
 	f.WriteString("TABLES")
+	if s.History {
+		f.WriteString(" HISTORY")
+	}
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }
@@ -874,8 +917,11 @@ func (s *ShowViews) String() string {
 	}
 	f.WriteString("VIEWS")
 	if s.ShowOptions != nil {
-		f.WriteString(" ")
-		f.WriteString(s.ShowOptions.String())
+		optStr := s.ShowOptions.String()
+		if optStr != "" {
+			f.WriteString(" ")
+			f.WriteString(optStr)
+		}
 	}
 	return f.String()
 }

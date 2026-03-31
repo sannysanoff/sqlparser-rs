@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/span"
 	"github.com/user/sqlparser/token"
@@ -486,6 +487,32 @@ func astIdentToQuery(ident *ast.Ident) query.Ident {
 	return query.Ident{Value: ident.Value}
 }
 
+// queryObjectNameToAst converts query.ObjectName to *ast.ObjectName
+func queryObjectNameToAst(name query.ObjectName) *ast.ObjectName {
+	parts := make([]ast.ObjectNamePart, len(name.Parts))
+	for i, part := range name.Parts {
+		parts[i] = &ast.ObjectNamePartIdentifier{
+			Ident: &ast.Ident{Value: part.Value},
+		}
+	}
+	return &ast.ObjectName{Parts: parts}
+}
+
+// queryExprToAstExpr converts query.Expr to expr.Expr
+// This unwraps queryExprWrapper if the query.Expr is a wrapped expr.Expr
+func queryExprToAstExpr(qExpr query.Expr) expr.Expr {
+	if qExpr == nil {
+		return nil
+	}
+	// Check if it's our wrapper type
+	if wrapper, ok := qExpr.(*queryExprWrapper); ok {
+		if e, ok := wrapper.expr.(expr.Expr); ok {
+			return e
+		}
+	}
+	return nil
+}
+
 // parseTableWithJoinsList parses a comma-separated list of tables
 func parseTableWithJoinsList(p *Parser) ([]query.TableWithJoins, error) {
 	var tables []query.TableWithJoins
@@ -852,7 +879,7 @@ func isReservedForTableAlias(keyword string) bool {
 		"JOIN": true, "CROSS": true, "INNER": true, "LEFT": true,
 		"RIGHT": true, "FULL": true, "ON": true, "USING": true,
 		"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true,
-		"WINDOW": true, "QUALIFY": true,
+		"WINDOW": true, "QUALIFY": true, "SET": true,
 	}
 	return reserved[keyword]
 }
@@ -919,11 +946,13 @@ func parseOrderByExpressions(p *Parser) ([]query.OrderByExpr, error) {
 		}
 
 		// Check for ASC/DESC
-		asc := true
+		var asc *bool
 		if p.ParseKeyword("DESC") {
-			asc = false
+			b := false
+			asc = &b
 		} else if p.ParseKeyword("ASC") {
-			asc = true
+			b := true
+			asc = &b
 		}
 
 		// Check for NULLS FIRST/LAST
@@ -939,7 +968,7 @@ func parseOrderByExpressions(p *Parser) ([]query.OrderByExpr, error) {
 		exprs = append(exprs, query.OrderByExpr{
 			Expr: &queryExprWrapper{expr: expr},
 			Options: query.OrderByOptions{
-				Asc:        &asc,
+				Asc:        asc,
 				NullsFirst: nullsFirst,
 			},
 		})

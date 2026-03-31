@@ -666,11 +666,237 @@ func (r *RoleOption) Span() span.Span { return span.Span{} }
 func (r *RoleOption) String() string  { return "" }
 
 // AlterTableOperation represents ALTER TABLE operation.
-type AlterTableOperation struct{}
+type AlterTableOperation struct {
+	// Operation type
+	Op AlterTableOpType
+
+	// Fields for AddColumn
+	AddColumnKeyword bool
+	AddIfNotExists   bool
+	AddColumnDef     *ColumnDef
+
+	// Fields for DropColumn
+	DropColumnKeyword bool
+	DropIfExists      bool
+	DropColumnNames   []*ast.Ident
+	DropBehavior      DropBehavior
+
+	// Fields for AddConstraint
+	Constraint         *TableConstraint
+	ConstraintNotValid bool
+
+	// Fields for DropConstraint
+	DropConstraintIfExists bool
+	DropConstraintName     *ast.Ident
+
+	// Fields for RenameColumn
+	RenameOldColumn *ast.Ident
+	RenameNewColumn *ast.Ident
+
+	// Fields for RenameTable
+	NewTableName *ast.ObjectName
+
+	// Fields for AlterColumn
+	AlterColumnName *ast.Ident
+	AlterColumnOp   AlterColumnOpType
+	AlterDefault    Expr
+	AlterDataType   interface{} // datatype.DataType
+
+	// Fields for SetTblProperties
+	TblProperties []*SqlOption
+
+	// Span
+	SpanVal span.Span
+}
+
+// AlterTableOpType represents the type of ALTER TABLE operation
+type AlterTableOpType int
+
+const (
+	AlterTableOpAddColumn AlterTableOpType = iota
+	AlterTableOpDropColumn
+	AlterTableOpAddConstraint
+	AlterTableOpDropConstraint
+	AlterTableOpRenameColumn
+	AlterTableOpRenameTable
+	AlterTableOpAlterColumn
+	AlterTableOpSetTblProperties
+	AlterTableOpSetOptionsParens
+	AlterTableOpChangeColumn
+	AlterTableOpModifyColumn
+	AlterTableOpDropPrimaryKey
+	AlterTableOpDropForeignKey
+	AlterTableOpDropIndex
+	AlterTableOpDisableRowLevelSecurity
+	AlterTableOpEnableRowLevelSecurity
+	AlterTableOpForceRowLevelSecurity
+	AlterTableOpNoForceRowLevelSecurity
+	AlterTableOpDisableTrigger
+	AlterTableOpEnableTrigger
+	AlterTableOpDisableRule
+	AlterTableOpEnableRule
+	AlterTableOpValidateConstraint
+)
+
+// AlterColumnOpType represents operations on a column via ALTER COLUMN
+type AlterColumnOpType int
+
+const (
+	AlterColumnOpSetNotNull AlterColumnOpType = iota
+	AlterColumnOpDropNotNull
+	AlterColumnOpSetDefault
+	AlterColumnOpDropDefault
+	AlterColumnOpSetDataType
+)
 
 func (a *AlterTableOperation) exprNode()       {}
-func (a *AlterTableOperation) Span() span.Span { return span.Span{} }
-func (a *AlterTableOperation) String() string  { return "" }
+func (a *AlterTableOperation) Span() span.Span { return a.SpanVal }
+func (a *AlterTableOperation) String() string {
+	switch a.Op {
+	case AlterTableOpAddColumn:
+		var buf strings.Builder
+		buf.WriteString("ADD ")
+		if a.AddColumnKeyword {
+			buf.WriteString("COLUMN ")
+		}
+		if a.AddIfNotExists {
+			buf.WriteString("IF NOT EXISTS ")
+		}
+		if a.AddColumnDef != nil {
+			buf.WriteString(a.AddColumnDef.String())
+		}
+		return buf.String()
+	case AlterTableOpDropColumn:
+		var buf strings.Builder
+		buf.WriteString("DROP ")
+		if a.DropColumnKeyword {
+			buf.WriteString("COLUMN ")
+		}
+		if a.DropIfExists {
+			buf.WriteString("IF EXISTS ")
+		}
+		for i, name := range a.DropColumnNames {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(name.String())
+		}
+		if a.DropBehavior != DropBehaviorNone {
+			buf.WriteString(" ")
+			buf.WriteString(a.DropBehavior.String())
+		}
+		return buf.String()
+	case AlterTableOpAddConstraint:
+		var buf strings.Builder
+		buf.WriteString("ADD ")
+		if a.Constraint != nil {
+			buf.WriteString(a.Constraint.String())
+		}
+		if a.ConstraintNotValid {
+			buf.WriteString(" NOT VALID")
+		}
+		return buf.String()
+	case AlterTableOpDropConstraint:
+		var buf strings.Builder
+		buf.WriteString("DROP CONSTRAINT ")
+		if a.DropConstraintIfExists {
+			buf.WriteString("IF EXISTS ")
+		}
+		if a.DropConstraintName != nil {
+			buf.WriteString(a.DropConstraintName.String())
+		}
+		if a.DropBehavior != DropBehaviorNone {
+			buf.WriteString(" ")
+			buf.WriteString(a.DropBehavior.String())
+		}
+		return buf.String()
+	case AlterTableOpRenameColumn:
+		var buf strings.Builder
+		buf.WriteString("RENAME COLUMN ")
+		if a.RenameOldColumn != nil {
+			buf.WriteString(a.RenameOldColumn.String())
+		}
+		buf.WriteString(" TO ")
+		if a.RenameNewColumn != nil {
+			buf.WriteString(a.RenameNewColumn.String())
+		}
+		return buf.String()
+	case AlterTableOpRenameTable:
+		var buf strings.Builder
+		buf.WriteString("RENAME TO ")
+		if a.NewTableName != nil {
+			buf.WriteString(a.NewTableName.String())
+		}
+		return buf.String()
+	case AlterTableOpAlterColumn:
+		var buf strings.Builder
+		buf.WriteString("ALTER COLUMN ")
+		if a.AlterColumnName != nil {
+			buf.WriteString(a.AlterColumnName.String())
+		}
+		switch a.AlterColumnOp {
+		case AlterColumnOpSetNotNull:
+			buf.WriteString(" SET NOT NULL")
+		case AlterColumnOpDropNotNull:
+			buf.WriteString(" DROP NOT NULL")
+		case AlterColumnOpSetDefault:
+			buf.WriteString(" SET DEFAULT ")
+			if a.AlterDefault != nil {
+				buf.WriteString(a.AlterDefault.String())
+			}
+		case AlterColumnOpDropDefault:
+			buf.WriteString(" DROP DEFAULT")
+		case AlterColumnOpSetDataType:
+			buf.WriteString(" SET DATA TYPE")
+			if a.AlterDataType != nil {
+				if dt, ok := a.AlterDataType.(fmt.Stringer); ok {
+					buf.WriteString(" ")
+					buf.WriteString(dt.String())
+				}
+			}
+		}
+		return buf.String()
+	case AlterTableOpSetTblProperties:
+		var buf strings.Builder
+		buf.WriteString("SET TBLPROPERTIES(")
+		for i, opt := range a.TblProperties {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(fmt.Sprintf("'%s' = '%s'", opt.Name.String(), opt.Value.String()))
+		}
+		buf.WriteString(")")
+		return buf.String()
+	case AlterTableOpDropPrimaryKey:
+		var buf strings.Builder
+		buf.WriteString("DROP PRIMARY KEY")
+		if a.DropBehavior != DropBehaviorNone {
+			buf.WriteString(" ")
+			buf.WriteString(a.DropBehavior.String())
+		}
+		return buf.String()
+	case AlterTableOpDropForeignKey:
+		var buf strings.Builder
+		buf.WriteString("DROP FOREIGN KEY ")
+		if len(a.DropColumnNames) > 0 {
+			buf.WriteString(a.DropColumnNames[0].String())
+		}
+		if a.DropBehavior != DropBehaviorNone {
+			buf.WriteString(" ")
+			buf.WriteString(a.DropBehavior.String())
+		}
+		return buf.String()
+	case AlterTableOpDropIndex:
+		var buf strings.Builder
+		buf.WriteString("DROP INDEX ")
+		if len(a.DropColumnNames) > 0 {
+			buf.WriteString(a.DropColumnNames[0].String())
+		}
+		return buf.String()
+	default:
+		return ""
+	}
+}
 
 // DropBehavior represents DROP behavior.
 type DropBehavior int
@@ -1373,18 +1599,70 @@ type FlushType int
 
 const (
 	FlushTypeNone FlushType = iota
+	FlushTypeOptimizerCosts
+	FlushTypeBinaryLogs
+	FlushTypeEngineLogs
+	FlushTypeErrorLogs
+	FlushTypeGeneralLogs
+	FlushTypeRelayLogs
+	FlushTypeSlowLogs
+	FlushTypeTables
+	FlushTypeHosts
+	FlushTypePrivileges
+	FlushTypeLogs
+	FlushTypeStatus
 )
 
-func (f FlushType) String() string { return "" }
+func (f FlushType) String() string {
+	switch f {
+	case FlushTypeOptimizerCosts:
+		return "OPTIMIZER_COSTS"
+	case FlushTypeBinaryLogs:
+		return "BINARY LOGS"
+	case FlushTypeEngineLogs:
+		return "ENGINE LOGS"
+	case FlushTypeErrorLogs:
+		return "ERROR LOGS"
+	case FlushTypeGeneralLogs:
+		return "GENERAL LOGS"
+	case FlushTypeRelayLogs:
+		return "RELAY LOGS"
+	case FlushTypeSlowLogs:
+		return "SLOW LOGS"
+	case FlushTypeTables:
+		return "TABLES"
+	case FlushTypeHosts:
+		return "HOSTS"
+	case FlushTypePrivileges:
+		return "PRIVILEGES"
+	case FlushTypeLogs:
+		return "LOGS"
+	case FlushTypeStatus:
+		return "STATUS"
+	default:
+		return ""
+	}
+}
 
 // FlushLocation represents FLUSH location.
 type FlushLocation int
 
 const (
 	FlushLocationNone FlushLocation = iota
+	FlushLocationLocal
+	FlushLocationNoWriteToBinlog
 )
 
-func (f FlushLocation) String() string { return "" }
+func (f FlushLocation) String() string {
+	switch f {
+	case FlushLocationLocal:
+		return "LOCAL"
+	case FlushLocationNoWriteToBinlog:
+		return "NO_WRITE_TO_BINLOG"
+	default:
+		return ""
+	}
+}
 
 // DiscardObject represents DISCARD object.
 type DiscardObject int
@@ -1395,28 +1673,162 @@ const (
 
 func (d DiscardObject) String() string { return "" }
 
+// ShowStatementInClause represents the clause type for SHOW ... IN/FROM
+type ShowStatementInClause int
+
+const (
+	ShowStatementInClauseNone ShowStatementInClause = iota
+	ShowStatementInClauseFrom
+	ShowStatementInClauseIn
+)
+
+func (s ShowStatementInClause) String() string {
+	switch s {
+	case ShowStatementInClauseFrom:
+		return "FROM"
+	case ShowStatementInClauseIn:
+		return "IN"
+	default:
+		return ""
+	}
+}
+
+// ShowStatementIn represents SHOW statement IN clause.
+type ShowStatementIn struct {
+	Clause     ShowStatementInClause
+	ParentType *ast.Ident
+	ParentName *ast.ObjectName
+}
+
+func (s *ShowStatementIn) exprNode()       {}
+func (s *ShowStatementIn) Span() span.Span { return span.Span{} }
+func (s *ShowStatementIn) String() string {
+	clause := "IN"
+	if s.Clause == ShowStatementInClauseFrom {
+		clause = "FROM"
+	}
+
+	// If we have a parent type (like ACCOUNT, DATABASE, SCHEMA), include it
+	if s.ParentType != nil {
+		if s.ParentName != nil {
+			return fmt.Sprintf("%s %s %s", clause, s.ParentType.Value, s.ParentName.String())
+		}
+		return fmt.Sprintf("%s %s", clause, s.ParentType.Value)
+	}
+
+	// Just the name
+	if s.ParentName != nil {
+		return fmt.Sprintf("%s %s", clause, s.ParentName.String())
+	}
+
+	return ""
+}
+
+// ShowStatementFilterPosition represents SHOW statement filter position.
+type ShowStatementFilterPosition int
+
+const (
+	ShowStatementFilterPositionNone ShowStatementFilterPosition = iota
+	ShowStatementFilterPositionSuffix
+	ShowStatementFilterPositionInfix
+)
+
+func (s ShowStatementFilterPosition) String() string { return "" }
+
 // ShowStatementFilter represents SHOW statement filter.
-type ShowStatementFilter struct{}
+type ShowStatementFilter struct {
+	Like  *string
+	Where Expr
+}
 
 func (s *ShowStatementFilter) exprNode()       {}
 func (s *ShowStatementFilter) Span() span.Span { return span.Span{} }
-func (s *ShowStatementFilter) String() string  { return "" }
+func (s *ShowStatementFilter) String() string {
+	if s.Like != nil {
+		return fmt.Sprintf("LIKE '%s'", *s.Like)
+	}
+	if s.Where != nil {
+		return fmt.Sprintf("WHERE %s", s.Where.String())
+	}
+	return ""
+}
 
 // ShowCreateObject represents SHOW CREATE object.
 type ShowCreateObject int
 
 const (
 	ShowCreateObjectNone ShowCreateObject = iota
+	ShowCreateObjectTable
+	ShowCreateObjectTrigger
+	ShowCreateObjectEvent
+	ShowCreateObjectFunction
+	ShowCreateObjectProcedure
+	ShowCreateObjectView
 )
 
-func (s ShowCreateObject) String() string { return "" }
+func (s ShowCreateObject) String() string {
+	switch s {
+	case ShowCreateObjectTable:
+		return "TABLE"
+	case ShowCreateObjectTrigger:
+		return "TRIGGER"
+	case ShowCreateObjectEvent:
+		return "EVENT"
+	case ShowCreateObjectFunction:
+		return "FUNCTION"
+	case ShowCreateObjectProcedure:
+		return "PROCEDURE"
+	case ShowCreateObjectView:
+		return "VIEW"
+	default:
+		return ""
+	}
+}
 
 // ShowStatementOptions represents SHOW statement options.
-type ShowStatementOptions struct{}
+type ShowStatementOptions struct {
+	SpanVal        span.Span
+	ShowIn         *ShowStatementIn
+	Filter         *ShowStatementFilter
+	FilterPosition ShowStatementFilterPosition
+	LimitFrom      *string
+	Limit          *int
+	StartsWith     *string
+}
 
 func (s *ShowStatementOptions) exprNode()       {}
-func (s *ShowStatementOptions) Span() span.Span { return span.Span{} }
-func (s *ShowStatementOptions) String() string  { return "" }
+func (s *ShowStatementOptions) Span() span.Span { return s.SpanVal }
+func (s *ShowStatementOptions) String() string {
+	var parts []string
+
+	// For infix filter position (Snowflake style), output filter before ShowIn
+	if s.FilterPosition == ShowStatementFilterPositionInfix && s.Filter != nil {
+		parts = append(parts, s.Filter.String())
+	}
+
+	if s.ShowIn != nil {
+		parts = append(parts, s.ShowIn.String())
+	}
+
+	// For suffix filter position (MySQL style), output filter after ShowIn
+	if s.FilterPosition != ShowStatementFilterPositionInfix && s.Filter != nil {
+		parts = append(parts, s.Filter.String())
+	}
+
+	if s.StartsWith != nil {
+		parts = append(parts, fmt.Sprintf("STARTS WITH '%s'", *s.StartsWith))
+	}
+
+	if s.Limit != nil {
+		parts = append(parts, fmt.Sprintf("LIMIT %d", *s.Limit))
+	}
+
+	if s.LimitFrom != nil {
+		parts = append(parts, fmt.Sprintf("FROM '%s'", *s.LimitFrom))
+	}
+
+	return strings.Join(parts, " ")
+}
 
 // TransactionMode represents transaction mode.
 type TransactionMode int

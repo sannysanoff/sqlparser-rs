@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/span"
@@ -64,6 +65,7 @@ type ParserInterface interface {
 	ParseExpression() (ast.Expr, error)
 	ParseInsert() (ast.Statement, error)
 	ParseQuery() (ast.Statement, error)
+	ParseDataType() (datatype.DataType, error)
 
 	// State management
 	GetState() dialects.ParserState

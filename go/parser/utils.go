@@ -499,3 +499,29 @@ func (rc *RecursionCounter) Increase() {
 func (rc *RecursionCounter) GetRemaining() int {
 	return rc.remainingDepth
 }
+
+// ParseLikePattern parses a LIKE pattern which can be a string literal or an identifier.
+// Used for MySQL-style SHOW statements where LIKE patterns can be unquoted.
+func (p *Parser) ParseLikePattern() (string, error) {
+	tok := p.PeekToken()
+	
+	// Check for string literal
+	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+		p.AdvanceToken()
+		return str.Value, nil
+	}
+	
+	// Check for double-quoted string
+	if str, ok := tok.Token.(tokenizer.TokenDoubleQuotedString); ok {
+		p.AdvanceToken()
+		return str.Value, nil
+	}
+	
+	// Check for identifier or keyword
+	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+		p.AdvanceToken()
+		return word.Word.Value, nil
+	}
+	
+	return "", p.Expected("string literal or identifier after LIKE", tok)
+}

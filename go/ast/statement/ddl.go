@@ -152,6 +152,14 @@ func (c *CreateTable) String() string {
 		f.WriteString("'")
 	}
 
+	// Output table options (MySQL-specific: ENGINE, CHARSET, COLLATE, etc.)
+	if c.TableOptions != nil && c.TableOptions.Type == expr.CreateTableOptionsPlain {
+		for _, opt := range c.TableOptions.Options {
+			f.WriteString(" ")
+			f.WriteString(opt.String())
+		}
+	}
+
 	if c.Query != nil {
 		f.WriteString(" AS ")
 		f.WriteString(c.Query.String())

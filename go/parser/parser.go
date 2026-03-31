@@ -497,7 +497,7 @@ func (p *Parser) parseDrop() (ast.Statement, error) {
 }
 
 func (p *Parser) parseAlter() (ast.Statement, error) {
-	return ParseAlter(p)
+	return parseAlter(p)
 }
 
 func (p *Parser) parseTruncate() (ast.Statement, error) {
@@ -823,7 +823,13 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 	tok := p.PeekToken()
 	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
 		p.AdvanceToken()
-		return &ast.Ident{Value: word.Word.Value}, nil
+		value := word.Word.Value
+		// For unquoted identifiers in PostgreSQL, normalize to lowercase
+		// (PostgreSQL folds unquoted identifiers to lowercase)
+		if word.Word.QuoteStyle == nil {
+			value = strings.ToLower(value)
+		}
+		return &ast.Ident{Value: value}, nil
 	}
 	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }

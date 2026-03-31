@@ -590,9 +590,15 @@ func (ep *ExpressionParser) parseCommaSeparatedIdents() ([]*expr.Ident, error) {
 
 // wordToIdent converts a TokenWord to an Ident
 func (ep *ExpressionParser) wordToIdent(word *tokenizer.TokenWord, spanVal span.Span) *expr.Ident {
+	value := word.Word.Value
+	// For unquoted identifiers in PostgreSQL, normalize to lowercase
+	// (PostgreSQL folds unquoted identifiers to lowercase)
+	if word.Word.QuoteStyle == nil {
+		value = strings.ToLower(value)
+	}
 	ident := &expr.Ident{
 		SpanVal: spanVal,
-		Value:   word.Word.Value,
+		Value:   value,
 	}
 	if word.Word.QuoteStyle != nil {
 		q := rune(*word.Word.QuoteStyle)

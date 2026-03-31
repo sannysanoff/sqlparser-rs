@@ -135,6 +135,15 @@ func (i *Insert) String() string {
 	} else if i.Source != nil {
 		f.WriteString(" ")
 		f.WriteString(i.Source.String())
+	} else if len(i.Assignments) > 0 {
+		// MySQL INSERT SET syntax
+		f.WriteString(" SET ")
+		for j, assign := range i.Assignments {
+			if j > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(assign.String())
+		}
 	}
 
 	// Add ON CONFLICT clause if present
@@ -174,7 +183,7 @@ type Update struct {
 	Returning       []*query.SelectItem
 	Output          *expr.OutputClause
 	OrderBy         []*expr.OrderByExpr
-	Limit           *query.LimitClause
+	Limit           query.LimitClause
 	IsFromStatement bool
 	Setting         []*expr.Setting
 }
@@ -184,7 +193,13 @@ func (u *Update) statementNode() {}
 func (u *Update) String() string {
 	var f strings.Builder
 	f.WriteString("UPDATE ")
-	f.WriteString(u.Table.String())
+
+	// Output the FROM clause with joins (for MySQL UPDATE with JOINs)
+	if u.From != nil {
+		f.WriteString(u.From.String())
+	} else if u.Table != nil {
+		f.WriteString(u.Table.String())
+	}
 
 	if len(u.Assignments) > 0 {
 		f.WriteString(" SET ")
@@ -228,8 +243,8 @@ type Delete struct {
 	Selection expr.Expr
 	Returning []*query.SelectItem
 	Output    *expr.OutputClause
-	OrderBy   []*expr.OrderByExpr
-	Limit     *query.LimitClause
+	OrderBy   []query.OrderByExpr
+	Limit     query.LimitClause
 }
 
 func (d *Delete) statementNode() {}
@@ -248,6 +263,23 @@ func (d *Delete) String() string {
 	if d.Selection != nil {
 		f.WriteString(" WHERE ")
 		f.WriteString(d.Selection.String())
+	}
+
+	// Add ORDER BY clause if present (MySQL)
+	if len(d.OrderBy) > 0 {
+		f.WriteString(" ORDER BY ")
+		for i, obe := range d.OrderBy {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(obe.String())
+		}
+	}
+
+	// Add LIMIT clause if present (MySQL)
+	if d.Limit != nil {
+		f.WriteString(" ")
+		f.WriteString(d.Limit.String())
 	}
 
 	// Add RETURNING clause if present
