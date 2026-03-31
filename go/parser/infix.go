@@ -425,6 +425,19 @@ func (ep *ExpressionParser) parseWordInfix(left expr.Expr, word tokenizer.TokenW
 	case "REGEXP", "RLIKE":
 		return ep.parseRLikeExpr(left, false, word.Word.Keyword == "REGEXP")
 
+	case "DIV":
+		// MySQL integer division operator
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:    left,
+			Op:      operator.BOpMyIntegerDivide,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+
 	case "OVERLAPS":
 		right, err := ep.ParseExprWithPrecedence(precedence)
 		if err != nil {
