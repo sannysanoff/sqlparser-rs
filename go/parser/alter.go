@@ -75,6 +75,14 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return parseAlterTableAlterColumn(p, op)
 	}
 
+	if p.ParseKeyword("CHANGE") {
+		return parseAlterTableChangeColumn(p, op)
+	}
+
+	if p.ParseKeyword("MODIFY") {
+		return parseAlterTableModifyColumn(p, op)
+	}
+
 	if p.ParseKeyword("SET") {
 		return parseAlterTableSet(p, op)
 	}
@@ -105,11 +113,59 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 	return op, nil
 }
 
-// parseAlterTableDrop parses DROP COLUMN or DROP CONSTRAINT
+// parseAlterTableDrop parses DROP COLUMN, DROP CONSTRAINT, DROP PRIMARY KEY, DROP FOREIGN KEY, DROP INDEX
 func parseAlterTableDrop(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
 	// Check for CONSTRAINT
 	if p.ParseKeyword("CONSTRAINT") {
 		return parseAlterTableDropConstraint(p, op)
+	}
+
+	// Check for PRIMARY KEY (MySQL)
+	if p.ParseKeyword("PRIMARY") {
+		if p.ParseKeyword("KEY") {
+			op.Op = expr.AlterTableOpDropPrimaryKey
+			// Check for CASCADE/RESTRICT
+			if p.ParseKeyword("CASCADE") {
+				op.DropBehavior = expr.DropBehaviorCascade
+			} else if p.ParseKeyword("RESTRICT") {
+				op.DropBehavior = expr.DropBehaviorRestrict
+			}
+			return op, nil
+		}
+		return nil, fmt.Errorf("expected KEY after PRIMARY")
+	}
+
+	// Check for FOREIGN KEY (MySQL)
+	if p.ParseKeyword("FOREIGN") {
+		if p.ParseKeyword("KEY") {
+			op.Op = expr.AlterTableOpDropForeignKey
+			// Parse foreign key name
+			name, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected foreign key name: %w", err)
+			}
+			op.DropColumnNames = append(op.DropColumnNames, name)
+			// Check for CASCADE/RESTRICT
+			if p.ParseKeyword("CASCADE") {
+				op.DropBehavior = expr.DropBehaviorCascade
+			} else if p.ParseKeyword("RESTRICT") {
+				op.DropBehavior = expr.DropBehaviorRestrict
+			}
+			return op, nil
+		}
+		return nil, fmt.Errorf("expected KEY after FOREIGN")
+	}
+
+	// Check for INDEX (MySQL)
+	if p.ParseKeyword("INDEX") {
+		op.Op = expr.AlterTableOpDropIndex
+		// Parse index name
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected index name: %w", err)
+		}
+		op.DropColumnNames = append(op.DropColumnNames, name)
+		return op, nil
 	}
 
 	// Check for COLUMN keyword
@@ -287,6 +343,169 @@ func parseAlterTableAlterColumn(p *Parser, op *expr.AlterTableOperation) (*expr.
 	}
 
 	return op, nil
+}
+
+// parseAlterTableChangeColumn parses CHANGE [COLUMN] <old_name> <new_name> <data_type> [options] [position]
+// MySQL-specific syntax
+func parseAlterTableChangeColumn(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpChangeColumn
+
+	// Optional COLUMN keyword
+	p.ParseKeyword("COLUMN")
+
+	// Parse old column name
+	oldName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected old column name: %w", err)
+	}
+	op.ChangeOldName = oldName
+
+	// Parse new column name
+	newName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected new column name: %w", err)
+	}
+	op.ChangeNewName = newName
+
+	// Parse data type
+	dataType, err := p.ParseDataType()
+	if err != nil {
+		return nil, fmt.Errorf("expected data type: %w", err)
+	}
+	op.ChangeDataType = dataType
+
+	// Parse optional column options
+	for {
+		colOpt, err := parseOptionalColumnOption(p)
+		if err != nil || colOpt == nil {
+			break
+		}
+		op.ChangeOptions = append(op.ChangeOptions, colOpt)
+	}
+
+	// Parse optional column position (FIRST or AFTER column)
+	if p.ParseKeyword("FIRST") {
+		op.ChangeColumnPosition = &expr.MySQLColumnPosition{IsFirst: true}
+	} else if p.ParseKeyword("AFTER") {
+		afterCol, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected column name after AFTER: %w", err)
+		}
+		op.ChangeColumnPosition = &expr.MySQLColumnPosition{AfterColumn: afterCol}
+	}
+
+	return op, nil
+}
+
+// parseAlterTableModifyColumn parses MODIFY [COLUMN] <col_name> <data_type> [options] [position]
+// MySQL-specific syntax
+func parseAlterTableModifyColumn(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpModifyColumn
+
+	// Optional COLUMN keyword
+	p.ParseKeyword("COLUMN")
+
+	// Parse column name
+	colName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected column name: %w", err)
+	}
+	op.ModifyColumnName = colName
+
+	// Parse data type
+	dataType, err := p.ParseDataType()
+	if err != nil {
+		return nil, fmt.Errorf("expected data type: %w", err)
+	}
+	op.ModifyDataType = dataType
+
+	// Parse optional column options
+	for {
+		colOpt, err := parseOptionalColumnOption(p)
+		if err != nil || colOpt == nil {
+			break
+		}
+		op.ModifyOptions = append(op.ModifyOptions, colOpt)
+	}
+
+	// Parse optional column position (FIRST or AFTER column)
+	if p.ParseKeyword("FIRST") {
+		op.ModifyColumnPosition = &expr.MySQLColumnPosition{IsFirst: true}
+	} else if p.ParseKeyword("AFTER") {
+		afterCol, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected column name after AFTER: %w", err)
+		}
+		op.ModifyColumnPosition = &expr.MySQLColumnPosition{AfterColumn: afterCol}
+	}
+
+	return op, nil
+}
+
+// parseOptionalColumnOption attempts to parse a column option (e.g., NOT NULL, DEFAULT, etc.)
+// Returns nil if no option is found
+func parseOptionalColumnOption(p *Parser) (*expr.ColumnOption, error) {
+	// Check for various column options
+	if p.ParseKeyword("NOT") {
+		if p.ParseKeyword("NULL") {
+			return &expr.ColumnOption{Name: "NOT NULL"}, nil
+		}
+		// Put back NOT if not followed by NULL
+		// TODO: need a way to put back keywords
+	}
+
+	if p.ParseKeyword("NULL") {
+		return &expr.ColumnOption{Name: "NULL"}, nil
+	}
+
+	if p.ParseKeyword("DEFAULT") {
+		// Parse default expression
+		exprParser := NewExpressionParser(p)
+		defaultExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOption{
+			Name:  "DEFAULT",
+			Value: defaultExpr,
+		}, nil
+	}
+
+	if p.ParseKeyword("AUTO_INCREMENT") || p.ParseKeyword("AUTOINCREMENT") {
+		return &expr.ColumnOption{Name: "AUTO_INCREMENT"}, nil
+	}
+
+	if p.ParseKeyword("PRIMARY") && p.ParseKeyword("KEY") {
+		return &expr.ColumnOption{Name: "PRIMARY KEY"}, nil
+	}
+
+	if p.ParseKeyword("UNIQUE") {
+		p.ParseKeyword("KEY") // optional
+		return &expr.ColumnOption{Name: "UNIQUE"}, nil
+	}
+
+	if p.ParseKeyword("COMMENT") {
+		// Parse comment string
+		tok := p.NextToken()
+		switch t := tok.Token.(type) {
+		case tokenizer.TokenSingleQuotedString:
+			return &expr.ColumnOption{
+				Name:  "COMMENT",
+				Value: &expr.ValueExpr{Value: t.Value},
+			}, nil
+		case tokenizer.TokenDoubleQuotedString:
+			return &expr.ColumnOption{
+				Name:  "COMMENT",
+				Value: &expr.ValueExpr{Value: t.Value},
+			}, nil
+		default:
+			return nil, fmt.Errorf("expected string after COMMENT")
+		}
+	}
+
+	// TODO: Add more column options as needed
+
+	return nil, nil
 }
 
 // parseAlterTableSet parses SET TBLPROPERTIES or SET options

@@ -705,6 +705,19 @@ type AlterTableOperation struct {
 	// Fields for SetTblProperties
 	TblProperties []*SqlOption
 
+	// Fields for ChangeColumn (MySQL)
+	ChangeOldName        *ast.Ident
+	ChangeNewName        *ast.Ident
+	ChangeDataType       interface{} // datatype.DataType
+	ChangeOptions        []*ColumnOption
+	ChangeColumnPosition *MySQLColumnPosition
+
+	// Fields for ModifyColumn (MySQL)
+	ModifyColumnName     *ast.Ident
+	ModifyDataType       interface{} // datatype.DataType
+	ModifyOptions        []*ColumnOption
+	ModifyColumnPosition *MySQLColumnPosition
+
 	// Span
 	SpanVal span.Span
 }
@@ -893,6 +906,44 @@ func (a *AlterTableOperation) String() string {
 			buf.WriteString(a.DropColumnNames[0].String())
 		}
 		return buf.String()
+	case AlterTableOpChangeColumn:
+		var buf strings.Builder
+		buf.WriteString("CHANGE COLUMN ")
+		if a.ChangeOldName != nil {
+			buf.WriteString(a.ChangeOldName.String())
+			buf.WriteString(" ")
+		}
+		if a.ChangeNewName != nil {
+			buf.WriteString(a.ChangeNewName.String())
+			buf.WriteString(" ")
+		}
+		if a.ChangeDataType != nil {
+			if dt, ok := a.ChangeDataType.(fmt.Stringer); ok {
+				buf.WriteString(dt.String())
+			}
+		}
+		if a.ChangeColumnPosition != nil {
+			buf.WriteString(" ")
+			buf.WriteString(a.ChangeColumnPosition.String())
+		}
+		return buf.String()
+	case AlterTableOpModifyColumn:
+		var buf strings.Builder
+		buf.WriteString("MODIFY COLUMN ")
+		if a.ModifyColumnName != nil {
+			buf.WriteString(a.ModifyColumnName.String())
+			buf.WriteString(" ")
+		}
+		if a.ModifyDataType != nil {
+			if dt, ok := a.ModifyDataType.(fmt.Stringer); ok {
+				buf.WriteString(dt.String())
+			}
+		}
+		if a.ModifyColumnPosition != nil {
+			buf.WriteString(" ")
+			buf.WriteString(a.ModifyColumnPosition.String())
+		}
+		return buf.String()
 	default:
 		return ""
 	}
@@ -916,6 +967,24 @@ func (d DropBehavior) String() string {
 	default:
 		return ""
 	}
+}
+
+// MySQLColumnPosition represents MySQL ALTER TABLE column position (FIRST or AFTER column).
+type MySQLColumnPosition struct {
+	// If true, place column first
+	IsFirst bool
+	// If not first, the column to place after
+	AfterColumn *ast.Ident
+}
+
+func (m *MySQLColumnPosition) String() string {
+	if m.IsFirst {
+		return "FIRST"
+	}
+	if m.AfterColumn != nil {
+		return "AFTER " + m.AfterColumn.String()
+	}
+	return ""
 }
 
 // HiveSetLocation represents Hive SET LOCATION.
