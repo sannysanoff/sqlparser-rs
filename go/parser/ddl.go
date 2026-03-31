@@ -195,6 +195,17 @@ func isTableConstraint(p *Parser) bool {
 		}
 	}
 
+	// MySQL-specific: INDEX/KEY/FULLTEXT/SPATIAL inline index constraints
+	// Reference: src/parser/mod.rs:9732-9760
+	if p.GetDialect().SupportsIndexHints() {
+		mysqlConstraintKeywords := []string{"INDEX", "KEY", "FULLTEXT", "SPATIAL"}
+		for _, kw := range mysqlConstraintKeywords {
+			if p.PeekKeyword(kw) {
+				return true
+			}
+		}
+	}
+
 	return false
 }
 
@@ -1178,6 +1189,64 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 		parseConstraintCharacteristics(p)
 		return constraint, nil
+	}
+
+	// MySQL-specific: INDEX/KEY inline index constraints
+	// Reference: src/parser/mod.rs:9732-9756
+	if p.GetDialect().SupportsIndexHints() {
+		if p.ParseKeyword("INDEX") || p.ParseKeyword("KEY") {
+			// Optional index name (skip if USING follows)
+			if !p.PeekKeyword("USING") {
+				p.ParseIdentifier()
+			}
+
+			// Optional USING index_type (e.g., USING BTREE, USING HASH)
+			if p.ParseKeyword("USING") {
+				p.ParseIdentifier() // consume index type
+			}
+
+			// Parse column list: (col1, col2, ...)
+			if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			_, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			return constraint, nil
+		}
+
+		// MySQL-specific: FULLTEXT/SPATIAL index constraints
+		// Reference: src/parser/mod.rs:9758-9789
+		isFulltext := p.ParseKeyword("FULLTEXT")
+		isSpatial := p.ParseKeyword("SPATIAL")
+		if isFulltext || isSpatial {
+			// Optional INDEX/KEY keyword
+			if !p.ParseKeyword("INDEX") {
+				p.ParseKeyword("KEY")
+			}
+
+			// Optional index name
+			p.ParseIdentifier()
+
+			// Parse column list: (col1, col2, ...)
+			if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			_, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			return constraint, nil
+		}
 	}
 
 	return nil, fmt.Errorf("unknown table constraint")

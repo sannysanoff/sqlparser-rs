@@ -876,15 +876,19 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 
 	switch typeName {
 	case "INT", "INTEGER":
-		return &datatype.IntType{SpanVal: tok.Span}, nil
+		return parseIntType(p, tok.Span)
 	case "INT4":
-		return &datatype.Int4Type{SpanVal: tok.Span}, nil
+		return parseInt4Type(p, tok.Span)
 	case "INT8":
-		return &datatype.Int8Type{SpanVal: tok.Span}, nil
+		return parseInt8Type(p, tok.Span)
 	case "BIGINT":
-		return &datatype.BigIntType{SpanVal: tok.Span}, nil
+		return parseBigIntType(p, tok.Span)
 	case "SMALLINT":
-		return &datatype.SmallIntType{SpanVal: tok.Span}, nil
+		return parseSmallIntType(p, tok.Span)
+	case "TINYINT":
+		return parseTinyIntType(p, tok.Span)
+	case "MEDIUMINT":
+		return parseMediumIntType(p, tok.Span)
 	case "TEXT":
 		return &datatype.TextType{SpanVal: tok.Span}, nil
 	case "VARCHAR":
@@ -900,15 +904,15 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 	case "TIMESTAMP":
 		return &datatype.TimestampType{SpanVal: tok.Span}, nil
 	case "FLOAT":
-		return &datatype.FloatType{SpanVal: tok.Span}, nil
+		return parseFloatType(p, tok.Span)
 	case "DOUBLE":
-		return &datatype.DoubleType{SpanVal: tok.Span}, nil
+		return parseDoubleType(p, tok.Span)
 	case "NUMERIC":
-		return &datatype.NumericType{SpanVal: tok.Span}, nil
-	case "DECIMAL":
-		return &datatype.DecimalType{SpanVal: tok.Span}, nil
+		return parseNumericType(p, tok.Span)
+	case "DECIMAL", "DEC":
+		return parseDecimalType(p, tok.Span)
 	case "REAL":
-		return &datatype.RealType{SpanVal: tok.Span}, nil
+		return parseRealType(p, tok.Span)
 	case "BYTEA":
 		return &datatype.ByteaType{SpanVal: tok.Span}, nil
 	case "JSON":
@@ -980,4 +984,291 @@ func parseCharType(p *Parser, spanVal span.Span) (*datatype.CharType, error) {
 	}
 
 	return result, nil
+}
+
+// parseOptionalPrecision parses optional (n) display width for integer types
+func parseOptionalPrecision(p *Parser) *uint64 {
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); !isLParen {
+		return nil
+	}
+	p.NextToken() // consume (
+	tok := p.NextToken()
+	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		precision, err := strconv.ParseUint(num.Value, 10, 64)
+		if err != nil {
+			return nil
+		}
+		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil
+		}
+		return &precision
+	}
+	return nil
+}
+
+// parseIntType parses INT/INTEGER with optional display width and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11996-12006
+func parseIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.IntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.IntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseInt4Type parses INT4 with optional display width and UNSIGNED modifier
+func parseInt4Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.Int4UnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	return &datatype.Int4Type{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseInt8Type parses INT8 with optional display width and UNSIGNED modifier
+func parseInt8Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.Int8UnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	return &datatype.Int8Type{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseBigIntType parses BIGINT with optional display width and UNSIGNED modifier
+// Reference: src/parser/mod.rs:12039-12049
+func parseBigIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.BigIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.BigIntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseSmallIntType parses SMALLINT with optional display width and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11974-11984
+func parseSmallIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.SmallIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.SmallIntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseTinyIntType parses TINYINT with optional display width and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11955-11965
+func parseTinyIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.TinyIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.TinyIntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseMediumIntType parses MEDIUMINT with optional display width and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11985-11995
+func parseMediumIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.MediumIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.MediumIntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseFloatType parses FLOAT with optional precision/scale and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11918-11926
+func parseFloatType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	// Parse optional (p) or (p,s)
+	var info datatype.ExactNumberInfo
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			prec, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid FLOAT precision: %w", err)
+			}
+			info.Precision = &prec
+			// Check for optional scale
+			if p.ConsumeToken(tokenizer.TokenComma{}) {
+				tok = p.NextToken()
+				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+					s, err := strconv.ParseInt(num.Value, 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("invalid FLOAT scale: %w", err)
+					}
+					info.Scale = &s
+				} else {
+					return nil, fmt.Errorf("expected number for FLOAT scale")
+				}
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in FLOAT precision specification")
+		}
+	}
+
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.FloatUnsignedType{Info: info, SpanVal: spanVal}, nil
+	}
+	return &datatype.FloatType{Info: info, SpanVal: spanVal}, nil
+}
+
+// parseDoubleType parses DOUBLE with optional precision/scale and UNSIGNED modifier
+// Reference: src/parser/mod.rs:11938-11954
+func parseDoubleType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	// Check for PRECISION keyword (DOUBLE PRECISION)
+	if p.ParseKeyword("PRECISION") {
+		if p.ParseKeyword("UNSIGNED") {
+			return &datatype.DoublePrecisionUnsignedType{SpanVal: spanVal}, nil
+		}
+		return &datatype.DoubleType{SpanVal: spanVal}, nil
+	}
+
+	// Parse optional (p) or (p,s)
+	var info datatype.ExactNumberInfo
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			prec, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DOUBLE precision: %w", err)
+			}
+			info.Precision = &prec
+			// Check for optional scale
+			if p.ConsumeToken(tokenizer.TokenComma{}) {
+				tok = p.NextToken()
+				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+					s, err := strconv.ParseInt(num.Value, 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("invalid DOUBLE scale: %w", err)
+					}
+					info.Scale = &s
+				} else {
+					return nil, fmt.Errorf("expected number for DOUBLE scale")
+				}
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in DOUBLE precision specification")
+		}
+	}
+
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.DoubleUnsignedType{Info: info, SpanVal: spanVal}, nil
+	}
+	return &datatype.DoubleType{Info: info, SpanVal: spanVal}, nil
+}
+
+// parseNumericType parses NUMERIC [(p[,s])] with UNSIGNED modifier
+// Reference: src/parser/mod.rs (similar to DECIMAL)
+func parseNumericType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	var info datatype.ExactNumberInfo
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			prec, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid NUMERIC precision: %w", err)
+			}
+			info.Precision = &prec
+			// Check for optional scale
+			if p.ConsumeToken(tokenizer.TokenComma{}) {
+				tok = p.NextToken()
+				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+					s, err := strconv.ParseInt(num.Value, 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("invalid NUMERIC scale: %w", err)
+					}
+					info.Scale = &s
+				} else {
+					return nil, fmt.Errorf("expected number for NUMERIC scale")
+				}
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in NUMERIC precision specification")
+		}
+	}
+
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.NumericType{Info: info, SpanVal: spanVal}, nil
+	}
+	return &datatype.NumericType{Info: info, SpanVal: spanVal}, nil
+}
+
+// parseDecimalType parses DECIMAL [(p[,s])] or DEC [(p[,s])] with UNSIGNED modifier
+// Reference: src/parser/mod.rs:12181-12198
+func parseDecimalType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	var info datatype.ExactNumberInfo
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			prec, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DECIMAL precision: %w", err)
+			}
+			info.Precision = &prec
+			// Check for optional scale
+			if p.ConsumeToken(tokenizer.TokenComma{}) {
+				tok = p.NextToken()
+				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+					s, err := strconv.ParseInt(num.Value, 10, 64)
+					if err != nil {
+						return nil, fmt.Errorf("invalid DECIMAL scale: %w", err)
+					}
+					info.Scale = &s
+				} else {
+					return nil, fmt.Errorf("expected number for DECIMAL scale")
+				}
+			}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in DECIMAL precision specification")
+		}
+	}
+
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.DecimalUnsignedType{Info: info, SpanVal: spanVal}, nil
+	}
+	return &datatype.DecimalType{Info: info, SpanVal: spanVal}, nil
+}
+
+// parseRealType parses REAL with UNSIGNED modifier
+// Reference: src/parser/mod.rs:11927-11933
+func parseRealType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.RealUnsignedType{SpanVal: spanVal}, nil
+	}
+	return &datatype.RealType{SpanVal: spanVal}, nil
 }
