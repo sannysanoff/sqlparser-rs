@@ -33,7 +33,9 @@ When implementing any parser functionality:
 
 ### Recent Progress (March 31, 2026)
 - ✅ **TPC-H PERFECT SCORE: 44/44 (100%)** - All 22 queries parse + round-trip successfully
+- ✅ **MySQL UNSIGNED Data Types: IMPLEMENTED** - TINYINT UNSIGNED, INT(11) UNSIGNED, DECIMAL(10,2) UNSIGNED, etc.
 - ✅ **MySQL ALTER TABLE: 6 NEW TESTS PASSING** - DROP PRIMARY KEY, DROP FOREIGN KEY, CHANGE COLUMN, MODIFY COLUMN, DROP INDEX now working
+- ✅ **MySQL Inline Index Constraints: IMPLEMENTED** - CREATE TABLE with INDEX/KEY, FULLTEXT INDEX, SPATIAL INDEX
 - ✅ **Window Functions: Core parsing working** - OVER, PARTITION BY, ORDER BY, frame specs
 - ✅ **INSERT SET Syntax: FIXED** - `INSERT INTO tbl SET col1 = val1` now works
 - ✅ **Named Arguments: IMPLEMENTED** - `FUN(a => '1')` PostgreSQL syntax working
@@ -45,7 +47,7 @@ When implementing any parser functionality:
 - ✅ **TPC-H Round-trip: 100%** - All 22 queries serialize and re-parse correctly
 - 🔄 **COMMON TESTS: 145/435 passing** (working to fix regressions)
 - 🔄 **POSTGRESQL TESTS: 23/157 passing** (+1 since last update)
-- ✅ **MYSQL TESTS: 31/130 passing** (+15 since last update - ALTER TABLE improvements!)
+- ✅ **MYSQL TESTS: 33/130 passing** (+17 total - UNSIGNED types + ALTER TABLE improvements!)
 - 🔄 **SNOWFLAKE TESTS: 9/97 passing** (in progress)
 
 ### Current Test Statistics
@@ -55,9 +57,9 @@ When implementing any parser functionality:
 | **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
 | **Common Tests** | 🔄 IN PROGRESS | 145 | 290 | 435 | 33% |
 | **PostgreSQL** | 🔄 IN PROGRESS | 23 | 134 | 157 | 15% |
-| **MySQL** | 🔄 IN PROGRESS | 31 | 99 | 130 | 24% |
+| **MySQL** | 🔄 IN PROGRESS | 33 | 97 | 130 | **25%** |
 | **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | 9% |
-| **TOTAL** | **31% COMPLETE** | **252** | **611** | **863** | **29%** |
+| **TOTAL** | **29% COMPLETE** | **254** | **609** | **863** | **29%** |
 
 ### What Works
 - ✅ Tokenizer: 29/29 tests passing
@@ -70,6 +72,8 @@ When implementing any parser functionality:
 - ✅ Date/interval literals with typed string syntax
 - ✅ Derived table column lists: `AS alias (col1, col2, ...)`
 - ✅ CREATE VIEW / DROP VIEW statement parsing
+- ✅ **MySQL UNSIGNED Data Types** - TINYINT UNSIGNED, INT(11) UNSIGNED, DECIMAL(10,2) UNSIGNED, etc.
+- ✅ **MySQL Inline Index Constraints** - CREATE TABLE tb (id INT, KEY idx (id), FULLTEXT INDEX ft (col))
 - ✅ **ALTER TABLE** - ADD/DROP COLUMN, ADD/DROP CONSTRAINT, RENAME, DROP PRIMARY KEY, DROP FOREIGN KEY, CHANGE COLUMN, MODIFY COLUMN, DROP INDEX (MySQL)
 - ✅ **INSERT/UPDATE/DELETE** - Basic DML statements + SET syntax
 - ✅ **Multi-part table names** - `schema.table`, `db.schema.table`
