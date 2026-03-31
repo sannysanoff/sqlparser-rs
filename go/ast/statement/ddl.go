@@ -1,0 +1,2215 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package statement
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/query"
+)
+
+// ============================================================================
+// CREATE TABLE
+// ============================================================================
+
+// CreateTable represents a CREATE TABLE statement
+type CreateTable struct {
+	BaseStatement
+	OrReplace                  bool
+	Temporary                  bool
+	External                   bool
+	Dynamic                    bool
+	Global                     *bool
+	IfNotExists                bool
+	Transient                  bool
+	Volatile                   bool
+	Iceberg                    bool
+	Snapshot                   bool
+	Name                       *ast.ObjectName
+	Columns                    []*expr.ColumnDef
+	Constraints                []*expr.TableConstraint
+	HiveDistribution           *expr.HiveDistributionStyle
+	HiveFormats                *expr.HiveFormat
+	TableOptions               *expr.CreateTableOptions
+	FileFormat                 *expr.FileFormat
+	Location                   *string
+	Query                      *query.Query
+	WithoutRowid               bool
+	Like                       *expr.CreateTableLikeKind
+	Clone                      *ast.ObjectName
+	Version                    *expr.TableVersion
+	Comment                    *expr.CommentDef
+	OnCommit                   *expr.OnCommit
+	OnCluster                  *ast.Ident
+	PrimaryKey                 expr.Expr
+	OrderBy                    *expr.OneOrManyWithParens
+	PartitionBy                expr.Expr
+	ClusterBy                  *expr.WrappedCollection
+	ClusteredBy                *expr.ClusteredBy
+	Inherits                   []*ast.ObjectName
+	PartitionOf                *ast.ObjectName
+	ForValues                  *expr.ForValues
+	Strict                     bool
+	CopyGrants                 bool
+	EnableSchemaEvolution      *bool
+	ChangeTracking             *bool
+	DataRetentionTimeInDays    *uint64
+	MaxDataExtensionTimeInDays *uint64
+	DefaultDdlCollation        *string
+	WithAggregationPolicy      *ast.ObjectName
+	WithRowAccessPolicy        *expr.RowAccessPolicy
+	WithStorageLifecyclePolicy *expr.StorageLifecyclePolicy
+	WithTags                   []*expr.Tag
+	ExternalVolume             *string
+	BaseLocation               *string
+	Catalog                    *string
+	CatalogSync                *string
+	StorageSerializationPolicy *expr.StorageSerializationPolicy
+	TargetLag                  *string
+	Warehouse                  *ast.Ident
+	RefreshMode                *expr.RefreshModeKind
+	Initialize                 *expr.InitializeKind
+}
+
+func (c *CreateTable) statementNode() {}
+
+func (c *CreateTable) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	if c.Transient {
+		f.WriteString("TRANSIENT ")
+	}
+	if c.External {
+		f.WriteString("EXTERNAL ")
+	}
+	if c.Volatile {
+		f.WriteString("VOLATILE ")
+	}
+	if c.Dynamic {
+		f.WriteString("DYNAMIC ")
+	}
+	if c.Iceberg {
+		f.WriteString("ICEBERG ")
+	}
+	if c.Snapshot {
+		f.WriteString("SNAPSHOT ")
+	}
+	if c.Global != nil {
+		if *c.Global {
+			f.WriteString("GLOBAL ")
+		} else {
+			f.WriteString("LOCAL ")
+		}
+	}
+	f.WriteString("TABLE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+
+	if len(c.Columns) > 0 {
+		f.WriteString(" (")
+		for i, col := range c.Columns {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(col.String())
+		}
+		for _, constraint := range c.Constraints {
+			f.WriteString(", ")
+			f.WriteString(constraint.String())
+		}
+		f.WriteString(")")
+	}
+
+	if c.Comment != nil {
+		f.WriteString(" COMMENT '")
+		f.WriteString(c.Comment.String())
+		f.WriteString("'")
+	}
+
+	if c.Query != nil {
+		f.WriteString(" AS ")
+		f.WriteString(c.Query.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE VIEW
+// ============================================================================
+
+// CreateView represents a CREATE VIEW statement
+type CreateView struct {
+	BaseStatement
+	OrReplace           bool
+	OrAlter             bool
+	Materialized        bool
+	IfNotExists         bool
+	Temporary           bool
+	Name                *ast.ObjectName
+	Columns             []*ast.Ident
+	Query               *query.Query
+	Options             []*expr.SqlOption
+	ClusterBy           []expr.Expr
+	WithNoSchemaBinding bool
+	WithNoData          bool
+	Comment             *expr.CommentDef
+	Versioned           bool
+	Envelope            *expr.ViewEnvelope
+	QueryArena          bool
+	Params              *expr.CreateViewParams
+	Backup              bool
+	Watermark           expr.Expr
+	To                  ast.Statement
+}
+
+func (c *CreateView) statementNode() {}
+
+func (c *CreateView) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	if c.Materialized {
+		f.WriteString("MATERIALIZED ")
+	}
+	f.WriteString("VIEW ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+
+	if len(c.Columns) > 0 {
+		f.WriteString(" (")
+		f.WriteString(formatIdents(c.Columns, ", "))
+		f.WriteString(")")
+	}
+
+	f.WriteString(" AS ")
+	f.WriteString(c.Query.String())
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE INDEX
+// ============================================================================
+
+// CreateIndex represents a CREATE INDEX statement
+type CreateIndex struct {
+	BaseStatement
+	OrReplace      bool
+	Unique         bool
+	IfNotExists    bool
+	Concurrently   bool
+	Name           *ast.Ident
+	TableName      *ast.ObjectName
+	Using          *ast.Ident
+	Columns        []*expr.IndexColumn
+	Include        []*ast.Ident
+	NullsDistinct  *bool // nil = not specified, true = NULLS DISTINCT, false = NULLS NOT DISTINCT
+	Predicate      expr.Expr
+	With           []*expr.SqlOption
+	TableSpace     *ast.Ident
+	SortedBy       []*expr.OrderByExpr
+	IgnoreOrRevert *string
+}
+
+func (c *CreateIndex) statementNode() {}
+
+func (c *CreateIndex) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Unique {
+		f.WriteString("UNIQUE ")
+	}
+	f.WriteString("INDEX ")
+	if c.Concurrently {
+		f.WriteString("CONCURRENTLY ")
+	}
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	if c.Name != nil {
+		f.WriteString(c.Name.String())
+		f.WriteString(" ")
+	}
+	f.WriteString("ON ")
+	f.WriteString(c.TableName.String())
+
+	if c.Using != nil {
+		f.WriteString(" USING ")
+		f.WriteString(c.Using.String())
+	}
+
+	f.WriteString(" (")
+	for i, col := range c.Columns {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(col.String())
+	}
+	f.WriteString(")")
+
+	if len(c.Include) > 0 {
+		f.WriteString(" INCLUDE (")
+		f.WriteString(formatIdents(c.Include, ", "))
+		f.WriteString(")")
+	}
+
+	if c.NullsDistinct != nil {
+		if *c.NullsDistinct {
+			f.WriteString(" NULLS DISTINCT")
+		} else {
+			f.WriteString(" NULLS NOT DISTINCT")
+		}
+	}
+
+	if len(c.With) > 0 {
+		f.WriteString(" WITH (")
+		for i, opt := range c.With {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
+	}
+
+	if c.TableSpace != nil {
+		f.WriteString(" TABLESPACE ")
+		f.WriteString(c.TableSpace.String())
+	}
+
+	if c.Predicate != nil {
+		f.WriteString(" WHERE ")
+		f.WriteString(c.Predicate.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE FUNCTION
+// ============================================================================
+
+// CreateFunction represents a CREATE FUNCTION statement
+type CreateFunction struct {
+	BaseStatement
+	OrReplace                  bool
+	Temporary                  bool
+	IfNotExists                bool
+	Name                       *ast.ObjectName
+	Args                       []*expr.OperateFunctionArg
+	ReturnType                 *expr.FunctionReturnType
+	Language                   *ast.Ident
+	Behavior                   *expr.FunctionBehavior
+	CalledOnNull               *expr.FunctionCalledOnNull
+	Parallel                   *expr.FunctionParallel
+	Security                   *expr.FunctionSecurity
+	Determinism                *expr.FunctionDeterminismSpecifier
+	Cost                       *expr.Expr
+	Rows                       *expr.Expr
+	Body                       *expr.CreateFunctionBody
+	Comment                    *string
+	Attributes                 []*expr.SqlOption
+	Set                        []*expr.FunctionDefinitionSetParam
+	ReturnNullWhenCalledOnNull bool
+	ReturnTypeConstraint       *ast.DataType
+	SqlSecurity                *expr.SqlSecurity
+	RemoteProperty             *expr.RemoteProperty
+	Params                     []*expr.ProcedureParam
+	External                   bool
+	Definer                    expr.Expr
+	Aggregate                  bool
+	Window                     bool
+	Support                    *ast.ObjectName
+	LocateIn                   *ast.ObjectName
+	ExecuteAs                  *expr.ExecuteAs
+}
+
+func (c *CreateFunction) statementNode() {}
+
+func (c *CreateFunction) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("FUNCTION ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+
+	if len(c.Args) > 0 {
+		f.WriteString("(")
+		for i, arg := range c.Args {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(arg.String())
+		}
+		f.WriteString(")")
+	} else {
+		f.WriteString("()")
+	}
+
+	if c.ReturnType != nil {
+		f.WriteString(" RETURNS ")
+		f.WriteString(c.ReturnType.String())
+	}
+
+	if c.Language != nil {
+		f.WriteString(" LANGUAGE ")
+		f.WriteString(c.Language.String())
+	}
+
+	if c.Behavior != nil && *c.Behavior != expr.FunctionBehaviorNone {
+		f.WriteString(" ")
+		f.WriteString(c.Behavior.String())
+	}
+
+	if c.CalledOnNull != nil && *c.CalledOnNull != expr.FunctionCalledOnNullNone {
+		f.WriteString(" ")
+		f.WriteString(c.CalledOnNull.String())
+	}
+
+	if c.Parallel != nil && *c.Parallel != expr.FunctionParallelNone {
+		f.WriteString(" ")
+		f.WriteString(c.Parallel.String())
+	}
+
+	if c.Security != nil && *c.Security != expr.FunctionSecurityNone {
+		f.WriteString(" ")
+		f.WriteString(c.Security.String())
+	}
+
+	for _, setParam := range c.Set {
+		f.WriteString(" ")
+		f.WriteString(setParam.String())
+	}
+
+	if c.Body != nil {
+		f.WriteString(" AS ")
+		f.WriteString(c.Body.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE ROLE
+// ============================================================================
+
+// CreateRole represents a CREATE ROLE statement
+type CreateRole struct {
+	BaseStatement
+	IfNotExists bool
+	Names       []*ast.Ident
+	Options     []*expr.RoleOption
+}
+
+func (c *CreateRole) statementNode() {}
+
+func (c *CreateRole) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ROLE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(formatIdents(c.Names, ", "))
+	for _, opt := range c.Options {
+		f.WriteString(" ")
+		f.WriteString(opt.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// ALTER TABLE
+// ============================================================================
+
+// AlterTable represents an ALTER TABLE statement
+type AlterTable struct {
+	BaseStatement
+	Name       *ast.ObjectName
+	IfExists   bool
+	Only       bool
+	Operations []*expr.AlterTableOperation
+	Location   *expr.HiveSetLocation
+}
+
+func (a *AlterTable) statementNode() {}
+
+func (a *AlterTable) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER TABLE ")
+	if a.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	if a.Only {
+		f.WriteString("ONLY ")
+	}
+	f.WriteString(a.Name.String())
+
+	for i, op := range a.Operations {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(" ")
+		f.WriteString(op.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// ALTER SCHEMA
+// ============================================================================
+
+// AlterSchema represents an ALTER SCHEMA statement
+type AlterSchema struct {
+	BaseStatement
+	Name      *ast.ObjectName
+	IfExists  bool
+	Operation *expr.AlterSchemaOperation
+}
+
+func (a *AlterSchema) statementNode() {}
+
+func (a *AlterSchema) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER SCHEMA ")
+	if a.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(a.Name.String())
+	f.WriteString(" ")
+	f.WriteString(a.Operation.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER INDEX
+// ============================================================================
+
+// AlterIndex represents an ALTER INDEX statement
+type AlterIndex struct {
+	BaseStatement
+	Name      *ast.ObjectName
+	Operation *expr.AlterIndexOperation
+}
+
+func (a *AlterIndex) statementNode() {}
+
+func (a *AlterIndex) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER INDEX ")
+	f.WriteString(a.Name.String())
+	f.WriteString(" ")
+	f.WriteString(a.Operation.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER VIEW
+// ============================================================================
+
+// AlterView represents an ALTER VIEW statement
+type AlterView struct {
+	BaseStatement
+	Name        *ast.ObjectName
+	Columns     []*ast.Ident
+	Query       *query.Query
+	WithOptions []*expr.SqlOption
+}
+
+func (a *AlterView) statementNode() {}
+
+func (a *AlterView) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER VIEW ")
+	f.WriteString(a.Name.String())
+
+	if len(a.Columns) > 0 {
+		f.WriteString(" (")
+		f.WriteString(formatIdents(a.Columns, ", "))
+		f.WriteString(")")
+	}
+
+	f.WriteString(" AS ")
+	f.WriteString(a.Query.String())
+
+	return f.String()
+}
+
+// ============================================================================
+// ALTER TYPE
+// ============================================================================
+
+// AlterType represents an ALTER TYPE statement
+type AlterType struct {
+	BaseStatement
+	Name       *ast.ObjectName
+	Operations []*expr.AlterTypeOperation
+}
+
+func (a *AlterType) statementNode() {}
+
+func (a *AlterType) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER TYPE ")
+	f.WriteString(a.Name.String())
+
+	for i, op := range a.Operations {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(" ")
+		f.WriteString(op.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// ALTER ROLE
+// ============================================================================
+
+// AlterRole represents an ALTER ROLE statement
+type AlterRole struct {
+	BaseStatement
+	Name      *ast.Ident
+	Operation *expr.AlterRoleOperation
+}
+
+func (a *AlterRole) statementNode() {}
+
+func (a *AlterRole) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER ROLE ")
+	f.WriteString(a.Name.String())
+	f.WriteString(" ")
+	f.WriteString(a.Operation.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP
+// ============================================================================
+
+// Drop represents a DROP statement
+type Drop struct {
+	BaseStatement
+	ObjectType expr.ObjectType
+	IfExists   bool
+	Names      []*ast.ObjectName
+	Cascade    bool
+	Restrict   bool
+	Purge      bool
+	Temporary  bool
+	Table      *ast.ObjectName
+}
+
+func (d *Drop) statementNode() {}
+
+func (d *Drop) String() string {
+	var f strings.Builder
+	f.WriteString("DROP ")
+	f.WriteString(d.ObjectType.String())
+	f.WriteString(" ")
+
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+
+	f.WriteString(formatObjectNames(d.Names, ", "))
+
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// TRUNCATE
+// ============================================================================
+
+// Truncate represents a TRUNCATE statement
+type Truncate struct {
+	BaseStatement
+	TableNames []*ast.ObjectName
+	Partitions []expr.Expr
+	OnCluster  *ast.Ident
+}
+
+func (t *Truncate) statementNode() {}
+
+func (t *Truncate) String() string {
+	var f strings.Builder
+	f.WriteString("TRUNCATE TABLE ")
+	f.WriteString(formatObjectNames(t.TableNames, ", "))
+	return f.String()
+}
+
+// ============================================================================
+// CREATE SCHEMA
+// ============================================================================
+
+// CreateSchema represents a CREATE SCHEMA statement
+type CreateSchema struct {
+	BaseStatement
+	SchemaName         *expr.SchemaName
+	IfNotExists        bool
+	With               []*expr.SqlOption
+	Options            []*expr.SqlOption
+	DefaultCollateSpec expr.Expr
+	Clone              *ast.ObjectName
+}
+
+func (c *CreateSchema) statementNode() {}
+
+func (c *CreateSchema) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE SCHEMA ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.SchemaName.String())
+
+	if c.DefaultCollateSpec != nil {
+		f.WriteString(" DEFAULT COLLATE ")
+		f.WriteString(c.DefaultCollateSpec.String())
+	}
+
+	if len(c.With) > 0 {
+		f.WriteString(" WITH (")
+		for i, opt := range c.With {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
+	}
+
+	if len(c.Options) > 0 {
+		f.WriteString(" OPTIONS(")
+		for i, opt := range c.Options {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
+	}
+
+	if c.Clone != nil {
+		f.WriteString(" CLONE ")
+		f.WriteString(c.Clone.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE DATABASE
+// ============================================================================
+
+// CreateDatabase represents a CREATE DATABASE statement
+type CreateDatabase struct {
+	BaseStatement
+	DbName                               *ast.ObjectName
+	IfNotExists                          bool
+	Location                             *string
+	ManagedLocation                      *string
+	OrReplace                            bool
+	Transient                            bool
+	Clone                                *ast.ObjectName
+	DataRetentionTimeInDays              *uint64
+	MaxDataExtensionTimeInDays           *uint64
+	ExternalVolume                       *string
+	Catalog                              *string
+	ReplaceInvalidCharacters             *bool
+	DefaultDdlCollation                  *string
+	StorageSerializationPolicy           *expr.StorageSerializationPolicy
+	Comment                              *string
+	DefaultCharset                       *string
+	DefaultCollation                     *string
+	CatalogSync                          *string
+	CatalogSyncNamespaceMode             *expr.CatalogSyncNamespaceMode
+	CatalogSyncNamespaceFlattenDelimiter *string
+	WithTags                             []*expr.Tag
+	WithContacts                         []*expr.ContactEntry
+}
+
+func (c *CreateDatabase) statementNode() {}
+
+func (c *CreateDatabase) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Transient {
+		f.WriteString("TRANSIENT ")
+	}
+	f.WriteString("DATABASE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.DbName.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE SEQUENCE
+// ============================================================================
+
+// CreateSequence represents a CREATE SEQUENCE statement
+type CreateSequence struct {
+	BaseStatement
+	Temporary       bool
+	IfNotExists     bool
+	Name            *ast.ObjectName
+	DataType        string // Optional AS data type (e.g., "BIGINT")
+	SequenceOptions []*expr.SequenceOptions
+	OwnedBy         *ast.ObjectName
+}
+
+func (c *CreateSequence) statementNode() {}
+
+func (c *CreateSequence) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("SEQUENCE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+
+	// Add AS data_type if present
+	if c.DataType != "" {
+		f.WriteString(" AS ")
+		f.WriteString(c.DataType)
+	}
+
+	// Add sequence options
+	for _, opt := range c.SequenceOptions {
+		f.WriteString(opt.String())
+	}
+
+	// Add OWNED BY if present
+	if c.OwnedBy != nil {
+		f.WriteString(" OWNED BY ")
+		f.WriteString(c.OwnedBy.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE DOMAIN
+// ============================================================================
+
+// CreateDomain represents a CREATE DOMAIN statement
+type CreateDomain struct {
+	BaseStatement
+	Name         *ast.ObjectName
+	DataType     *ast.DataType
+	Collation    *ast.ObjectName
+	DefaultValue expr.Expr
+	Constraints  []*expr.DomainConstraint
+}
+
+func (c *CreateDomain) statementNode() {}
+
+func (c *CreateDomain) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE DOMAIN ")
+	f.WriteString(c.Name.String())
+	f.WriteString(" AS ")
+	if c.DataType != nil && *c.DataType != nil {
+		f.WriteString((*c.DataType).String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// CREATE TYPE
+// ============================================================================
+
+// CreateType represents a CREATE TYPE statement
+type CreateType struct {
+	BaseStatement
+	Name           *ast.ObjectName
+	Representation *expr.UserDefinedTypeRepresentation
+}
+
+func (c *CreateType) statementNode() {}
+
+func (c *CreateType) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE TYPE ")
+	f.WriteString(c.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE VIRTUAL TABLE
+// ============================================================================
+
+// CreateVirtualTable represents a CREATE VIRTUAL TABLE statement (SQLite)
+type CreateVirtualTable struct {
+	BaseStatement
+	Name        *ast.ObjectName
+	IfNotExists bool
+	ModuleName  *ast.Ident
+	ModuleArgs  []*ast.Ident
+}
+
+func (c *CreateVirtualTable) statementNode() {}
+
+func (c *CreateVirtualTable) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE VIRTUAL TABLE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(c.ModuleName.String())
+
+	if len(c.ModuleArgs) > 0 {
+		f.WriteString("(")
+		f.WriteString(formatIdents(c.ModuleArgs, ", "))
+		f.WriteString(")")
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE TRIGGER
+// ============================================================================
+
+// CreateTrigger represents a CREATE TRIGGER statement
+type CreateTrigger struct {
+	BaseStatement
+	OrReplace       bool
+	Temporary       bool
+	Name            *ast.Ident
+	Period          *expr.TriggerPeriod
+	Event           *expr.TriggerEvent
+	TableName       *ast.ObjectName
+	Referencing     []*expr.TriggerReferencing
+	IncludeEachRow  bool
+	When            expr.Expr
+	TriggerBody     *expr.TriggerExecBody
+	Enabled         *bool
+	BeforeColumns   []*ast.Ident
+	OnConfiguration *string
+}
+
+func (c *CreateTrigger) statementNode() {}
+
+func (c *CreateTrigger) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("TRIGGER ")
+	f.WriteString(c.Name.String())
+
+	if c.Period != nil {
+		f.WriteString(" ")
+		f.WriteString(c.Period.String())
+	}
+
+	if c.Event != nil {
+		f.WriteString(" ")
+		f.WriteString(c.Event.String())
+	}
+
+	f.WriteString(" ON ")
+	f.WriteString(c.TableName.String())
+
+	if c.TriggerBody != nil {
+		f.WriteString(" ")
+		f.WriteString(c.TriggerBody.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// DROP TRIGGER
+// ============================================================================
+
+// DropTrigger represents a DROP TRIGGER statement
+type DropTrigger struct {
+	BaseStatement
+	IfExists bool
+	Name     *ast.ObjectName
+}
+
+func (d *DropTrigger) statementNode() {}
+
+func (d *DropTrigger) String() string {
+	var f strings.Builder
+	f.WriteString("DROP TRIGGER ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE PROCEDURE
+// ============================================================================
+
+// CreateProcedure represents a CREATE PROCEDURE statement
+type CreateProcedure struct {
+	BaseStatement
+	OrAlter  bool
+	Name     *ast.ObjectName
+	Params   []*expr.ProcedureParam
+	Language *ast.Ident
+	Body     *expr.ConditionalStatements
+}
+
+func (c *CreateProcedure) statementNode() {}
+
+func (c *CreateProcedure) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrAlter {
+		f.WriteString("OR ALTER ")
+	}
+	f.WriteString("PROCEDURE ")
+	f.WriteString(c.Name.String())
+
+	if len(c.Params) > 0 {
+		f.WriteString("(")
+		for i, param := range c.Params {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(param.String())
+		}
+		f.WriteString(")")
+	}
+
+	if c.Language != nil {
+		f.WriteString(" LANGUAGE ")
+		f.WriteString(c.Language.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE MACRO (DuckDB)
+// ============================================================================
+
+// CreateMacro represents a CREATE MACRO statement (DuckDB)
+type CreateMacro struct {
+	BaseStatement
+	OrReplace  bool
+	Temporary  bool
+	Name       *ast.ObjectName
+	Args       []*expr.MacroArg
+	Definition *expr.MacroDefinition
+}
+
+func (c *CreateMacro) statementNode() {}
+
+func (c *CreateMacro) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("MACRO ")
+	f.WriteString(c.Name.String())
+
+	if len(c.Args) > 0 {
+		f.WriteString("(")
+		for i, arg := range c.Args {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(arg.String())
+		}
+		f.WriteString(")")
+	}
+
+	if c.Definition != nil {
+		f.WriteString(" AS ")
+		f.WriteString(c.Definition.String())
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// CREATE STAGE (Snowflake)
+// ============================================================================
+
+// CreateStage represents a CREATE STAGE statement (Snowflake)
+type CreateStage struct {
+	BaseStatement
+	OrReplace            bool
+	Temporary            bool
+	IfNotExists          bool
+	Name                 *ast.ObjectName
+	StageParams          *expr.StageParamsObject
+	DirectoryTableParams *expr.KeyValueOptions
+	FileFormat           *expr.KeyValueOptions
+	CopyOptions          *expr.KeyValueOptions
+	Comment              *string
+}
+
+func (c *CreateStage) statementNode() {}
+
+func (c *CreateStage) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("STAGE ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE SECRET (DuckDB)
+// ============================================================================
+
+// CreateSecret represents a CREATE SECRET statement (DuckDB)
+type CreateSecret struct {
+	BaseStatement
+	OrReplace        bool
+	Temporary        *bool
+	IfNotExists      bool
+	Name             *ast.Ident
+	StorageSpecifier *ast.Ident
+	SecretType       *ast.Ident
+	Options          []*expr.SecretOption
+}
+
+func (c *CreateSecret) statementNode() {}
+
+func (c *CreateSecret) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.Temporary != nil && *c.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("SECRET ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	if c.Name != nil {
+		f.WriteString(c.Name.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// CREATE SERVER
+// ============================================================================
+
+// CreateServerStatement represents a CREATE SERVER statement
+type CreateServerStatement struct {
+	BaseStatement
+	OrReplace          bool
+	Name               *ast.ObjectName
+	ServerType         *string
+	Version            *string
+	ForeignDataWrapper *ast.Ident
+	Options            []*expr.SqlOption
+}
+
+func (c *CreateServerStatement) statementNode() {}
+
+func (c *CreateServerStatement) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE SERVER ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString(c.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE POLICY
+// ============================================================================
+
+// CreatePolicy represents a CREATE POLICY statement
+type CreatePolicy struct {
+	BaseStatement
+	OrReplace          bool
+	Name               *ast.Ident
+	TableName          *ast.ObjectName
+	Permissive         *bool
+	Command            *expr.CreatePolicyCommand
+	RoleNames          []*expr.RoleName
+	Using              expr.Expr
+	WithCheck          expr.Expr
+	ExternalSchema     *string
+	ExternalTable      *string
+	ExternalDataFormat *string
+}
+
+func (c *CreatePolicy) statementNode() {}
+
+func (c *CreatePolicy) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE POLICY ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString(c.Name.String())
+	f.WriteString(" ON ")
+	f.WriteString(c.TableName.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE CONNECTOR
+// ============================================================================
+
+// CreateConnector represents a CREATE CONNECTOR statement (Hive)
+type CreateConnector struct {
+	BaseStatement
+	IfNotExists bool
+	Name        *ast.Ident
+	URL         string
+	Options     []*expr.SqlOption
+}
+
+func (c *CreateConnector) statementNode() {}
+
+func (c *CreateConnector) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE CONNECTOR ")
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE OPERATOR
+// ============================================================================
+
+// CreateOperator represents a CREATE OPERATOR statement
+type CreateOperator struct {
+	BaseStatement
+	OrReplace bool
+	Name      *ast.ObjectName
+	Kind      *expr.OperatorPurpose
+	Options   []*expr.OperatorOption
+}
+
+func (c *CreateOperator) statementNode() {}
+
+func (c *CreateOperator) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE OPERATOR ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString(c.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE OPERATOR FAMILY
+// ============================================================================
+
+// CreateOperatorFamily represents a CREATE OPERATOR FAMILY statement
+type CreateOperatorFamily struct {
+	BaseStatement
+	OrReplace   bool
+	Name        *ast.ObjectName
+	IndexMethod *ast.Ident
+	Options     []*expr.SqlOption
+}
+
+func (c *CreateOperatorFamily) statementNode() {}
+
+func (c *CreateOperatorFamily) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE OPERATOR FAMILY ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString(c.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(c.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE OPERATOR CLASS
+// ============================================================================
+
+// CreateOperatorClass represents a CREATE OPERATOR CLASS statement
+type CreateOperatorClass struct {
+	BaseStatement
+	OrReplace   bool
+	Name        *ast.ObjectName
+	IndexMethod *ast.Ident
+	DataType    *ast.DataType
+	Family      *ast.ObjectName
+	Options     []*expr.SqlOption
+	Items       []*expr.OperatorClassItem
+}
+
+func (c *CreateOperatorClass) statementNode() {}
+
+func (c *CreateOperatorClass) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE OPERATOR CLASS ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString(c.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(c.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER POLICY
+// ============================================================================
+
+// AlterPolicy represents an ALTER POLICY statement
+type AlterPolicy struct {
+	BaseStatement
+	Name      *ast.Ident
+	TableName *ast.ObjectName
+	Operation *expr.AlterPolicyOperation
+}
+
+func (a *AlterPolicy) statementNode() {}
+
+func (a *AlterPolicy) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER POLICY ")
+	f.WriteString(a.Name.String())
+	f.WriteString(" ON ")
+	f.WriteString(a.TableName.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER CONNECTOR
+// ============================================================================
+
+// AlterConnector represents an ALTER CONNECTOR statement (Hive)
+type AlterConnector struct {
+	BaseStatement
+	Name       *ast.Ident
+	Properties []*expr.SqlOption
+	URL        *string
+	Owner      *expr.AlterConnectorOwner
+}
+
+func (a *AlterConnector) statementNode() {}
+
+func (a *AlterConnector) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER CONNECTOR ")
+	f.WriteString(a.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER SESSION
+// ============================================================================
+
+// AlterSession represents an ALTER SESSION statement
+type AlterSession struct {
+	BaseStatement
+	Set           bool
+	SessionParams *expr.KeyValueOptions
+}
+
+func (a *AlterSession) statementNode() {}
+
+func (a *AlterSession) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER SESSION ")
+	if a.Set {
+		f.WriteString("SET ")
+	} else {
+		f.WriteString("UNSET ")
+	}
+	return f.String()
+}
+
+// ============================================================================
+// ATTACH DATABASE
+// ============================================================================
+
+// AttachDatabase represents an ATTACH DATABASE statement (SQLite)
+type AttachDatabase struct {
+	BaseStatement
+	SchemaName       *ast.Ident
+	DatabaseFileName expr.Expr
+	Database         bool
+}
+
+func (a *AttachDatabase) statementNode() {}
+
+func (a *AttachDatabase) String() string {
+	var f strings.Builder
+	f.WriteString("ATTACH ")
+	if a.Database {
+		f.WriteString("DATABASE ")
+	}
+	f.WriteString(a.DatabaseFileName.String())
+	f.WriteString(" AS ")
+	f.WriteString(a.SchemaName.String())
+	return f.String()
+}
+
+// ============================================================================
+// ATTACH DUCKDB DATABASE
+// ============================================================================
+
+// AttachDuckDBDatabase represents an ATTACH DATABASE statement (DuckDB)
+type AttachDuckDBDatabase struct {
+	BaseStatement
+	IfNotExists   bool
+	Database      bool
+	DatabasePath  *ast.Ident
+	DatabaseAlias *ast.Ident
+	AttachOptions []*expr.AttachDuckDBDatabaseOption
+}
+
+func (a *AttachDuckDBDatabase) statementNode() {}
+
+func (a *AttachDuckDBDatabase) String() string {
+	var f strings.Builder
+	f.WriteString("ATTACH ")
+	if a.Database {
+		f.WriteString("DATABASE ")
+	}
+	if a.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(a.DatabasePath.String())
+	return f.String()
+}
+
+// ============================================================================
+// DETACH DUCKDB DATABASE
+// ============================================================================
+
+// DetachDuckDBDatabase represents a DETACH DATABASE statement (DuckDB)
+type DetachDuckDBDatabase struct {
+	BaseStatement
+	IfExists      bool
+	Database      bool
+	DatabaseAlias *ast.Ident
+}
+
+func (d *DetachDuckDBDatabase) statementNode() {}
+
+func (d *DetachDuckDBDatabase) String() string {
+	var f strings.Builder
+	f.WriteString("DETACH ")
+	if d.Database {
+		f.WriteString("DATABASE ")
+	}
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.DatabaseAlias.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP FUNCTION
+// ============================================================================
+
+// DropFunction represents a DROP FUNCTION statement
+type DropFunction struct {
+	BaseStatement
+	IfExists     bool
+	FuncDesc     []*expr.FunctionDesc
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropFunction) statementNode() {}
+
+func (d *DropFunction) String() string {
+	var f strings.Builder
+	f.WriteString("DROP FUNCTION ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, desc := range d.FuncDesc {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(desc.String())
+	}
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// DROP DOMAIN
+// ============================================================================
+
+// DropDomain represents a DROP DOMAIN statement
+type DropDomain struct {
+	BaseStatement
+	IfExists     bool
+	Names        []*ast.ObjectName
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropDomain) statementNode() {}
+
+func (d *DropDomain) String() string {
+	var f strings.Builder
+	f.WriteString("DROP DOMAIN ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(formatObjectNames(d.Names, ", "))
+	return f.String()
+}
+
+// ============================================================================
+// DROP PROCEDURE
+// ============================================================================
+
+// DropProcedure represents a DROP PROCEDURE statement
+type DropProcedure struct {
+	BaseStatement
+	IfExists     bool
+	ProcDesc     []*expr.FunctionDesc
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropProcedure) statementNode() {}
+
+func (d *DropProcedure) String() string {
+	var f strings.Builder
+	f.WriteString("DROP PROCEDURE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, desc := range d.ProcDesc {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(desc.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// DROP SECRET
+// ============================================================================
+
+// DropSecret represents a DROP SECRET statement
+type DropSecret struct {
+	BaseStatement
+	IfExists         bool
+	Temporary        *bool
+	Name             *ast.Ident
+	StorageSpecifier *ast.Ident
+}
+
+func (d *DropSecret) statementNode() {}
+
+func (d *DropSecret) String() string {
+	var f strings.Builder
+	f.WriteString("DROP ")
+	if d.Temporary != nil && *d.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("SECRET ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP POLICY
+// ============================================================================
+
+// DropPolicy represents a DROP POLICY statement
+type DropPolicy struct {
+	BaseStatement
+	IfExists     bool
+	Name         *ast.Ident
+	TableName    *ast.ObjectName
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropPolicy) statementNode() {}
+
+func (d *DropPolicy) String() string {
+	var f strings.Builder
+	f.WriteString("DROP POLICY ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	f.WriteString(" ON ")
+	f.WriteString(d.TableName.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP CONNECTOR
+// ============================================================================
+
+// DropConnector represents a DROP CONNECTOR statement
+type DropConnector struct {
+	BaseStatement
+	IfExists bool
+	Name     *ast.Ident
+}
+
+func (d *DropConnector) statementNode() {}
+
+func (d *DropConnector) String() string {
+	var f strings.Builder
+	f.WriteString("DROP CONNECTOR ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP EXTENSION
+// ============================================================================
+
+// DropExtension represents a DROP EXTENSION statement
+type DropExtension struct {
+	BaseStatement
+	IfExists     bool
+	Names        []*ast.Ident
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropExtension) statementNode() {}
+
+func (d *DropExtension) String() string {
+	var f strings.Builder
+	f.WriteString("DROP EXTENSION ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(formatIdents(d.Names, ", "))
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// DROP OPERATOR
+// ============================================================================
+
+// DropOperator represents a DROP OPERATOR statement
+type DropOperator struct {
+	BaseStatement
+	IfExists bool
+	Names    []*expr.DropOperatorSignature
+}
+
+func (d *DropOperator) statementNode() {}
+
+func (d *DropOperator) String() string {
+	var f strings.Builder
+	f.WriteString("DROP OPERATOR ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, sig := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(sig.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// DROP OPERATOR FAMILY
+// ============================================================================
+
+// DropOperatorFamily represents a DROP OPERATOR FAMILY statement
+type DropOperatorFamily struct {
+	BaseStatement
+	IfExists     bool
+	Name         *ast.ObjectName
+	IndexMethod  *ast.Ident
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropOperatorFamily) statementNode() {}
+
+func (d *DropOperatorFamily) String() string {
+	var f strings.Builder
+	f.WriteString("DROP OPERATOR FAMILY ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(d.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP OPERATOR CLASS
+// ============================================================================
+
+// DropOperatorClass represents a DROP OPERATOR CLASS statement
+type DropOperatorClass struct {
+	BaseStatement
+	IfExists     bool
+	Name         *ast.ObjectName
+	IndexMethod  *ast.Ident
+	DropBehavior *expr.DropBehavior
+}
+
+func (d *DropOperatorClass) statementNode() {}
+
+func (d *DropOperatorClass) String() string {
+	var f strings.Builder
+	f.WriteString("DROP OPERATOR CLASS ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(d.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// CREATE EXTENSION
+// ============================================================================
+
+// CreateExtension represents a CREATE EXTENSION statement
+type CreateExtension struct {
+	BaseStatement
+	OrReplace   bool
+	IfNotExists bool
+	Name        *ast.Ident
+	Schema      *ast.ObjectName
+	Version     *string
+	Cascade     bool
+}
+
+func (c *CreateExtension) statementNode() {}
+
+func (c *CreateExtension) String() string {
+	var f strings.Builder
+	f.WriteString("CREATE EXTENSION ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
+	f.WriteString(c.Name.String())
+
+	// Add WITH clause if any option is present
+	if c.Cascade || c.Schema != nil || c.Version != nil {
+		f.WriteString(" WITH")
+		if c.Schema != nil {
+			f.WriteString(" SCHEMA ")
+			f.WriteString(c.Schema.String())
+		}
+		if c.Version != nil {
+			f.WriteString(" VERSION ")
+			f.WriteString(*c.Version)
+		}
+		if c.Cascade {
+			f.WriteString(" CASCADE")
+		}
+	}
+
+	return f.String()
+}
+
+// ============================================================================
+// ALTER OPERATOR
+// ============================================================================
+
+// AlterOperator represents an ALTER OPERATOR statement
+type AlterOperator struct {
+	BaseStatement
+	Name      *ast.ObjectName
+	Signature *expr.OperatorSignature
+	Operation *expr.AlterOperatorOperation
+}
+
+func (a *AlterOperator) statementNode() {}
+
+func (a *AlterOperator) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER OPERATOR ")
+	f.WriteString(a.Name.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER OPERATOR FAMILY
+// ============================================================================
+
+// AlterOperatorFamily represents an ALTER OPERATOR FAMILY statement
+type AlterOperatorFamily struct {
+	BaseStatement
+	Name        *ast.ObjectName
+	IndexMethod *ast.Ident
+	Operations  []*expr.OperatorFamilyOperation
+}
+
+func (a *AlterOperatorFamily) statementNode() {}
+
+func (a *AlterOperatorFamily) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER OPERATOR FAMILY ")
+	f.WriteString(a.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(a.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// ALTER OPERATOR CLASS
+// ============================================================================
+
+// AlterOperatorClass represents an ALTER OPERATOR CLASS statement
+type AlterOperatorClass struct {
+	BaseStatement
+	Name        *ast.ObjectName
+	IndexMethod *ast.Ident
+	Operations  []*expr.OperatorClassOperation
+}
+
+func (a *AlterOperatorClass) statementNode() {}
+
+func (a *AlterOperatorClass) String() string {
+	var f strings.Builder
+	f.WriteString("ALTER OPERATOR CLASS ")
+	f.WriteString(a.Name.String())
+	f.WriteString(" USING ")
+	f.WriteString(a.IndexMethod.String())
+	return f.String()
+}
+
+// AlterUserOperation represents ALTER USER operation.
+type AlterUserOperation interface {
+	alterUserOperation()
+	fmt.Stringer
+}
+
+// TableConstraint represents table constraint for CREATE TABLE.
+type TableConstraint struct {
+	BaseStatement
+	Name       *ast.Ident
+	Constraint interface{} // TODO: Add specific constraint types
+}
+
+func (t *TableConstraint) statementNode() {}
+
+func (t *TableConstraint) String() string {
+	return "CONSTRAINT"
+}
+
+// IndexType represents index type.
+type IndexType int
+
+const (
+	IndexTypeNone IndexType = iota
+	IndexTypeBTree
+	IndexTypeHash
+)
+
+func (i IndexType) String() string {
+	switch i {
+	case IndexTypeBTree:
+		return "BTREE"
+	case IndexTypeHash:
+		return "HASH"
+	default:
+		return ""
+	}
+}
+
+// AtBeforeClause represents AT/BEFORE clause for time travel queries.
+type AtBeforeClause struct {
+	Timestamp *string
+	Offset    *int64
+	Statement *string
+}
+
+func (a *AtBeforeClause) statementNode() {}
+
+func (a *AtBeforeClause) String() string {
+	return "AT/BEFORE"
+}
+
+// SetAssignment represents SET assignment.
+type SetAssignment struct {
+	Variable *ast.Ident
+	Value    expr.Expr
+}
+
+func (s *SetAssignment) statementNode() {}
+
+func (s *SetAssignment) String() string {
+	return fmt.Sprintf("%s = %s", s.Variable.String(), s.Value.String())
+}
+
+// CopyOption represents COPY option.
+type CopyOption struct {
+	Name  string
+	Value expr.Expr
+}
+
+func (c *CopyOption) statementNode() {}
+
+func (c *CopyOption) String() string {
+	return fmt.Sprintf("%s = %s", c.Name, c.Value.String())
+}
+
+// ============================================================================
+// DROP Statements
+// ============================================================================
+
+// DropTable represents a DROP TABLE statement
+type DropTable struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+	Purge    bool
+}
+
+func (d *DropTable) statementNode() {}
+
+func (d *DropTable) String() string {
+	var f strings.Builder
+	f.WriteString("DROP TABLE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+	if d.Purge {
+		f.WriteString(" PURGE")
+	}
+	return f.String()
+}
+
+// DropView represents a DROP VIEW statement
+type DropView struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropView) statementNode() {}
+
+func (d *DropView) String() string {
+	var f strings.Builder
+	f.WriteString("DROP VIEW ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+	return f.String()
+}
+
+// DropIndex represents a DROP INDEX statement
+type DropIndex struct {
+	BaseStatement
+	IfExists     bool
+	Names        []*ast.ObjectName
+	Name         *ast.ObjectName // For single index with ON table syntax
+	OnTable      *ast.ObjectName // Optional table for DROP INDEX name ON table syntax
+	Cascade      bool
+	Restrict     bool
+	Concurrently bool
+}
+
+func (d *DropIndex) statementNode() {}
+
+func (d *DropIndex) String() string {
+	var f strings.Builder
+	f.WriteString("DROP INDEX ")
+	if d.Concurrently {
+		f.WriteString("CONCURRENTLY ")
+	}
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+	return f.String()
+}
+
+// DropRole represents a DROP ROLE statement
+type DropRole struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.Ident
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropRole) statementNode() {}
+
+func (d *DropRole) String() string {
+	var f strings.Builder
+	f.WriteString("DROP ROLE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	return f.String()
+}
+
+// DropDatabase represents a DROP DATABASE statement
+type DropDatabase struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropDatabase) statementNode() {}
+
+func (d *DropDatabase) String() string {
+	var f strings.Builder
+	f.WriteString("DROP DATABASE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	return f.String()
+}
+
+// DropSchema represents a DROP SCHEMA statement
+type DropSchema struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropSchema) statementNode() {}
+
+func (d *DropSchema) String() string {
+	var f strings.Builder
+	f.WriteString("DROP SCHEMA ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+	return f.String()
+}
+
+// DropSequence represents a DROP SEQUENCE statement
+type DropSequence struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropSequence) statementNode() {}
+
+func (d *DropSequence) String() string {
+	var f strings.Builder
+	f.WriteString("DROP SEQUENCE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	if d.Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.Restrict {
+		f.WriteString(" RESTRICT")
+	}
+	return f.String()
+}
+
+// DropType represents a DROP TYPE statement
+type DropType struct {
+	BaseStatement
+	IfExists bool
+	Names    []*ast.ObjectName
+	Cascade  bool
+	Restrict bool
+}
+
+func (d *DropType) statementNode() {}
+
+func (d *DropType) String() string {
+	var f strings.Builder
+	f.WriteString("DROP TYPE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+	return f.String()
+}

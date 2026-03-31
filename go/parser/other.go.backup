@@ -1,0 +1,1408 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package parser
+
+import (
+	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/query"
+	"github.com/user/sqlparser/ast/statement"
+	"github.com/user/sqlparser/errors"
+	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/tokenizer"
+)
+
+// parseCommaSeparatedObjectNames parses a comma-separated list of object names
+func parseCommaSeparatedObjectNames(p *Parser) ([]*ast.ObjectName, error) {
+	var names []*ast.ObjectName
+	for {
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+		if !p.ParseKeyword(",") {
+			break
+		}
+	}
+	return names, nil
+}
+
+// parseCommaSeparatedIdents parses a comma-separated list of identifiers
+func parseCommaSeparatedIdents(p *Parser) ([]*ast.Ident, error) {
+	var names []*ast.Ident
+	for {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+		if !p.ParseKeyword(",") {
+			break
+		}
+	}
+	return names, nil
+}
+
+
+// ParseDrop parses DROP statements
+func ParseDrop(p *Parser) (ast.Statement, error) {
+	// Check for DROP ... IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Try various DROP targets
+	targets := []struct {
+		kw     string
+		parser func() (ast.Statement, error)
+	}{
+		{"TABLE", func() (ast.Statement, error) { return parseDropTable(p, ifExists) }},
+		{"VIEW", func() (ast.Statement, error) { return parseDropView(p, ifExists) }},
+		{"INDEX", func() (ast.Statement, error) { return parseDropIndex(p, ifExists) }},
+		{"FUNCTION", func() (ast.Statement, error) { return parseDropFunction(p, ifExists) }},
+		{"PROCEDURE", func() (ast.Statement, error) { return parseDropProcedure(p, ifExists) }},
+		{"ROLE", func() (ast.Statement, error) { return parseDropRole(p, ifExists) }},
+		{"DATABASE", func() (ast.Statement, error) { return parseDropDatabase(p, ifExists) }},
+		{"SCHEMA", func() (ast.Statement, error) { return parseDropSchema(p, ifExists) }},
+		{"SEQUENCE", func() (ast.Statement, error) { return parseDropSequence(p, ifExists) }},
+		{"TYPE", func() (ast.Statement, error) { return parseDropType(p, ifExists) }},
+		{"DOMAIN", func() (ast.Statement, error) { return parseDropDomain(p, ifExists) }},
+		{"EXTENSION", func() (ast.Statement, error) { return parseDropExtension(p, ifExists) }},
+		{"TRIGGER", func() (ast.Statement, error) { return parseDropTrigger(p, ifExists) }},
+		{"POLICY", func() (ast.Statement, error) { return parseDropPolicy(p, ifExists) }},
+		{"CONNECTOR", func() (ast.Statement, error) { return parseDropConnector(p, ifExists) }},
+	}
+
+	for _, t := range targets {
+		if p.PeekKeyword(t.kw) {
+			return t.parser()
+		}
+	}
+
+	return nil, p.ExpectedRef("TABLE, VIEW, INDEX, FUNCTION, ROLE, DATABASE, SCHEMA, or other DROP target", p.PeekTokenRef())
+}
+
+func parseDropTable(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("TABLE"); err != nil {
+		return nil, err
+	}
+
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+	purge := p.ParseKeyword("PURGE") // Hive
+
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DropTable{
+		IfExists: ifExists,
+		Names:    names,
+		Cascade:  cascade,
+		Restrict: restrict,
+		Purge:    purge,
+	}, nil
+}
+
+func parseDropView(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("VIEW"); err != nil {
+		return nil, err
+	}
+
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DropView{
+		IfExists: ifExists,
+		Names:    names,
+		Cascade:  cascade,
+		Restrict: restrict,
+	}, nil
+}
+
+func parseDropIndex(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("INDEX"); err != nil {
+		return nil, err
+	}
+
+	// Parse index name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional ON table_name
+	var onTable *ast.ObjectName
+	if p.ParseKeyword("ON") {
+		onTable, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	names := []*ast.ObjectName{name}
+	return &statement.DropIndex{
+		IfExists: ifExists,
+		Names:    names,
+		Name:     name,
+		OnTable:  onTable,
+		Cascade:  cascade,
+		Restrict: restrict,
+	}, nil
+}
+
+func parseDropFunction(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("FUNCTION"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP FUNCTION not fully implemented", span.Span{})
+}
+
+func parseDropProcedure(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("PROCEDURE"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP PROCEDURE not fully implemented", span.Span{})
+}
+
+func parseDropRole(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("ROLE"); err != nil {
+		return nil, err
+	}
+
+	names, err := parseCommaSeparatedIdents(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DropRole{
+		IfExists: ifExists,
+		Names:    names,
+	}, nil
+}
+
+func parseDropDatabase(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("DATABASE"); err != nil {
+		return nil, err
+	}
+
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	names := []*ast.ObjectName{name}
+	return &statement.DropDatabase{
+		IfExists: ifExists,
+		Names:    names,
+		Cascade:  cascade,
+		Restrict: restrict,
+	}, nil
+}
+
+func parseDropSchema(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("SCHEMA"); err != nil {
+		return nil, err
+	}
+
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	names := []*ast.ObjectName{name}
+	return &statement.DropSchema{
+		IfExists: ifExists,
+		Names:    names,
+		Cascade:  cascade,
+		Restrict: restrict,
+	}, nil
+}
+
+func parseDropSequence(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("SEQUENCE"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP SEQUENCE not fully implemented", span.Span{})
+}
+
+func parseDropType(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("TYPE"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP TYPE not fully implemented", span.Span{})
+}
+
+func parseDropDomain(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("DOMAIN"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP DOMAIN not fully implemented", span.Span{})
+}
+
+func parseDropExtension(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("EXTENSION"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP EXTENSION not fully implemented", span.Span{})
+}
+
+func parseDropTrigger(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("TRIGGER"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP TRIGGER not fully implemented", span.Span{})
+}
+
+func parseDropPolicy(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("POLICY"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP POLICY not fully implemented", span.Span{})
+}
+
+func parseDropConnector(p *Parser, ifExists bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("CONNECTOR"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("DROP CONNECTOR not fully implemented", span.Span{})
+}
+
+// ParseTruncate parses TRUNCATE TABLE
+func ParseTruncate(p *Parser) (ast.Statement, error) {
+	// TRUNCATE [ TABLE ] name [, ... ] [ RESTART IDENTITY | CONTINUE IDENTITY ] [ CASCADE | RESTRICT ]
+	tableKw := p.ParseKeyword("TABLE")
+
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	var identity *statement.TruncateIdentity
+	if p.ParseKeywords([]string{"RESTART", "IDENTITY"}) {
+		t := statement.TruncateRestartIdentity
+		identity = &t
+	} else if p.ParseKeywords([]string{"CONTINUE", "IDENTITY"}) {
+		t := statement.TruncateContinueIdentity
+		identity = &t
+	}
+
+	var cascade *bool
+	if p.ParseKeyword("CASCADE") {
+		t := true
+		cascade = &t
+	} else if p.ParseKeyword("RESTRICT") {
+		f := false
+		cascade = &f
+	}
+
+	return &statement.Truncate{
+		Table:    tableKw,
+		Names:    names,
+		Identity: identity,
+		Cascade:  cascade,
+	}, nil
+}
+
+// ParseExplain parses EXPLAIN
+func ParseExplain(p *Parser) (ast.Statement, error) {
+	// EXPLAIN [ ( option [, ...] ) ] statement
+	// EXPLAIN [ ANALYZE ] [ VERBOSE ] statement
+	// EXPLAIN QUERY PLAN statement
+
+	var analyze bool
+	var verbose bool
+	var queryPlan bool
+	var estimate bool
+
+	if p.ParseKeywords([]string{"QUERY", "PLAN"}) {
+		queryPlan = true
+	} else if p.ParseKeyword("ESTIMATE") {
+		estimate = true
+	} else {
+		analyze = p.ParseKeyword("ANALYZE")
+		verbose = p.ParseKeyword("VERBOSE")
+	}
+
+	// Parse the statement being explained
+	stmt, err := p.ParseStatement()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Explain{
+		Analyze:   analyze,
+		Verbose:   verbose,
+		QueryPlan: queryPlan,
+		Estimate:  estimate,
+		Statement: stmt,
+	}, nil
+}
+
+// ParseDescribe parses DESCRIBE/DESC
+func ParseDescribe(p *Parser) (ast.Statement, error) {
+	// DESCRIBE [EXTENDED | FORMATTED] table_name [column_name | partition_spec]
+	var extended bool
+	var formatted bool
+
+	if p.ParseKeyword("EXTENDED") {
+		extended = true
+	} else if p.ParseKeyword("FORMATTED") {
+		formatted = true
+	}
+
+	// Check if table keyword is required
+	if p.GetDialect().DescribeRequiresTableKeyword() {
+		if _, err := p.ExpectKeyword("TABLE"); err != nil {
+			return nil, err
+		}
+	} else {
+		p.ParseKeyword("TABLE") // optional
+	}
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.ExplainTable{
+		DescribeAlias:   statement.DescribeAliasDescribe,
+		HiveFormat:      extended,
+		HasTableKeyword: true,
+		TableName:       tableName,
+	}, nil
+}
+
+// ParseAnalyze parses ANALYZE
+func ParseAnalyze(p *Parser) (ast.Statement, error) {
+	// ANALYZE [ ( option [, ...] ) ] [ table_name ] [, ...]
+	// ANALYZE [ VERBOSE ] [ table_name [ ( column_name [, ...] ) ] ]
+
+	var verbose bool
+	var tables []*statement.AnalyzeTable
+
+	if p.ParseKeyword("VERBOSE") {
+		verbose = true
+	}
+
+	// Parse table names and optional column lists
+	for {
+		tableName, err := p.ParseObjectName()
+		if err != nil {
+			break
+		}
+
+		var columns []*ast.Ident
+		if p.PeekToken() == tokenizer.TokenLParen {
+			columns, err = p.ParseParenthesizedColumnList()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		tables = append(tables, &statement.AnalyzeTable{
+			TableName: tableName,
+			Columns:   columns,
+		})
+
+		if !p.ParseToken(tokenizer.TokenComma) {
+			break
+		}
+	}
+
+	return &statement.Analyze{
+		Verbose: verbose,
+		Tables:  tables,
+	}, nil
+}
+
+// ParseSet parses SET statements
+func ParseSet(p *Parser) (ast.Statement, error) {
+	// SET [ SESSION | LOCAL ] configuration_parameter { TO | = } { value | 'value' | DEFAULT }
+	// SET [ SESSION | LOCAL ] TIME ZONE { value | 'value' | LOCAL | DEFAULT }
+	// SET [ GLOBAL ] variable = expr [, ...] (MySQL)
+	// SET ROLE { role_name | NONE }
+
+	var scope statement.SetScope
+	if p.ParseKeyword("SESSION") {
+		scope = statement.SetScopeSession
+	} else if p.ParseKeyword("LOCAL") {
+		scope = statement.SetScopeLocal
+	} else if p.ParseKeyword("GLOBAL") {
+		scope = statement.SetScopeGlobal
+	}
+
+	// SET TIME ZONE
+	if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+		var value statement.SetTimeZoneValue
+		if p.ParseKeyword("LOCAL") {
+			value = statement.SetTimeZoneLocal
+		} else if p.ParseKeyword("DEFAULT") {
+			value = statement.SetTimeZoneDefault
+		} else {
+			expr, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			value = statement.SetTimeZoneExpr{Expr: expr}
+		}
+		return &statement.SetTimeZone{
+			Scope: scope,
+			Value: value,
+		}, nil
+	}
+
+	// SET ROLE
+	if p.ParseKeyword("ROLE") {
+		var roleName *ast.Ident
+		if !p.ParseKeyword("NONE") {
+			name, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			roleName = name
+		}
+		return &statement.SetRole{
+			Scope:    scope,
+			RoleName: roleName,
+		}, nil
+	}
+
+	// SET variable = value
+	assignments, err := p.ParseCommaSeparated(parseSetAssignment)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.SetVariable{
+		Scope:       scope,
+		Assignments: assignments,
+	}, nil
+}
+
+func parseSetAssignment(p *Parser) (*statement.SetAssignment, error) {
+	var variable ast.ObjectName
+	var isLocal bool
+
+	// Support for @variable (MySQL/MS SQL Server style)
+	if p.PeekToken() == tokenizer.TokenAtSign {
+		p.NextToken()
+		isLocal = true
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		variable = ast.ObjectName{Parts: []*ast.Ident{name}}
+	} else {
+		// Standard variable name
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		variable = *name
+	}
+
+	// Parse = or TO
+	if !p.ParseToken(tokenizer.TokenEq) && !p.ParseKeyword("TO") {
+		return nil, p.ExpectedRef("= or TO", p.PeekTokenRef())
+	}
+
+	var value expr.Expr
+	if p.ParseKeyword("DEFAULT") {
+		value = nil
+	} else {
+		var err error
+		value, err = p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.SetAssignment{
+		Variable: variable,
+		Value:    value,
+		IsLocal:  isLocal,
+	}, nil
+}
+
+// ParseShow parses SHOW statements
+func ParseShow(p *Parser) (ast.Statement, error) {
+	// SHOW VARIABLES [LIKE 'pattern']
+	// SHOW CREATE TABLE table_name
+	// SHOW TABLES [FROM schema] [LIKE 'pattern']
+	// SHOW COLUMNS FROM table_name
+	// etc.
+
+	// SHOW CREATE ...
+	if p.PeekKeyword("CREATE") {
+		return parseShowCreate(p)
+	}
+
+	// SHOW VARIABLES
+	if p.PeekKeyword("VARIABLES") {
+		return parseShowVariables(p)
+	}
+
+	// SHOW TABLES
+	if p.PeekKeyword("TABLES") {
+		return parseShowTables(p)
+	}
+
+	// SHOW COLUMNS/FIELDS
+	if p.PeekKeyword("COLUMNS") || p.PeekKeyword("FIELDS") {
+		return parseShowColumns(p)
+	}
+
+	// SHOW DATABASES/SCHEMAS
+	if p.PeekKeyword("DATABASES") || p.PeekKeyword("SCHEMAS") {
+		return parseShowDatabases(p)
+	}
+
+	// SHOW INDEX/INDEXES/KEYS
+	if p.PeekKeyword("INDEX") || p.PeekKeyword("INDEXES") || p.PeekKeyword("KEYS") {
+		return parseShowIndex(p)
+	}
+
+	// SHOW GRANTS
+	if p.PeekKeyword("GRANTS") {
+		return parseShowGrants(p)
+	}
+
+	// SHOW COLLATION
+	if p.PeekKeyword("COLLATION") {
+		return parseShowCollation(p)
+	}
+
+	// Generic SHOW
+	return parseShowGeneric(p)
+}
+
+func parseShowCreate(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("CREATE"); err != nil {
+		return nil, err
+	}
+
+	var objectType statement.ShowObjectType
+	switch {
+	case p.ParseKeyword("TABLE"):
+		objectType = statement.ShowObjectTable
+	case p.ParseKeyword("VIEW"):
+		objectType = statement.ShowObjectView
+	case p.ParseKeyword("DATABASE"):
+		objectType = statement.ShowObjectDatabase
+	case p.ParseKeyword("SCHEMA"):
+		objectType = statement.ShowObjectSchema
+	case p.ParseKeyword("FUNCTION"):
+		objectType = statement.ShowObjectFunction
+	case p.ParseKeyword("PROCEDURE"):
+		objectType = statement.ShowObjectProcedure
+	case p.ParseKeyword("TRIGGER"):
+		objectType = statement.ShowObjectTrigger
+	case p.ParseKeyword("INDEX"):
+		objectType = statement.ShowObjectIndex
+	case p.ParseKeywords([]string{"MATERIALIZED", "VIEW"}):
+		objectType = statement.ShowObjectMaterializedView
+	}
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.ShowCreate{
+		ObjectType: objectType,
+		ObjectName: name,
+	}, nil
+}
+
+func parseShowVariables(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("VARIABLES"); err != nil {
+		return nil, err
+	}
+
+	var like *string
+	var where expr.Expr
+
+	if p.ParseKeyword("LIKE") {
+		pattern, err := p.ParseLiteralString()
+		if err != nil {
+			return nil, err
+		}
+		like = &pattern
+	} else if p.ParseKeyword("WHERE") {
+		var err error
+		where, err = p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.ShowVariables{
+		Like:  like,
+		Where: where,
+	}, nil
+}
+
+func parseShowTables(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("TABLES"); err != nil {
+		return nil, err
+	}
+
+	var schema *ast.ObjectName
+	var like *string
+	var where expr.Expr
+
+	if p.ParseKeyword("FROM") || p.ParseKeyword("IN") {
+		var err error
+		schema, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if p.ParseKeyword("LIKE") {
+		pattern, err := p.ParseLiteralString()
+		if err != nil {
+			return nil, err
+		}
+		like = &pattern
+	} else if p.ParseKeyword("WHERE") {
+		var err error
+		where, err = p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.ShowTables{
+		Schema: schema,
+		Like:   like,
+		Where:  where,
+	}, nil
+}
+
+func parseShowColumns(p *Parser) (ast.Statement, error) {
+	p.ParseKeyword("COLUMNS") || p.ParseKeyword("FIELDS")
+
+	var tableName *ast.ObjectName
+	var schema *ast.ObjectName
+
+	if p.ParseKeyword("FROM") || p.ParseKeyword("IN") {
+		var err error
+		tableName, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if p.ParseKeyword("FROM") || p.ParseKeyword("IN") {
+		var err error
+		schema, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var like *string
+	if p.ParseKeyword("LIKE") {
+		pattern, err := p.ParseLiteralString()
+		if err != nil {
+			return nil, err
+		}
+		like = &pattern
+	}
+
+	return &statement.ShowColumns{
+		TableName: tableName,
+		Schema:    schema,
+		Like:      like,
+	}, nil
+}
+
+func parseShowDatabases(p *Parser) (ast.Statement, error) {
+	p.ParseKeyword("DATABASES") || p.ParseKeyword("SCHEMAS")
+
+	var like *string
+	if p.ParseKeyword("LIKE") {
+		pattern, err := p.ParseLiteralString()
+		if err != nil {
+			return nil, err
+		}
+		like = &pattern
+	}
+
+	return &statement.ShowDatabases{
+		Like: like,
+	}, nil
+}
+
+func parseShowIndex(p *Parser) (ast.Statement, error) {
+	p.ParseKeyword("INDEX") || p.ParseKeyword("INDEXES") || p.ParseKeyword("KEYS")
+	return nil, errors.NewParserError("SHOW INDEX not fully implemented", span.Span{})
+}
+
+func parseShowGrants(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("GRANTS"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("SHOW GRANTS not fully implemented", span.Span{})
+}
+
+func parseShowCollation(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("COLLATION"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("SHOW COLLATION not fully implemented", span.Span{})
+}
+
+func parseShowGeneric(p *Parser) (ast.Statement, error) {
+	// Generic SHOW command
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.ShowGeneric{
+		Name: name,
+	}, nil
+}
+
+// ParseGrant parses GRANT
+func ParseGrant(p *Parser) (ast.Statement, error) {
+	// GRANT privileges ON object_type object_name TO grantees [WITH GRANT OPTION]
+	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectKeyword("TO"); err != nil {
+		return nil, err
+	}
+
+	grantees, err := parseGrantees(p)
+	if err != nil {
+		return nil, err
+	}
+
+	withGrantOption := p.ParseKeywords([]string{"WITH", "GRANT", "OPTION"})
+	grantedBy := p.ParseKeywords([]string{"GRANTED", "BY"})
+	var grantedByName *ast.Ident
+	if grantedBy {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		grantedByName = name
+	}
+
+	return &statement.Grant{
+		Privileges:      privileges,
+		Objects:         objects,
+		Grantees:        grantees,
+		WithGrantOption: withGrantOption,
+		GrantedBy:       grantedByName,
+	}, nil
+}
+
+// ParseRevoke parses REVOKE
+func ParseRevoke(p *Parser) (ast.Statement, error) {
+	// REVOKE [GRANT OPTION FOR] privileges ON object_type object_name FROM grantees [CASCADE | RESTRICT]
+	grantOptionFor := p.ParseKeywords([]string{"GRANT", "OPTION", "FOR"})
+
+	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectKeyword("FROM"); err != nil {
+		return nil, err
+	}
+
+	grantees, err := parseGrantees(p)
+	if err != nil {
+		return nil, err
+	}
+
+	var cascade *bool
+	if p.ParseKeyword("CASCADE") {
+		t := true
+		cascade = &t
+	} else if p.ParseKeyword("RESTRICT") {
+		f := false
+		cascade = &f
+	}
+
+	return &statement.Revoke{
+		GrantOptionFor: grantOptionFor,
+		Privileges:     privileges,
+		Objects:        objects,
+		Grantees:       grantees,
+		Cascade:        cascade,
+	}, nil
+}
+
+func parseGrantDenyRevokePrivilegesObjects(p *Parser) ([]expr.Privilege, []ast.ObjectName, error) {
+	// Parse privileges
+	var privileges []expr.Privilege
+
+	if p.ParseKeyword("ALL") {
+		p.ParseKeyword("PRIVILEGES") // optional
+		privileges = append(privileges, expr.Privilege{Kind: expr.PrivilegeAll})
+	} else {
+		for {
+			priv := parsePrivilege(p)
+			if priv == nil {
+				break
+			}
+			privileges = append(privileges, *priv)
+			if !p.ParseToken(tokenizer.TokenComma) {
+				break
+			}
+		}
+	}
+
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, nil, err
+	}
+
+	// Parse object type and name
+	var objects []ast.ObjectName
+
+	if p.ParseKeyword("TABLE") || p.ParseKeyword("TABLES") {
+		names, err := p.ParseCommaSeparated(func(p *Parser) (*ast.ObjectName, error) {
+			return p.ParseObjectName()
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, name := range names {
+			objects = append(objects, ast.ObjectName{
+				Type: statement.ObjectTypeTable,
+				Name: name,
+			})
+		}
+	} else if p.ParseKeyword("SEQUENCE") || p.ParseKeyword("SEQUENCES") {
+		names, err := p.ParseCommaSeparated(func(p *Parser) (*ast.ObjectName, error) {
+			return p.ParseObjectName()
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, name := range names {
+			objects = append(objects, ast.ObjectName{
+				Type: statement.ObjectTypeSequence,
+				Name: name,
+			})
+		}
+	} else if p.ParseKeyword("DATABASE") || p.ParseKeyword("SCHEMA") {
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, nil, err
+		}
+		objects = append(objects, ast.ObjectName{
+			Type: statement.ObjectTypeDatabase,
+			Name: name,
+		})
+	} else {
+		// Default to table
+		names, err := p.ParseCommaSeparated(func(p *Parser) (*ast.ObjectName, error) {
+			return p.ParseObjectName()
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, name := range names {
+			objects = append(objects, ast.ObjectName{
+				Type: statement.ObjectTypeTable,
+				Name: name,
+			})
+		}
+	}
+
+	return privileges, objects, nil
+}
+
+func parsePrivilege(p *Parser) *expr.Privilege {
+	// Parse specific privilege keywords
+	privMap := map[string]expr.PrivilegeKind{
+		"SELECT":     expr.PrivilegeSelect,
+		"INSERT":     expr.PrivilegeInsert,
+		"UPDATE":     expr.PrivilegeUpdate,
+		"DELETE":     expr.PrivilegeDelete,
+		"TRUNCATE":   expr.PrivilegeTruncate,
+		"REFERENCES": expr.PrivilegeReferences,
+		"TRIGGER":    expr.PrivilegeTrigger,
+		"CREATE":     expr.PrivilegeCreate,
+		"CONNECT":    expr.PrivilegeConnect,
+		"TEMPORARY":  expr.PrivilegeTemporary,
+		"EXECUTE":    expr.PrivilegeExecute,
+		"USAGE":      expr.PrivilegeUsage,
+	}
+
+	for kw, kind := range privMap {
+		if p.ParseKeyword(kw) {
+			return &expr.Privilege{Kind: kind}
+		}
+	}
+
+	return nil
+}
+
+func parseGrantees(p *Parser) ([]statement.Grantee, error) {
+	// Parse comma-separated grantees
+	var grantees []statement.Grantee
+
+	for {
+		var grantee statement.Grantee
+
+		if p.ParseKeyword("PUBLIC") {
+			grantee.Kind = statement.GranteePublic
+		} else if p.ParseKeyword("CURRENT_USER") {
+			grantee.Kind = statement.GranteeCurrentUser
+		} else if p.ParseKeyword("CURRENT_ROLE") {
+			grantee.Kind = statement.GranteeCurrentRole
+		} else if p.ParseKeyword("SESSION_USER") {
+			grantee.Kind = statement.GranteeSessionUser
+		} else {
+			name, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			grantee.Kind = statement.GranteeName
+			grantee.Name = name
+		}
+
+		grantees = append(grantees, grantee)
+
+		if !p.ParseToken(tokenizer.TokenComma) {
+			break
+		}
+	}
+
+	return grantees, nil
+}
+
+// ParseDeclare parses DECLARE (cursor)
+func ParseDeclare(p *Parser) (ast.Statement, error) {
+	// DECLARE cursor_name [ BINARY ] [ ASENSITIVE | INSENSITIVE ] [ [ NO ] SCROLL ] CURSOR [ { WITH | WITHOUT } HOLD ] FOR query
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	binary := p.ParseKeyword("BINARY")
+
+	var asensitive *bool
+	if p.ParseKeyword("ASENSITIVE") {
+		f := false
+		asensitive = &f
+	} else if p.ParseKeyword("INSENSITIVE") {
+		t := true
+		asensitive = &t
+	}
+
+	var scroll *bool
+	if p.ParseKeywords([]string{"NO", "SCROLL"}) {
+		f := false
+		scroll = &f
+	} else if p.ParseKeyword("SCROLL") {
+		t := true
+		scroll = &t
+	}
+
+	if _, err := p.ExpectKeyword("CURSOR"); err != nil {
+		return nil, err
+	}
+
+	var hold *bool
+	if p.ParseKeyword("WITH") && p.ParseKeyword("HOLD") {
+		t := true
+		hold = &t
+	} else if p.ParseKeywords([]string{"WITHOUT", "HOLD"}) {
+		f := false
+		hold = &f
+	}
+
+	if _, err := p.ExpectKeyword("FOR"); err != nil {
+		return nil, err
+	}
+
+	query, err := parseQuery(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Declare{
+		Name:       name,
+		Binary:     binary,
+		Asensitive: asensitive,
+		Scroll:     scroll,
+		Hold:       hold,
+		Query:      query.(*statement.Query).Query,
+	}, nil
+}
+
+// ParseFetch parses FETCH
+func ParseFetch(p *Parser) (ast.Statement, error) {
+	// FETCH [ direction { FROM | IN } ] cursor_name
+	var direction statement.FetchDirection
+
+	if p.ParseKeyword("NEXT") {
+		direction = statement.FetchDirectionNext
+	} else if p.ParseKeyword("PRIOR") {
+		direction = statement.FetchDirectionPrior
+	} else if p.ParseKeyword("FIRST") {
+		direction = statement.FetchDirectionFirst
+	} else if p.ParseKeyword("LAST") {
+		direction = statement.FetchDirectionLast
+	} else if p.ParseKeyword("ABSOLUTE") {
+		count, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		direction = statement.FetchDirectionAbsolute{Count: count}
+	} else if p.ParseKeyword("RELATIVE") {
+		count, err := p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		direction = statement.FetchDirectionRelative{Count: count}
+	} else if p.ParseKeyword("FORWARD") {
+		if p.ParseKeyword("ALL") {
+			direction = statement.FetchDirectionForwardAll
+		} else {
+			count, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			direction = statement.FetchDirectionForward{Count: count}
+		}
+	} else if p.ParseKeyword("BACKWARD") {
+		if p.ParseKeyword("ALL") {
+			direction = statement.FetchDirectionBackwardAll
+		} else {
+			count, err := p.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			direction = statement.FetchDirectionBackward{Count: count}
+		}
+	} else {
+		direction = statement.FetchDirectionNext
+	}
+
+	p.ParseKeyword("FROM") || p.ParseKeyword("IN")
+
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Fetch{
+		Direction:  direction,
+		CursorName: name,
+	}, nil
+}
+
+// ParseClose parses CLOSE
+func ParseClose(p *Parser) (ast.Statement, error) {
+	// CLOSE cursor_name | CLOSE ALL
+	if p.ParseKeyword("ALL") {
+		return &statement.Close{All: true}, nil
+	}
+
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Close{
+		CursorName: name,
+	}, nil
+}
+
+// ParseCopy parses COPY (PostgreSQL)
+func ParseCopy(p *Parser) (ast.Statement, error) {
+	// COPY table_name [ ( column_name [, ...] ) ]
+	//     FROM { 'filename' | STDIN } [ [ WITH ] ( option [, ...] ) ]
+	//     [ WHERE condition ]
+	// OR
+	// COPY { table_name [ ( column_name [, ...] ) ] | ( query ) }
+	//     TO { 'filename' | STDOUT } [ [ WITH ] ( option [, ...] ) ]
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	var columns []*ast.Ident
+	if p.PeekToken() == tokenizer.TokenLParen {
+		columns, err = p.ParseParenthesizedColumnList()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var direction statement.CopyDirection
+	var source statement.CopySource
+	var target statement.CopyTarget
+
+	if p.ParseKeyword("FROM") {
+		direction = statement.CopyDirectionFrom
+		if p.ParseKeyword("STDIN") {
+			source = statement.CopySourceStdin{}
+		} else {
+			filename, err := p.ParseLiteralString()
+			if err != nil {
+				return nil, err
+			}
+			source = statement.CopySourceFile{Filename: filename}
+		}
+	} else if p.ParseKeyword("TO") {
+		direction = statement.CopyDirectionTo
+		if p.ParseKeyword("STDOUT") {
+			target = statement.CopyTargetStdout{}
+		} else {
+			filename, err := p.ParseLiteralString()
+			if err != nil {
+				return nil, err
+			}
+			target = statement.CopyTargetFile{Filename: filename}
+		}
+	} else {
+		return nil, p.ExpectedRef("FROM or TO", p.PeekTokenRef())
+	}
+
+	// Parse options
+	var options []statement.CopyOption
+	if p.ParseKeyword("WITH") || p.PeekToken() == tokenizer.TokenLParen {
+		if p.PeekToken() == tokenizer.TokenLParen {
+			options, err = p.ParseCommaSeparated(parseCopyOption)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	var where expr.Expr
+	if p.ParseKeyword("WHERE") {
+		where, err = p.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.Copy{
+		TableName: tableName,
+		Columns:   columns,
+		Direction: direction,
+		Source:    source,
+		Target:    target,
+		Options:   options,
+		Where:     where,
+	}, nil
+}
+
+func parseCopyOption(p *Parser) (statement.CopyOption, error) {
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return statement.CopyOption{}, err
+	}
+
+	var value expr.Expr
+	if p.ParseToken(tokenizer.TokenEq) {
+		value, err = p.ParseExpr()
+		if err != nil {
+			return statement.CopyOption{}, err
+		}
+	}
+
+	return statement.CopyOption{
+		Name:  name,
+		Value: value,
+	}, nil
+}
+
+// ParseUse parses USE (MySQL/SQL Server)
+func ParseUse(p *Parser) (ast.Statement, error) {
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Use{
+		Database: name,
+	}, nil
+}
+
+// ParseCall parses CALL (stored procedure)
+func ParseCall(p *Parser) (ast.Statement, error) {
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	var args []expr.Expr
+	if p.PeekToken() == tokenizer.TokenLParen {
+		if err := p.ExpectToken(tokenizer.TokenLParen); err != nil {
+			return nil, err
+		}
+		if !p.PeekToken() == tokenizer.TokenRParen {
+			args, err = p.ParseCommaSeparated(func(p *Parser) (expr.Expr, error) {
+				return p.ParseExpr()
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := p.ExpectToken(tokenizer.TokenRParen); err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.Call{
+		FunctionName: name,
+		Args:         args,
+	}, nil
+}
+
+// Placeholder parsers for remaining CREATE variants
+func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("INDEX"); err != nil {
+		return nil, err
+	}
+	return nil, errors.NewParserError("CREATE INDEX not fully implemented", span.Span{})
+}
+
+func parseCreateFunction(p *Parser, orReplace bool, temporary bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE FUNCTION not fully implemented", span.Span{})
+}
+
+func parseCreateRole(p *Parser, orReplace bool) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("ROLE"); err != nil {
+		return nil, err
+	}
+
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.CreateRole{
+		Name:      name,
+		OrReplace: orReplace,
+	}, nil
+}
+
+func parseCreateDatabase(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("DATABASE"); err != nil {
+		return nil, err
+	}
+
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.CreateDatabase{
+		IfNotExists: ifNotExists,
+		Name:        name,
+	}, nil
+}
+
+func parseCreateSchema(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("SCHEMA"); err != nil {
+		return nil, err
+	}
+
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.CreateSchema{
+		IfNotExists: ifNotExists,
+		Name:        name,
+	}, nil
+}
+
+func parseCreateSequence(p *Parser, orReplace bool, temporary bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE SEQUENCE not fully implemented", span.Span{})
+}
+
+func parseCreateType(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE TYPE not fully implemented", span.Span{})
+}
+
+func parseCreateDomain(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE DOMAIN not fully implemented", span.Span{})
+}
+
+func parseCreateExtension(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE EXTENSION not fully implemented", span.Span{})
+}
+
+func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE TRIGGER not fully implemented", span.Span{})
+}
+
+func parseCreatePolicy(p *Parser, orReplace bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE POLICY not fully implemented", span.Span{})
+}
+
+func parseCreateVirtualTable(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE VIRTUAL TABLE not fully implemented", span.Span{})
+}
+
+func parseCreateMacro(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE MACRO not fully implemented", span.Span{})
+}
+
+func parseCreateSecret(p *Parser, orReplace bool, temporary bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE SECRET not fully implemented", span.Span{})
+}
+
+func parseCreateConnector(p *Parser, orReplace bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE CONNECTOR not fully implemented", span.Span{})
+}
+
+func parseCreateOperator(p *Parser) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE OPERATOR not fully implemented", span.Span{})
+}
+
+func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
+	return nil, errors.NewParserError("CREATE USER not fully implemented", span.Span{})
+}

@@ -1,0 +1,256 @@
+-- Licensed to the Apache Software Foundation (ASF) under one
+-- or more contributor license agreements.  See the NOTICE file
+-- distributed with this work for additional information
+-- regarding copyright ownership.  The ASF licenses this file
+-- to you under the Apache License, Version 2.0 (the
+-- "License"); you may not use this file except in compliance
+-- with the License.  You may obtain a copy of the License at
+--
+--   http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing,
+-- software distributed under the License is distributed on an
+-- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+-- KIND, either express or implied.  See the License for the
+-- specific language governing permissions and limitations
+-- under the License.
+
+-- MySQL-specific examples
+
+-- Backtick-quoted identifiers
+SELECT * FROM `my table`;
+SELECT `column name` FROM t;
+SELECT `t`.`c` FROM `t`;
+INSERT INTO `db`.`table` (`col`) VALUES (1);
+
+-- MySQL LIMIT syntax variations
+SELECT * FROM t LIMIT 10;
+SELECT * FROM t LIMIT 10, 20;
+SELECT * FROM t LIMIT 10 OFFSET 20;
+
+-- Data types
+CREATE TABLE t (id INT AUTO_INCREMENT PRIMARY KEY);
+CREATE TABLE t (name VARCHAR(255) CHARACTER SET utf8mb4);
+CREATE TABLE t (price DECIMAL(10, 2));
+CREATE TABLE t (description TEXT);
+CREATE TABLE t (data BLOB);
+CREATE TABLE t (flags SET('a', 'b', 'c'));
+CREATE TABLE t (status ENUM('active', 'inactive'));
+
+-- ENGINE and table options
+CREATE TABLE t (id INT) ENGINE=InnoDB;
+CREATE TABLE t (id INT) ENGINE=MyISAM;
+CREATE TABLE t (id INT) DEFAULT CHARSET=utf8mb4;
+CREATE TABLE t (id INT) CHARACTER SET utf8 COLLATE utf8_bin;
+CREATE TABLE t (id INT) AUTO_INCREMENT=100;
+
+-- ON DUPLICATE KEY UPDATE
+INSERT INTO t (a, b) VALUES (1, 2) ON DUPLICATE KEY UPDATE b = b + 1;
+INSERT INTO t VALUES (1, 2) ON DUPLICATE KEY UPDATE x = VALUES(x);
+
+-- REPLACE statement
+REPLACE INTO t VALUES (1, 2, 3);
+REPLACE INTO t (a, b) VALUES (1, 2);
+REPLACE INTO t SET a = 1, b = 2;
+
+-- MySQL-specific functions
+SELECT CONCAT('a', 'b', 'c');
+SELECT CONCAT_WS(',', 'a', 'b', 'c');
+SELECT SUBSTRING('hello', 1, 3);
+SELECT SUBSTRING_INDEX('a,b,c', ',', 2);
+SELECT LENGTH('hello');
+SELECT CHAR_LENGTH('hello');
+SELECT UPPER('hello');
+SELECT LOWER('hello');
+SELECT TRIM(' hello ');
+SELECT LTRIM(' hello');
+SELECT RTRIM('hello ');
+SELECT REPLACE('hello world', 'world', 'mysql');
+SELECT INSTR('hello world', 'world');
+SELECT LOCATE('world', 'hello world');
+SELECT FORMAT(1234567.89, 2);
+
+-- Date/Time functions
+SELECT NOW();
+SELECT CURDATE();
+SELECT CURTIME();
+SELECT DATE('2023-01-01');
+SELECT TIME('12:00:00');
+SELECT YEAR('2023-01-01');
+SELECT MONTH('2023-01-01');
+SELECT DAY('2023-01-01');
+SELECT HOUR('12:00:00');
+SELECT MINUTE('12:00:00');
+SELECT SECOND('12:00:00');
+SELECT DATE_ADD('2023-01-01', INTERVAL 1 DAY);
+SELECT DATE_SUB('2023-01-01', INTERVAL 1 MONTH);
+SELECT DATEDIFF('2023-01-15', '2023-01-01');
+SELECT TIMESTAMPDIFF(DAY, '2023-01-01', '2023-01-15');
+SELECT STR_TO_DATE('01,5,2013','%d,%m,%Y');
+SELECT DATE_FORMAT('2023-01-01', '%Y-%m-%d');
+
+-- Aggregate functions
+SELECT GROUP_CONCAT(x) FROM t;
+SELECT GROUP_CONCAT(x SEPARATOR ',') FROM t;
+SELECT GROUP_CONCAT(DISTINCT x) FROM t;
+SELECT JSON_ARRAYAGG(x) FROM t;
+SELECT JSON_OBJECTAGG(k, v) FROM t;
+
+-- Control flow functions
+SELECT IF(x > 0, 'positive', 'negative') FROM t;
+SELECT IFNULL(x, 0) FROM t;
+SELECT NULLIF(x, y) FROM t;
+SELECT CASE WHEN x > 0 THEN 1 ELSE 0 END FROM t;
+
+-- Mathematical functions
+SELECT ABS(-5);
+SELECT ROUND(123.456, 2);
+SELECT CEILING(123.456);
+SELECT FLOOR(123.456);
+SELECT MOD(10, 3);
+SELECT POWER(2, 10);
+SELECT SQRT(16);
+SELECT LOG(100);
+SELECT LN(100);
+SELECT EXP(1);
+SELECT RAND();
+
+-- REGEXP operators
+SELECT * FROM t WHERE x REGEXP '^[0-9]+';
+SELECT * FROM t WHERE x NOT REGEXP '^[0-9]+';
+SELECT * FROM t WHERE x REGEXP BINARY '^[A-Z]+';
+
+-- STRAIGHT_JOIN
+SELECT STRAIGHT_JOIN * FROM t1, t2 WHERE t1.id = t2.id;
+
+-- SQL_CALC_FOUND_ROWS and FOUND_ROWS
+SELECT SQL_CALC_FOUND_ROWS * FROM t LIMIT 10;
+SELECT FOUND_ROWS();
+
+-- SQL_BUFFER_RESULT and other modifiers
+SELECT SQL_BUFFER_RESULT * FROM t;
+SELECT SQL_CACHE * FROM t;
+SELECT SQL_NO_CACHE * FROM t;
+
+-- Index hints
+SELECT * FROM t USE INDEX (idx);
+SELECT * FROM t FORCE INDEX (idx);
+SELECT * FROM t IGNORE INDEX (idx);
+SELECT * FROM t USE INDEX () WHERE x = 1;
+
+-- Locking clauses
+SELECT * FROM t WHERE x = 1 LOCK IN SHARE MODE;
+SELECT * FROM t WHERE x = 1 FOR UPDATE;
+SELECT * FROM t FOR SHARE;
+SELECT * FROM t FOR KEY SHARE;
+SELECT * FROM t FOR NO KEY UPDATE;
+
+-- SHOW statements
+SHOW TABLES;
+SHOW TABLES LIKE 'user%';
+SHOW DATABASES;
+SHOW SCHEMAS;
+SHOW COLUMNS FROM t;
+SHOW CREATE TABLE t;
+SHOW CREATE VIEW v;
+SHOW INDEX FROM t;
+SHOW KEYS FROM t;
+SHOW VARIABLES;
+SHOW VARIABLES LIKE 'max%';
+SHOW SESSION VARIABLES;
+SHOW GLOBAL VARIABLES;
+SHOW STATUS;
+SHOW PROCESSLIST;
+SHOW GRANTS;
+SHOW GRANTS FOR 'user'@'localhost';
+SHOW TRIGGERS;
+SHOW PROCEDURE STATUS;
+SHOW FUNCTION STATUS;
+SHOW EVENTS;
+SHOW TABLE STATUS;
+SHOW OPEN TABLES;
+SHOW ENGINE INNODB STATUS;
+SHOW MASTER STATUS;
+SHOW SLAVE STATUS;
+
+-- DESCRIBE and EXPLAIN
+DESCRIBE t;
+DESC t;
+EXPLAIN t;
+EXPLAIN SELECT * FROM t;
+EXPLAIN EXTENDED SELECT * FROM t;
+EXPLAIN PARTITIONS SELECT * FROM t;
+EXPLAIN FORMAT=JSON SELECT * FROM t;
+
+-- ALTER TABLE with MySQL-specific syntax
+ALTER TABLE t ADD COLUMN x INT;
+ALTER TABLE t ADD COLUMN x INT FIRST;
+ALTER TABLE t ADD COLUMN y INT AFTER z;
+ALTER TABLE t DROP COLUMN x;
+ALTER TABLE t MODIFY COLUMN x VARCHAR(100);
+ALTER TABLE t MODIFY COLUMN x VARCHAR(100) NOT NULL;
+ALTER TABLE t CHANGE COLUMN x y INT;
+ALTER TABLE t RENAME TO u;
+ALTER TABLE t RENAME AS u;
+ALTER TABLE t ENGINE=InnoDB;
+ALTER TABLE t AUTO_INCREMENT=100;
+ALTER TABLE t CHARACTER SET utf8mb4;
+ALTER TABLE t CONVERT TO CHARACTER SET utf8mb4;
+
+-- CREATE INDEX
+CREATE INDEX idx ON t (x);
+CREATE UNIQUE INDEX idx ON t (x);
+CREATE INDEX idx ON t (x(10));
+CREATE FULLTEXT INDEX idx ON t (x);
+CREATE SPATIAL INDEX idx ON t (x);
+
+-- DROP INDEX
+DROP INDEX idx ON t;
+ALTER TABLE t DROP INDEX idx;
+
+-- Triggers
+CREATE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW SET NEW.x = 1;
+CREATE TRIGGER trg AFTER UPDATE ON t FOR EACH ROW BEGIN UPDATE u SET x = NEW.x WHERE id = OLD.id; END;
+DROP TRIGGER trg;
+
+-- Stored procedures and functions
+DELIMITER //
+CREATE PROCEDURE sp(IN param INT)
+BEGIN
+    SELECT * FROM t WHERE x = param;
+END//
+DELIMITER ;
+
+CREATE FUNCTION fn(x INT) RETURNS INT
+BEGIN
+    RETURN x * 2;
+END;
+
+-- Boolean literals
+SELECT TRUE, FALSE;
+SELECT * FROM t WHERE active = TRUE;
+SELECT * FROM t WHERE active = FALSE;
+
+-- String literals
+SELECT 'hello';
+SELECT "hello";
+SELECT 'hello\nworld';
+SELECT 'hello\tworld';
+SELECT 'hello\'world';
+SELECT "hello\"world";
+SELECT b'1010';
+SELECT x'0F0F';
+
+-- Hexadecimal and bit literals
+SELECT X'0F0F';
+SELECT x'0f0f';
+SELECT 0x0F0F;
+SELECT B'1010';
+SELECT b'1010';
+SELECT 0b1010;
+
+-- Comments
+SELECT * FROM t; -- comment
+/* comment */ SELECT * FROM t;
+SELECT /*+ hint */ * FROM t;
+SELECT /*!50001 feature */ * FROM t;

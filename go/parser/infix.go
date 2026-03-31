@@ -1,0 +1,903 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package parser
+
+import (
+	"fmt"
+
+	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/operator"
+	"github.com/user/sqlparser/dialects"
+	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/tokenizer"
+)
+
+// parseInfix parses an infix expression.
+// This is called after parsing the left-hand side and encountering an operator.
+func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.Expr, error) {
+	dialect := ep.parser.GetDialect()
+
+	// TODO: The dialect system uses ast.Expr, but we use expr.Expr
+	// This is an architectural mismatch that needs to be resolved.
+	// For now, we skip the dialect hook and use default parsing.
+	//
+	// parsedExpr, handled, err := dialect.ParseInfix(ep.parser, left, precedence)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// if handled {
+	// 	return parsedExpr, nil
+	// }
+
+	// Get the operator token
+	ep.parser.AdvanceToken()
+	tok := ep.parser.GetCurrentToken()
+	tokSpan := tok.Span
+
+	// Try to parse as a regular binary operator
+	if op := ep.tokenToBinaryOperator(tok.Token); op != operator.BOpNone {
+		return ep.parseBinaryOp(left, op, precedence, tokSpan)
+	}
+
+	// Handle word-based operators (AND, OR, IS, etc.)
+	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+		return ep.parseWordInfix(left, word, precedence, tokSpan)
+	}
+
+	// Handle special token operators
+	switch tok.Token.(type) {
+	case tokenizer.TokenDoubleColon:
+		// PostgreSQL-style cast ::type
+		return ep.parseDoubleColonCast(left)
+
+	case tokenizer.TokenExclamationMark:
+		if dialect.SupportsFactorialOperator() {
+			return &expr.UnaryOp{
+				Op:      operator.UOpPGPostfixFactorial,
+				Expr:    left,
+				SpanVal: mergeSpans(left.Span(), tokSpan),
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no infix parser for token %v", tok.Token)
+}
+
+// tokenToBinaryOperator converts a token to its corresponding binary operator
+func (ep *ExpressionParser) tokenToBinaryOperator(tok tokenizer.Token) operator.BinaryOperator {
+	dialect := ep.parser.GetDialect()
+
+	switch tok.(type) {
+	case tokenizer.TokenSpaceship:
+		return operator.BOpSpaceship
+	case tokenizer.TokenDoubleEq:
+		return operator.BOpEq
+	case tokenizer.TokenAssignment:
+		return operator.BOpAssignment
+	case tokenizer.TokenEq:
+		return operator.BOpEq
+	case tokenizer.TokenNeq:
+		return operator.BOpNotEq
+	case tokenizer.TokenGt:
+		return operator.BOpGt
+	case tokenizer.TokenGtEq:
+		return operator.BOpGtEq
+	case tokenizer.TokenLt:
+		return operator.BOpLt
+	case tokenizer.TokenLtEq:
+		return operator.BOpLtEq
+	case tokenizer.TokenPlus:
+		return operator.BOpPlus
+	case tokenizer.TokenMinus:
+		return operator.BOpMinus
+	case tokenizer.TokenMul:
+		return operator.BOpMultiply
+	case tokenizer.TokenMod:
+		return operator.BOpModulo
+	case tokenizer.TokenStringConcat:
+		return operator.BOpStringConcat
+	case tokenizer.TokenPipe:
+		return operator.BOpBitwiseOr
+	case tokenizer.TokenCaret:
+		if dialect.Dialect() == "postgresql" {
+			return operator.BOpPGExp
+		}
+		return operator.BOpBitwiseXor
+	case tokenizer.TokenAmpersand:
+		return operator.BOpBitwiseAnd
+	case tokenizer.TokenDiv:
+		return operator.BOpDivide
+	case tokenizer.TokenDuckIntDiv:
+		return operator.BOpDuckIntegerDivide
+	case tokenizer.TokenShiftLeft:
+		if dialect.SupportsBitwiseShiftOperators() {
+			return operator.BOpPGBitwiseShiftLeft
+		}
+	case tokenizer.TokenShiftRight:
+		if dialect.SupportsBitwiseShiftOperators() {
+			return operator.BOpPGBitwiseShiftRight
+		}
+	case tokenizer.TokenSharp:
+		if dialect.Dialect() == "postgresql" {
+			return operator.BOpPGBitwiseXor
+		}
+	case tokenizer.TokenOverlap:
+		if dialect.Dialect() == "postgresql" {
+			return operator.BOpPGOverlap
+		}
+		if dialect.SupportsDoubleAmpersandOperator() {
+			return operator.BOpAnd
+		}
+	case tokenizer.TokenCaretAt:
+		if dialect.Dialect() == "postgresql" {
+			return operator.BOpPGStartsWith
+		}
+	case tokenizer.TokenTilde:
+		return operator.BOpPGRegexMatch
+	case tokenizer.TokenTildeAsterisk:
+		return operator.BOpPGRegexIMatch
+	case tokenizer.TokenExclamationMarkTilde:
+		return operator.BOpPGRegexNotMatch
+	case tokenizer.TokenExclamationMarkTildeAsterisk:
+		return operator.BOpPGRegexNotIMatch
+	case tokenizer.TokenDoubleTilde:
+		return operator.BOpPGLikeMatch
+	case tokenizer.TokenDoubleTildeAsterisk:
+		return operator.BOpPGILikeMatch
+	case tokenizer.TokenExclamationMarkDoubleTilde:
+		return operator.BOpPGNotLikeMatch
+	case tokenizer.TokenExclamationMarkDoubleTildeAsterisk:
+		return operator.BOpPGNotILikeMatch
+	case tokenizer.TokenArrow:
+		return operator.BOpArrow
+	case tokenizer.TokenLongArrow:
+		return operator.BOpLongArrow
+	case tokenizer.TokenHashArrow:
+		return operator.BOpHashArrow
+	case tokenizer.TokenHashLongArrow:
+		return operator.BOpHashLongArrow
+	case tokenizer.TokenAtArrow:
+		return operator.BOpAtArrow
+	case tokenizer.TokenArrowAt:
+		return operator.BOpArrowAt
+	case tokenizer.TokenHashMinus:
+		return operator.BOpHashMinus
+	case tokenizer.TokenAtQuestion:
+		return operator.BOpAtQuestion
+	case tokenizer.TokenAtAt:
+		return operator.BOpAtAt
+	case tokenizer.TokenQuestion:
+		return operator.BOpQuestion
+	case tokenizer.TokenQuestionAnd:
+		return operator.BOpQuestionAnd
+	case tokenizer.TokenQuestionPipe:
+		return operator.BOpQuestionPipe
+	case tokenizer.TokenCustomBinaryOperator:
+		// Custom operators require storing the name, which the current
+		// BinaryOperator type doesn't support. For now, return BOpCustom.
+		// TODO: Enhance BinaryOperator to support custom operator names.
+		return operator.BOpCustom
+	case tokenizer.TokenDoubleSharp:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpDoubleHash
+		}
+	case tokenizer.TokenAmpersandLeftAngleBracket:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpAndLt
+		}
+	case tokenizer.TokenAmpersandRightAngleBracket:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpAndGt
+		}
+	case tokenizer.TokenQuestionMarkDash:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpQuestionDash
+		}
+	case tokenizer.TokenAmpersandLeftAngleBracketVerticalBar:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpAndLtPipe
+		}
+	case tokenizer.TokenVerticalBarAmpersandRightAngleBracket:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpPipeAndGt
+		}
+	case tokenizer.TokenTwoWayArrow:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpLtDashGt
+		}
+	case tokenizer.TokenLeftAngleBracketCaret:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpLtCaret
+		}
+	case tokenizer.TokenRightAngleBracketCaret:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpGtCaret
+		}
+	case tokenizer.TokenQuestionMarkSharp:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpQuestionHash
+		}
+	case tokenizer.TokenQuestionMarkDoubleVerticalBar:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpQuestionDoublePipe
+		}
+	case tokenizer.TokenQuestionMarkDashVerticalBar:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpQuestionDashPipe
+		}
+	case tokenizer.TokenTildeEqual:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpTildeEq
+		}
+	case tokenizer.TokenShiftLeftVerticalBar:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpLtLtPipe
+		}
+	case tokenizer.TokenVerticalBarShiftRight:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpPipeGtGt
+		}
+	case tokenizer.TokenAtSign:
+		if dialect.SupportsGeometricTypes() {
+			return operator.BOpAt
+		}
+	}
+
+	return operator.BOpNone
+}
+
+// parseBinaryOp parses a binary operation, handling ALL/ANY/SOME modifiers
+func (ep *ExpressionParser) parseBinaryOp(left expr.Expr, op operator.BinaryOperator, precedence uint8, span span.Span) (expr.Expr, error) {
+	// Check for ALL/ANY/SOME modifiers
+	kw := ep.parser.ParseOneOfKeywords([]string{"ALL", "ANY", "SOME"})
+
+	if kw != "" {
+		// We have ALL/ANY/SOME - need to parse subquery or expression list
+		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		// Check if it's a subquery
+		var right expr.Expr
+		if ep.peekSubquery() {
+			// Parse as subquery
+			ep.parser.PrevToken() // Put back LParen
+			sq, err := ep.parseSubqueryExpr()
+			if err != nil {
+				return nil, err
+			}
+			right = sq
+		} else {
+			// Parse expression and expect closing paren
+			r, err := ep.ParseExprWithPrecedence(precedence)
+			if err != nil {
+				return nil, err
+			}
+			right = r
+			if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+
+		// Validate that the operator is a comparison operator
+		validOps := map[operator.BinaryOperator]bool{
+			operator.BOpGt: true, operator.BOpLt: true, operator.BOpGtEq: true,
+			operator.BOpLtEq: true, operator.BOpEq: true, operator.BOpNotEq: true,
+			operator.BOpPGRegexMatch: true, operator.BOpPGRegexIMatch: true,
+			operator.BOpPGRegexNotMatch: true, operator.BOpPGRegexNotIMatch: true,
+			operator.BOpPGLikeMatch: true, operator.BOpPGILikeMatch: true,
+			operator.BOpPGNotLikeMatch: true, operator.BOpPGNotILikeMatch: true,
+		}
+
+		if !validOps[op] {
+			return nil, fmt.Errorf("expected comparison operator with ALL/ANY/SOME, got %s", op)
+		}
+
+		switch kw {
+		case "ALL":
+			return &expr.AllOp{
+				Left:      left,
+				CompareOp: op,
+				Right:     right,
+				SpanVal:   mergeSpans(left.Span(), right.Span()),
+			}, nil
+		case "ANY", "SOME":
+			return &expr.AnyOp{
+				Left:      left,
+				CompareOp: op,
+				Right:     right,
+				IsSome:    kw == "SOME",
+				SpanVal:   mergeSpans(left.Span(), right.Span()),
+			}, nil
+		}
+	}
+
+	// Regular binary operation
+	right, err := ep.ParseExprWithPrecedence(precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	return &expr.BinaryOp{
+		Left:    left,
+		Op:      op,
+		Right:   right,
+		SpanVal: mergeSpans(left.Span(), right.Span()),
+	}, nil
+}
+
+// parseWordInfix parses an infix operator starting with a word token
+func (ep *ExpressionParser) parseWordInfix(left expr.Expr, word tokenizer.TokenWord, precedence uint8, span span.Span) (expr.Expr, error) {
+	dialect := ep.parser.GetDialect()
+
+	switch word.Word.Keyword {
+	case "AND":
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:    left,
+			Op:      operator.BOpAnd,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+
+	case "OR":
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:    left,
+			Op:      operator.BOpOr,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+
+	case "XOR":
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:    left,
+			Op:      operator.BOpXor,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+
+	case "IS":
+		return ep.parseIsExpr(left)
+
+	case "AT":
+		// AT TIME ZONE expression
+		if ep.parser.ParseKeyword("TIME") && ep.parser.ParseKeyword("ZONE") {
+			tz, err := ep.ParseExprWithPrecedence(precedence)
+			if err != nil {
+				return nil, err
+			}
+			return &expr.AtTimeZone{
+				Timestamp: left,
+				TimeZone:  tz,
+				SpanVal:   mergeSpans(left.Span(), tz.Span()),
+			}, nil
+		}
+		return nil, fmt.Errorf("expected TIME ZONE after AT")
+
+	case "NOT":
+		// NOT can prefix IN, BETWEEN, LIKE, etc.
+		return ep.parseNotPrefixedInfix(left, precedence)
+
+	case "IN":
+		return ep.parseInExpr(left, false)
+
+	case "BETWEEN":
+		return ep.parseBetweenExpr(left, false)
+
+	case "LIKE":
+		return ep.parseLikeExpr(left, false, false)
+
+	case "ILIKE":
+		return ep.parseLikeExpr(left, false, true)
+
+	case "SIMILAR":
+		if ep.parser.ParseKeyword("TO") {
+			return ep.parseSimilarToExpr(left, false)
+		}
+		return nil, fmt.Errorf("expected TO after SIMILAR")
+
+	case "REGEXP", "RLIKE":
+		return ep.parseRLikeExpr(left, false, word.Word.Keyword == "REGEXP")
+
+	case "OVERLAPS":
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:    left,
+			Op:      operator.BOpOverlaps,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+
+	case "NOTNULL":
+		if dialect.SupportsNotnullOperator() {
+			return &expr.IsNotNull{
+				Expr:    left,
+				SpanVal: mergeSpans(left.Span(), span),
+			}, nil
+		}
+
+	case "MEMBER":
+		if ep.parser.ParseKeyword("OF") {
+			if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			arrayExpr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			return &expr.MemberOfExpr{
+				Value:   left,
+				Array:   arrayExpr,
+				SpanVal: mergeSpans(left.Span(), arrayExpr.Span()),
+			}, nil
+		}
+		return nil, fmt.Errorf("expected OF after MEMBER")
+
+	case "OPERATOR":
+		if dialect.Dialect() == "postgresql" {
+			// PostgreSQL custom operator: OPERATOR(schema.op)
+			return ep.parsePgOperator(left, precedence)
+		}
+	}
+
+	return nil, fmt.Errorf("unknown infix word operator: %s", word.Word.Keyword)
+}
+
+// parseNotPrefixedInfix parses NOT followed by IN, BETWEEN, LIKE, etc.
+func (ep *ExpressionParser) parseNotPrefixedInfix(left expr.Expr, precedence uint8) (expr.Expr, error) {
+	// Handle NOT NULL (only valid outside column definition context)
+	if !ep.parser.InColumnDefinitionState() && ep.parser.ParseKeyword("NULL") {
+		return &expr.IsNotNull{
+			Expr:    left,
+			SpanVal: left.Span(),
+		}, nil
+	}
+
+	// Handle NOT with other operators
+	if ep.parser.ParseKeyword("IN") {
+		return ep.parseInExpr(left, true)
+	}
+
+	if ep.parser.ParseKeyword("BETWEEN") {
+		return ep.parseBetweenExpr(left, true)
+	}
+
+	if ep.parser.ParseKeyword("LIKE") {
+		return ep.parseLikeExpr(left, true, false)
+	}
+
+	if ep.parser.ParseKeyword("ILIKE") {
+		return ep.parseLikeExpr(left, true, true)
+	}
+
+	if ep.parser.PeekKeyword("SIMILAR") {
+		if ep.parser.ParseKeyword("SIMILAR") && ep.parser.ParseKeyword("TO") {
+			return ep.parseSimilarToExpr(left, true)
+		}
+	}
+
+	if kw := ep.parser.ParseOneOfKeywords([]string{"REGEXP", "RLIKE"}); kw != "" {
+		return ep.parseRLikeExpr(left, true, kw == "REGEXP")
+	}
+
+	return nil, fmt.Errorf("expected IN, BETWEEN, LIKE, ILIKE, or REGEXP after NOT")
+}
+
+// parseIsExpr parses IS [NOT] NULL/TRUE/FALSE/DISTINCT FROM expressions
+func (ep *ExpressionParser) parseIsExpr(left expr.Expr) (expr.Expr, error) {
+	span := left.Span()
+
+	if ep.parser.ParseKeyword("NULL") {
+		return &expr.IsNull{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"NOT", "NULL"}) {
+		return &expr.IsNotNull{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeyword("TRUE") {
+		return &expr.IsTrue{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"NOT", "TRUE"}) {
+		return &expr.IsNotTrue{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeyword("FALSE") {
+		return &expr.IsFalse{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"NOT", "FALSE"}) {
+		return &expr.IsNotFalse{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeyword("UNKNOWN") {
+		return &expr.IsUnknown{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"NOT", "UNKNOWN"}) {
+		return &expr.IsNotUnknown{
+			Expr:    left,
+			SpanVal: span,
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"DISTINCT", "FROM"}) {
+		right, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.IsDistinctFrom{
+			Left:    left,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+	}
+
+	if ep.parser.ParseKeywords([]string{"NOT", "DISTINCT", "FROM"}) {
+		right, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.IsNotDistinctFrom{
+			Left:    left,
+			Right:   right,
+			SpanVal: mergeSpans(left.Span(), right.Span()),
+		}, nil
+	}
+
+	// Check for IS [form] NORMALIZED (Unicode normalization)
+	normalized, err := ep.tryParseIsNormalized(left)
+	if err != nil {
+		return nil, err
+	}
+	if normalized != nil {
+		return normalized, nil
+	}
+
+	return nil, fmt.Errorf("expected [NOT] NULL, TRUE, FALSE, DISTINCT FROM, or NORMALIZED after IS")
+}
+
+// tryParseIsNormalized attempts to parse IS [NOT] [form] NORMALIZED
+func (ep *ExpressionParser) tryParseIsNormalized(left expr.Expr) (expr.Expr, error) {
+	span := left.Span()
+	negated := false
+
+	if ep.parser.ParseKeyword("NOT") {
+		negated = true
+	}
+
+	// Check for optional normalization form
+	var form *expr.NormalizationForm
+	if ep.parser.ParseKeyword("NFC") {
+		f := expr.FormNFC
+		form = &f
+	} else if ep.parser.ParseKeyword("NFD") {
+		f := expr.FormNFD
+		form = &f
+	} else if ep.parser.ParseKeyword("NFKC") {
+		f := expr.FormNFKC
+		form = &f
+	} else if ep.parser.ParseKeyword("NFKD") {
+		f := expr.FormNFKD
+		form = &f
+	}
+
+	if ep.parser.ParseKeyword("NORMALIZED") {
+		return &expr.IsNormalized{
+			Expr:    left,
+			Form:    form,
+			Negated: negated,
+			SpanVal: span,
+		}, nil
+	}
+
+	// Put back NOT if we consumed it
+	if negated {
+		ep.parser.PrevToken()
+	}
+
+	return nil, nil
+}
+
+// parseInExpr parses IN (expr1, expr2, ...) or IN (subquery)
+func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for empty list (if dialect supports it)
+	dialect := ep.parser.GetDialect()
+	next := ep.parser.PeekTokenRef()
+	if _, ok := next.Token.(tokenizer.TokenRParen); ok {
+		if dialect.SupportsInEmptyList() {
+			ep.parser.AdvanceToken() // consume )
+			return &expr.InList{
+				Expr:    left,
+				List:    []expr.Expr{},
+				Negated: negated,
+				SpanVal: left.Span(),
+			}, nil
+		}
+		return nil, fmt.Errorf("empty IN list not allowed")
+	}
+
+	// Check for UNNEST (BigQuery)
+	if ep.parser.ParseKeyword("UNNEST") {
+		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		arrayExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &expr.InUnnest{
+			Expr:      left,
+			ArrayExpr: arrayExpr,
+			Negated:   negated,
+			SpanVal:   mergeSpans(left.Span(), arrayExpr.Span()),
+		}, nil
+	}
+
+	// Check for subquery - try to parse it directly since we already consumed the LParen
+	if ep.peekSubquery() {
+		subquery, err := ep.parser.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &expr.InSubquery{
+			Expr: left,
+			Subquery: &expr.QueryExpr{
+				SpanVal:   subquery.Span(),
+				Statement: subquery,
+			},
+			Negated: negated,
+			SpanVal: mergeSpans(left.Span(), ep.parser.GetCurrentToken().Span),
+		}, nil
+	}
+
+	// Parse expression list
+	list, err := ep.parseCommaSeparatedExprs()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return &expr.InList{
+		Expr:    left,
+		List:    list,
+		Negated: negated,
+		SpanVal: mergeSpans(left.Span(), list[len(list)-1].Span()),
+	}, nil
+}
+
+// parseBetweenExpr parses BETWEEN low AND high
+func (ep *ExpressionParser) parseBetweenExpr(left expr.Expr, negated bool) (expr.Expr, error) {
+	dialect := ep.parser.GetDialect()
+
+	// Use BETWEEN precedence to ensure we stop at AND, IS, etc.
+	// This matches the Rust implementation: parse_subexpr(self.dialect.prec_value(Precedence::Between))
+	betweenPrec := dialect.PrecValue(dialects.PrecedenceBetween)
+
+	low, err := ep.ParseExprWithPrecedence(betweenPrec)
+	if err != nil {
+		return nil, err
+	}
+
+	if !ep.parser.ParseKeyword("AND") {
+		return nil, fmt.Errorf("expected AND in BETWEEN expression")
+	}
+
+	high, err := ep.ParseExprWithPrecedence(betweenPrec)
+	if err != nil {
+		return nil, err
+	}
+
+	return &expr.Between{
+		Expr:    left,
+		Negated: negated,
+		Low:     low,
+		High:    high,
+		SpanVal: mergeSpans(left.Span(), high.Span()),
+	}, nil
+}
+
+// parseLikeExpr parses [NOT] LIKE pattern [ESCAPE char]
+func (ep *ExpressionParser) parseLikeExpr(left expr.Expr, negated bool, caseInsensitive bool) (expr.Expr, error) {
+	// Check for Snowflake ANY keyword
+	any := ep.parser.ParseKeyword("ANY")
+
+	pattern, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional ESCAPE clause
+	var escapeChar interface{}
+	if ep.parser.ParseKeyword("ESCAPE") {
+		val, err := ep.parseValue()
+		if err != nil {
+			return nil, err
+		}
+		escapeChar = val
+	}
+
+	if caseInsensitive {
+		return &expr.ILike{
+			Negated:    negated,
+			Any:        any,
+			Expr:       left,
+			Pattern:    pattern,
+			EscapeChar: escapeChar,
+			SpanVal:    mergeSpans(left.Span(), pattern.Span()),
+		}, nil
+	}
+
+	return &expr.Like{
+		Negated:    negated,
+		Any:        any,
+		Expr:       left,
+		Pattern:    pattern,
+		EscapeChar: escapeChar,
+		SpanVal:    mergeSpans(left.Span(), pattern.Span()),
+	}, nil
+}
+
+// parseSimilarToExpr parses [NOT] SIMILAR TO pattern [ESCAPE char]
+func (ep *ExpressionParser) parseSimilarToExpr(left expr.Expr, negated bool) (expr.Expr, error) {
+	pattern, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional ESCAPE clause
+	var escapeChar interface{}
+	if ep.parser.ParseKeyword("ESCAPE") {
+		val, err := ep.parseValue()
+		if err != nil {
+			return nil, err
+		}
+		escapeChar = val
+	}
+
+	return &expr.SimilarTo{
+		Negated:    negated,
+		Expr:       left,
+		Pattern:    pattern,
+		EscapeChar: escapeChar,
+		SpanVal:    mergeSpans(left.Span(), pattern.Span()),
+	}, nil
+}
+
+// parseRLikeExpr parses [NOT] REGEXP/RLIKE pattern
+func (ep *ExpressionParser) parseRLikeExpr(left expr.Expr, negated bool, isRegexp bool) (expr.Expr, error) {
+	pattern, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	return &expr.RLike{
+		Negated: negated,
+		Expr:    left,
+		Pattern: pattern,
+		Regexp:  isRegexp,
+		SpanVal: mergeSpans(left.Span(), pattern.Span()),
+	}, nil
+}
+
+// parseDoubleColonCast parses PostgreSQL-style ::type cast
+func (ep *ExpressionParser) parseDoubleColonCast(left expr.Expr) (expr.Expr, error) {
+	// For now, return placeholder - full implementation requires data type parsing
+	return &expr.Cast{
+		Kind:     expr.CastDoubleColon,
+		Expr:     left,
+		DataType: "", // Would need to parse actual data type
+		SpanVal:  left.Span(),
+	}, nil
+}
+
+// parsePgOperator parses PostgreSQL custom OPERATOR(schema.op) syntax
+func (ep *ExpressionParser) parsePgOperator(left expr.Expr, precedence uint8) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse operator name components
+	// TODO: opParts are not currently used since we can't store custom operator names
+	// var opParts []string
+	for {
+		ep.parser.AdvanceToken()
+		tok := ep.parser.GetCurrentToken()
+		// opParts = append(opParts, tok.Token.String())
+		_ = tok // Avoid unused variable error
+
+		if !ep.parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+			break
+		}
+	}
+
+	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse right operand
+	right, err := ep.ParseExprWithPrecedence(precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Custom PostgreSQL operators need BinaryOperatorInfo to store the name.
+	// For now, we use BOpPGCustomBinaryOperator but lose the operator name.
+	// opStr := strings.Join(opParts, ".")
+	return &expr.BinaryOp{
+		Left:    left,
+		Op:      operator.BOpPGCustomBinaryOperator,
+		Right:   right,
+		SpanVal: mergeSpans(left.Span(), right.Span()),
+	}, nil
+}
