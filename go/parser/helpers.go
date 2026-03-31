@@ -22,9 +22,9 @@ import (
 	"strconv"
 
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/span"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/tokenizer"
 )
 
@@ -490,11 +490,17 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 		return nil, err
 	}
 
+	// Only set DataType if it's not empty
+	var dataTypePtr *string
+	if dataType != "" {
+		dataTypePtr = &dataType
+	}
+
 	return &expr.Convert{
 		SpanVal:           mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
 		IsTry:             isTry,
 		Expr:              convertExpr,
-		DataType:          &dataType,
+		DataType:          dataTypePtr,
 		Charset:           charset,
 		TargetBeforeValue: targetBeforeValue,
 		Styles:            styles,

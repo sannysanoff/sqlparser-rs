@@ -441,10 +441,12 @@ func (d *MySqlDialect) SupportsLimitComma() bool {
 	return true
 }
 
-// ConvertTypeBeforeValue returns true if the dialect has a CONVERT function
-// which accepts a type first and an expression second.
+// ConvertTypeBeforeValue returns false for MySQL.
+// MySQL uses CONVERT(value, type) or CONVERT(value USING charset) format,
+// not the MSSQL CONVERT(type, value) format.
+// See: https://dev.mysql.com/doc/refman/8.0/en/cast-functions.html#function_convert
 func (d *MySqlDialect) ConvertTypeBeforeValue() bool {
-	return true
+	return false
 }
 
 // SupportsTryConvert returns true if the dialect supports the TRY_CONVERT function.
