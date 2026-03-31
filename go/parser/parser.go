@@ -27,6 +27,7 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/errors"
 	"github.com/user/sqlparser/span"
@@ -601,7 +602,53 @@ func (p *Parser) parseFlush() (ast.Statement, error) {
 }
 
 func (p *Parser) parseKill() (ast.Statement, error) {
-	return nil, p.expectedRef("KILL not yet implemented", p.PeekTokenRef())
+	// Parse optional modifier: CONNECTION, QUERY, MUTATION, or HARD
+	var modifier *expr.KillType
+	var hasHard bool
+
+	kw := p.ParseOneOfKeywords([]string{"CONNECTION", "QUERY", "MUTATION", "HARD"})
+	switch kw {
+	case "CONNECTION":
+		m := expr.KillTypeConnection
+		modifier = &m
+	case "QUERY":
+		m := expr.KillTypeQuery
+		modifier = &m
+	case "MUTATION":
+		// MUTATION is only supported for ClickHouse and Generic dialects
+		if p.GetDialect().Dialect() == "clickhouse" || p.GetDialect().Dialect() == "generic" {
+			m := expr.KillTypeMutation
+			modifier = &m
+		} else {
+			return nil, fmt.Errorf("unsupported KILL type MUTATION for dialect %s", p.GetDialect().Dialect())
+		}
+	case "HARD":
+		hasHard = true
+		// Check for additional QUERY or CONNECTION modifier after HARD
+		if p.ParseKeyword("QUERY") {
+			m := expr.KillTypeQuery
+			modifier = &m
+		} else if p.ParseKeyword("CONNECTION") {
+			m := expr.KillTypeConnection
+			modifier = &m
+		}
+	}
+
+	// Parse the process ID (uint)
+	tok := p.NextToken()
+	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		id, err := strconv.ParseUint(num.Value, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid process ID: %w", err)
+		}
+		return &statement.Kill{
+			Modifier: modifier,
+			Hard:     hasHard,
+			ID:       id,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("expected process ID after KILL")
 }
 
 func (p *Parser) parseVacuum() (ast.Statement, error) {

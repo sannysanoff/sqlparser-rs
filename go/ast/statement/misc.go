@@ -1234,6 +1234,7 @@ func (p *Prepare) String() string {
 type Kill struct {
 	BaseStatement
 	Modifier *expr.KillType
+	Hard     bool // For KILL HARD [QUERY|CONNECTION] syntax
 	ID       uint64
 }
 
@@ -1242,6 +1243,9 @@ func (k *Kill) statementNode() {}
 func (k *Kill) String() string {
 	var f strings.Builder
 	f.WriteString("KILL ")
+	if k.Hard {
+		f.WriteString("HARD ")
+	}
 	if k.Modifier != nil {
 		f.WriteString(k.Modifier.String())
 		f.WriteString(" ")

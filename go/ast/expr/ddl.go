@@ -1962,9 +1962,26 @@ type KillType int
 
 const (
 	KillTypeNone KillType = iota
+	KillTypeConnection
+	KillTypeQuery
+	KillTypeMutation
+	KillTypeHard
 )
 
-func (k KillType) String() string { return "" }
+func (k KillType) String() string {
+	switch k {
+	case KillTypeConnection:
+		return "CONNECTION"
+	case KillTypeQuery:
+		return "QUERY"
+	case KillTypeMutation:
+		return "MUTATION"
+	case KillTypeHard:
+		return "HARD"
+	default:
+		return ""
+	}
+}
 
 // DescribeAlias represents DESCRIBE alias.
 type DescribeAlias int
