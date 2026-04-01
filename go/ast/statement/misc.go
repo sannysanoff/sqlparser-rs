@@ -98,6 +98,31 @@ func (s *Set) String() string {
 }
 
 // ============================================================================
+// SetNames
+// ============================================================================
+
+// SetNames represents a SET NAMES statement (MySQL specific).
+// Syntax: SET NAMES charset_name [COLLATE collation_name]
+type SetNames struct {
+	BaseStatement
+	CharsetName   string
+	CollationName *string
+}
+
+func (s *SetNames) statementNode() {}
+
+func (s *SetNames) String() string {
+	var f strings.Builder
+	f.WriteString("SET NAMES ")
+	f.WriteString(s.CharsetName)
+	if s.CollationName != nil {
+		f.WriteString(" COLLATE ")
+		f.WriteString(*s.CollationName)
+	}
+	return f.String()
+}
+
+// ============================================================================
 // MSCK
 // ============================================================================
 
