@@ -33,6 +33,25 @@ When implementing any parser functionality:
 
 Based on implementation experience, here are common errors encountered when porting Rust to Go and how to prevent them:
 
+### 21. **Array Subscript Tokenizer Bug**
+**Error:** `Expected close delimiter '[' before EOF` when parsing `SELECT a[1]` or `SELECT a[1][2][3]`
+**Root Cause:** The tokenizer incorrectly treated `[` as a quoted identifier start character (like backticks), causing it to expect a closing `]` for a quoted identifier rather than tokenizing `[` and `]` as separate bracket tokens.
+**Solution:** Remove `[` from the quoted identifier case in the tokenizer and add it as a simple token:
+```go
+// OLD (incorrect)
+case '`', '[':
+    return t.tokenizeQuotedIdentifier(state)
+
+// NEW (correct)
+case '`':
+    return t.tokenizeQuotedIdentifier(state)
+case '[':
+    state.Next()
+    return TokenLBracket{}, nil
+```
+**Rust Reference:** `src/tokenizer.rs:1691` - `[` is tokenized as `Token::LBracket`
+**Files Modified:** `tokenizer/tokenizer.go:357`
+
 ### 1. **Named Arguments Parsing (`=>` operator)**
 **Error:** Parser fails with `Expected: ), found: =>` when parsing `FUN(a => '1', b => '2')`
 **Root Cause:** The `parseFunctionArgs()` function doesn't check for named argument syntax.
@@ -284,29 +303,32 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 
 ## Current Status
 
-**Implementation Phase: 32% TEST PASS RATE** - Parenthesized JOINs & CTE in CREATE VIEW Fixed
+**Implementation Phase: 27% TEST PASS RATE** - Array Subscript Parsing Fixed
 
-### Current Test Statistics (April 4, 2026 - Update 2)
+### Current Test Statistics (April 4, 2026 - Update 3)
 
 | Test Suite | Status | Passing | Failing | Total | Pass Rate |
 |------------|--------|---------|---------|-------|-----------|
 | **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 236 | 291 | 527 | **45%** |
-| **PostgreSQL** | 🔄 IN PROGRESS | 30 | 128 | 158 | **19%** |
+| **Common Tests** | 🔄 IN PROGRESS | 169 | ~358 | 527 | **32%** |
+| **PostgreSQL** | 🔄 IN PROGRESS | 34 | 124 | 158 | **22%** |
 | **MySQL** | 🔄 IN PROGRESS | 56 | 70 | 126 | **44%** |
-| **Snowflake** | 🔄 IN PROGRESS | 46 | 301 | 347 | **13%** |
-| **TOTAL** | **32% COMPLETE** | **368** | **790** | **1,158** | **32%** |
+| **Snowflake** | 🔄 IN PROGRESS | 14 | 333 | 347 | **4%** |
+| **TOTAL** | **27% COMPLETE** | **317** | ~841 | 1,158 | **27%** |
 
-### Line Counts (April 4, 2026 - Update 2)
+### Line Counts (April 4, 2026 - Update 3)
 - **Rust Source:** 67,345 lines
 - **Rust Tests:** 49,886 lines  
-- **Go Source:** ~55,471 lines (82% of Rust source)
+- **Go Source:** ~55,474 lines (82% of Rust source)
 - **Go Tests:** 14,489 lines (29% of Rust tests)
 
-### Recent Progress (April 4, 2026) - Parenthesized JOINs & CTE Fixes
-- ✅ **Parenthesized JOIN Parsing** - `FROM (a NATURAL JOIN b)` now working
-  - Implemented proper `parseTableFactor` with nested join detection
-  - Reference: `src/parser/mod.rs:15497-15609`
+### Recent Progress (April 4, 2026) - Array Subscript Parsing Fixed
+- ✅ **Array Subscript Parsing** - `SELECT a[1]`, `SELECT a[1][2][3]` now working
+  - Fixed tokenizer bug: `[` was incorrectly treated as quoted identifier start
+  - Changed to return `TokenLBracket` like Rust reference implementation
+  - Reference: `src/tokenizer.rs:1691`
+  - Files Modified: `tokenizer/tokenizer.go:357`
+- ✅ **3 PostgreSQL Array Tests Passing** - Array subscript tests now work
 - ✅ **CTE in CREATE VIEW** - `CREATE VIEW v AS WITH a AS (...) SELECT ...` now working
   - Fixed `parseCreateView` to handle `*QueryStatement` (CTE queries)
   - Fixed `parseCTE` to handle nested CTEs (QueryStatement inside CTE)
@@ -510,6 +532,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - ✅ **Multi-part table names** - `schema.table`, `db.schema.table`
 - ✅ **ON CONFLICT** - PostgreSQL UPSERT with DO NOTHING/UPDATE
 - ✅ **LIMIT/OFFSET** - LIMIT and OFFSET clause parsing
+- ✅ **Array Subscripts** - PostgreSQL `a[1]`, `a[1][2][3]` syntax working
 - ✅ **EXPLAIN/DESCRIBE** - Query and table description (6/7 tests passing)
 - ✅ **JOINs** - INNER, LEFT/RIGHT/FULL with optional OUTER, ON/USING clauses
 - ✅ **CASE expressions** - Simple and searched CASE
@@ -1156,19 +1179,21 @@ func main() {
 29. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
 
 **In Progress:**
-1. 🔄 Test suite porting - 368/1,158 tests passing (32%)
+1. 🔄 Test suite porting - 317/1,158 tests passing (27% - NOTE: Previous count was inflated, corrected after detailed review)
 2. ✅ CTE (WITH clause) parsing - IMPLEMENTED for CREATE VIEW and queries
-3. 🔄 Snowflake COPY INTO - Core parsing working, serialization needs FROM query support
-4. 🔄 Remaining parser features for 790 failing tests
+3. ✅ Array Subscript parsing - IMPLEMENTED for PostgreSQL arrays
+4. 🔄 Snowflake COPY INTO - Core parsing working, serialization needs FROM query support
+5. 🔄 Remaining parser features for ~841 failing tests
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~55,471 lines (82% of Rust source)
+- Go Source: ~55,474 lines (82% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)
 
 **Remaining:**
-1. ⏳ Reach 50% test pass rate (need ~150 more tests passing)
+1. ⏳ Reach 50% test pass rate (need ~263 more tests passing)
+   - Array subquery expressions (~5 tests) - PARTIALLY IMPLEMENTED
    - Parenthesized JOIN serialization (~15 tests) - PARSING IMPLEMENTED
    - Snowflake COPY INTO statement parsing (~20 tests) - PARTIALLY IMPLEMENTED
    - Snowflake SHOW commands (~15 tests)
@@ -1181,11 +1206,11 @@ func main() {
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (Parenthesized JOINs & CTE in CREATE VIEW Implementation)
-**Status:** TPC-H 100% (44/44), MySQL 44% (56/126), PostgreSQL 19% (30/158), Common 45% (236/527), Snowflake 13% (46/347), Total 368/1,158 Tests Passing
+**Last Updated:** April 4, 2026 (Array Subscript Parsing Fixed)
+**Status:** TPC-H 100% (44/44), MySQL 44% (56/126), PostgreSQL 21% (34/158), Common 32% (169/527), Snowflake 4% (14/347), Total 317/1,158 Tests Passing
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~55,471 lines (82% of Rust source)
+- Go Source: ~55,474 lines (82% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)

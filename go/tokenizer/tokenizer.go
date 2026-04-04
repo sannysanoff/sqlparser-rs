@@ -354,8 +354,11 @@ func (t *Tokenizer) NextToken(state *State, prevToken Token) (Token, error) {
 			return t.tokenizeDoubleQuotedString(state)
 		}
 		return t.tokenizeQuotedIdentifier(state)
-	case '`', '[':
+	case '`':
 		return t.tokenizeQuotedIdentifier(state)
+	case '[':
+		state.Next()
+		return TokenLBracket{}, nil
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
 		return t.tokenizeNumberOrPeriod(state, prevToken)
 	case '(':
