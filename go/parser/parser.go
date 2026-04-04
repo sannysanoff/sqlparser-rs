@@ -690,19 +690,122 @@ func (p *Parser) parseComment() (ast.Statement, error) {
 }
 
 func (p *Parser) parseListen() (ast.Statement, error) {
-	return nil, p.expectedRef("LISTEN not yet implemented", p.PeekTokenRef())
+	channel, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+	return &statement.Listen{
+		Channel: channel,
+	}, nil
 }
 
 func (p *Parser) parseNotify() (ast.Statement, error) {
-	return nil, p.expectedRef("NOTIFY not yet implemented", p.PeekTokenRef())
+	channel, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	var payload *string
+	if p.ConsumeToken(tokenizer.TokenComma{}) {
+		tok, err := p.ExpectToken(tokenizer.TokenSingleQuotedString{})
+		if err != nil {
+			return nil, err
+		}
+		if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+			payload = &str.Value
+		}
+	}
+
+	return &statement.Notify{
+		Channel: channel,
+		Payload: payload,
+	}, nil
 }
 
 func (p *Parser) parseUnlisten() (ast.Statement, error) {
-	return nil, p.expectedRef("UNLISTEN not yet implemented", p.PeekTokenRef())
+	// Check for wildcard (*)
+	tok := p.PeekToken()
+	if _, ok := tok.Token.(tokenizer.TokenMul); ok {
+		p.AdvanceToken()
+		// Create identifier with * as the name
+		return &statement.Unlisten{
+			Channel: &ast.Ident{Value: "*"},
+		}, nil
+	}
+
+	channel, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+	return &statement.Unlisten{
+		Channel: channel,
+	}, nil
 }
 
 func (p *Parser) parsePragma() (ast.Statement, error) {
-	return nil, p.expectedRef("PRAGMA not yet implemented", p.PeekTokenRef())
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	if p.ConsumeToken(tokenizer.TokenLParen{}) {
+		// PRAGMA name(value)
+		value, err := p.parsePragmaValue()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &statement.Pragma{
+			Name:  name,
+			Value: value,
+			IsEq:  false,
+		}, nil
+	} else if p.ConsumeToken(tokenizer.TokenEq{}) {
+		// PRAGMA name = value
+		value, err := p.parsePragmaValue()
+		if err != nil {
+			return nil, err
+		}
+		return &statement.Pragma{
+			Name:  name,
+			Value: value,
+			IsEq:  true,
+		}, nil
+	}
+
+	// PRAGMA name (no value)
+	return &statement.Pragma{
+		Name:  name,
+		Value: nil,
+		IsEq:  false,
+	}, nil
+}
+
+// parsePragmaValue parses a value for PRAGMA (number, string, or placeholder)
+func (p *Parser) parsePragmaValue() (expr.Expr, error) {
+	tok := p.NextToken()
+	switch t := tok.Token.(type) {
+	case tokenizer.TokenSingleQuotedString:
+		return &expr.ValueExpr{
+			Value: ast.NewSingleQuotedString(t.Value),
+		}, nil
+	case tokenizer.TokenNumber:
+		val, err := ast.NewNumber(t.Value, false)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ValueExpr{
+			Value: val,
+		}, nil
+	case tokenizer.TokenPlaceholder:
+		return &expr.ValueExpr{
+			Value: ast.NewPlaceholder(t.Value),
+		}, nil
+	default:
+		return nil, fmt.Errorf("Expected number, string, or placeholder for PRAGMA value, got %v", t)
+	}
 }
 
 func (p *Parser) parseAssert() (ast.Statement, error) {

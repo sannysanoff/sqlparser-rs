@@ -1089,8 +1089,22 @@ func (s *StartTransaction) String() string {
 	var f strings.Builder
 	if s.Begin {
 		f.WriteString("BEGIN")
+		if s.Modifier != nil && *s.Modifier != expr.TransactionModifierNone {
+			f.WriteString(" ")
+			f.WriteString(s.Modifier.String())
+		}
+		if s.Transaction != nil && *s.Transaction != expr.BeginTransactionKindNone {
+			f.WriteString(" ")
+			f.WriteString(s.Transaction.String())
+		}
 	} else {
 		f.WriteString("START TRANSACTION")
+	}
+	for _, mode := range s.Modes {
+		if *mode != expr.TransactionModeNone {
+			f.WriteString(" ")
+			f.WriteString(mode.String())
+		}
 	}
 	return f.String()
 }
@@ -1148,6 +1162,9 @@ func (c *Commit) String() string {
 	} else {
 		f.WriteString("COMMIT")
 	}
+	if c.Chain {
+		f.WriteString(" AND CHAIN")
+	}
 	return f.String()
 }
 
@@ -1167,6 +1184,9 @@ func (r *Rollback) statementNode() {}
 func (r *Rollback) String() string {
 	var f strings.Builder
 	f.WriteString("ROLLBACK")
+	if r.Chain {
+		f.WriteString(" AND CHAIN")
+	}
 	if r.Savepoint != nil {
 		f.WriteString(" TO SAVEPOINT ")
 		f.WriteString(r.Savepoint.String())
@@ -1493,7 +1513,7 @@ func (u *Uncache) String() string {
 type Pragma struct {
 	BaseStatement
 	Name  *ast.ObjectName
-	Value *expr.ValueWithSpan
+	Value expr.Expr
 	IsEq  bool
 }
 

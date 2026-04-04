@@ -2502,27 +2502,87 @@ type TransactionMode int
 
 const (
 	TransactionModeNone TransactionMode = iota
+	TransactionModeReadUncommitted
+	TransactionModeReadCommitted
+	TransactionModeRepeatableRead
+	TransactionModeSerializable
+	TransactionModeSnapshot
+	TransactionModeReadOnly
+	TransactionModeReadWrite
 )
 
-func (t TransactionMode) String() string { return "" }
+func (t TransactionMode) String() string {
+	switch t {
+	case TransactionModeReadUncommitted:
+		return "ISOLATION LEVEL READ UNCOMMITTED"
+	case TransactionModeReadCommitted:
+		return "ISOLATION LEVEL READ COMMITTED"
+	case TransactionModeRepeatableRead:
+		return "ISOLATION LEVEL REPEATABLE READ"
+	case TransactionModeSerializable:
+		return "ISOLATION LEVEL SERIALIZABLE"
+	case TransactionModeSnapshot:
+		return "ISOLATION LEVEL SNAPSHOT"
+	case TransactionModeReadOnly:
+		return "READ ONLY"
+	case TransactionModeReadWrite:
+		return "READ WRITE"
+	default:
+		return ""
+	}
+}
 
 // BeginTransactionKind represents BEGIN TRANSACTION kind.
 type BeginTransactionKind int
 
 const (
 	BeginTransactionKindNone BeginTransactionKind = iota
+	BeginTransactionKindTransaction
+	BeginTransactionKindWork
+	BeginTransactionKindTran
 )
 
-func (b BeginTransactionKind) String() string { return "" }
+func (b BeginTransactionKind) String() string {
+	switch b {
+	case BeginTransactionKindTransaction:
+		return "TRANSACTION"
+	case BeginTransactionKindWork:
+		return "WORK"
+	case BeginTransactionKindTran:
+		return "TRAN"
+	default:
+		return ""
+	}
+}
 
 // TransactionModifier represents transaction modifier.
 type TransactionModifier int
 
 const (
 	TransactionModifierNone TransactionModifier = iota
+	TransactionModifierDeferred
+	TransactionModifierImmediate
+	TransactionModifierExclusive
+	TransactionModifierTry
+	TransactionModifierCatch
 )
 
-func (t TransactionModifier) String() string { return "" }
+func (t TransactionModifier) String() string {
+	switch t {
+	case TransactionModifierDeferred:
+		return "DEFERRED"
+	case TransactionModifierImmediate:
+		return "IMMEDIATE"
+	case TransactionModifierExclusive:
+		return "EXCLUSIVE"
+	case TransactionModifierTry:
+		return "TRY"
+	case TransactionModifierCatch:
+		return "CATCH"
+	default:
+		return ""
+	}
+}
 
 // ExceptionWhen represents EXCEPTION WHEN clause.
 type ExceptionWhen struct{}
