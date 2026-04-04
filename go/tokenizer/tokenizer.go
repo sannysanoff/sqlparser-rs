@@ -586,11 +586,12 @@ func (t *Tokenizer) tokenizeUnicodeStringLiteral(state *State) (Token, error) {
 		return t.tokenizeIdentifier(state)
 	}
 
-	state.Next() // consume U/u
+	ch, _ := state.Peek() // save the original case
+	state.Next()          // consume U/u
 
 	next, ok := state.Peek()
 	if !ok || next != '&' {
-		word := t.tokenizeWord(state, "U")
+		word := t.tokenizeWord(state, string(ch))
 		return MakeWord(word, nil), nil
 	}
 
@@ -604,7 +605,7 @@ func (t *Tokenizer) tokenizeUnicodeStringLiteral(state *State) (Token, error) {
 		return TokenUnicodeStringLiteral{Value: s}, nil
 	}
 
-	word := t.tokenizeWord(state, "U")
+	word := t.tokenizeWord(state, string(ch))
 	return MakeWord(word, nil), nil
 }
 

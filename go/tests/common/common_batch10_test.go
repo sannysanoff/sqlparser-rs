@@ -211,7 +211,10 @@ func TestParseNamedArgumentFunction(t *testing.T) {
 // TestParseNamedArgumentFunctionWithEqOperator verifies named function arguments with = operator.
 // Reference: tests/sqlparser_common.rs:5639
 func TestParseNamedArgumentFunctionWithEqOperator(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	// Only test with dialects that support named function args with = operator
+	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return d.SupportsNamedFnArgsWithEqOperator()
+	})
 
 	sql := "SELECT FUN(a = '1', b = '2') FROM foo"
 	stmts := dialects.ParseSQL(t, sql)
@@ -223,7 +226,7 @@ func TestParseNamedArgumentFunctionWithEqOperator(t *testing.T) {
 
 	// Test iff function parses for all dialects
 	sql2 := "iff(1 = 1, 1, 0)"
-	stmts2 := dialects.ParseSQL(t, "SELECT "+sql2+" FROM t")
+	stmts2 := utils.NewTestedDialects().ParseSQL(t, "SELECT "+sql2+" FROM t")
 	require.Len(t, stmts2, 1)
 }
 
