@@ -380,14 +380,33 @@ func (c *Copy) statementNode() {}
 
 func (c *Copy) String() string {
 	var f strings.Builder
-	f.WriteString("COPY ")
-	f.WriteString(c.Source.String())
+	f.WriteString("COPY")
+	if c.Source != nil {
+		f.WriteString(c.Source.String())
+	}
 	if c.To {
 		f.WriteString(" TO ")
 	} else {
 		f.WriteString(" FROM ")
 	}
-	f.WriteString(c.Target.String())
+	if c.Target != nil {
+		f.WriteString(c.Target.String())
+	}
+	if len(c.Options) > 0 {
+		f.WriteString(" (")
+		optStrs := make([]string, len(c.Options))
+		for i, opt := range c.Options {
+			optStrs[i] = opt.String()
+		}
+		f.WriteString(strings.Join(optStrs, ", "))
+		f.WriteString(")")
+	}
+	if len(c.LegacyOptions) > 0 {
+		for _, opt := range c.LegacyOptions {
+			f.WriteString(" ")
+			f.WriteString(opt.String())
+		}
+	}
 	return f.String()
 }
 

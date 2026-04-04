@@ -590,16 +590,21 @@ func (ep *ExpressionParser) parseJsonReturningClause() (expr.FunctionArgumentCla
 // Handles: OVER window_name, OVER (window_spec), OVER ()
 func (ep *ExpressionParser) parseWindowSpec() (*expr.WindowType, error) {
 	// Check for empty window spec: OVER ()
-	if ep.parser.ConsumeToken(tokenizer.TokenLParen{}) {
-		// Empty window specification
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
-			return nil, err
+	// We need to check if next is ( and if so, if the following is )
+	tok := ep.parser.PeekToken()
+	if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
+		// Check if it's an empty ()
+		nextTok := ep.parser.PeekNthToken(1)
+		if _, ok := nextTok.Token.(tokenizer.TokenRParen); ok {
+			// Empty window specification OVER ()
+			ep.parser.AdvanceToken() // consume (
+			ep.parser.AdvanceToken() // consume )
+			return &expr.WindowType{Spec: &expr.WindowSpec{}}, nil
 		}
-		return &expr.WindowType{Spec: &expr.WindowSpec{}}, nil
 	}
 
 	// Check for named window reference (just an identifier, no parentheses)
-	tok := ep.parser.PeekToken()
+	tok = ep.parser.PeekToken()
 	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
 		// If it's not a keyword that starts window spec, treat as named window
 		if word.Word.Keyword != "PARTITION" && word.Word.Keyword != "ORDER" &&
@@ -616,6 +621,9 @@ func (ep *ExpressionParser) parseWindowSpec() (*expr.WindowType, error) {
 	}
 
 	// Parse window specification in parentheses
+	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
 	spec, err := ep.parseWindowSpecDetails()
 	if err != nil {
 		return nil, err

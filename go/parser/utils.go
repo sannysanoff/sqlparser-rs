@@ -504,24 +504,72 @@ func (rc *RecursionCounter) GetRemaining() int {
 // Used for MySQL-style SHOW statements where LIKE patterns can be unquoted.
 func (p *Parser) ParseLikePattern() (string, error) {
 	tok := p.PeekToken()
-	
+
 	// Check for string literal
 	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
-	
+
 	// Check for double-quoted string
 	if str, ok := tok.Token.(tokenizer.TokenDoubleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
-	
+
 	// Check for identifier or keyword
 	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
 		p.AdvanceToken()
 		return word.Word.Value, nil
 	}
-	
+
 	return "", p.Expected("string literal or identifier after LIKE", tok)
+}
+
+// ParseStringLiteral parses a single or double quoted string literal.
+func (p *Parser) ParseStringLiteral() (string, error) {
+	tok := p.PeekToken()
+
+	// Check for string literal
+	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+		p.AdvanceToken()
+		return str.Value, nil
+	}
+
+	// Check for double-quoted string
+	if str, ok := tok.Token.(tokenizer.TokenDoubleQuotedString); ok {
+		p.AdvanceToken()
+		return str.Value, nil
+	}
+
+	return "", p.Expected("string literal", tok)
+}
+
+// ParseLiteralChar parses a single-character string literal (e.g., for DELIMITER ',').
+func (p *Parser) ParseLiteralChar() (rune, error) {
+	tok := p.PeekToken()
+
+	// Check for string literal
+	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+		p.AdvanceToken()
+		if len(str.Value) != 1 {
+			return 0, fmt.Errorf("expected single character, got %q", str.Value)
+		}
+		return rune(str.Value[0]), nil
+	}
+
+	return 0, p.Expected("single-quoted character", tok)
+}
+
+// ParseNumber parses a numeric literal and returns its string representation.
+func (p *Parser) ParseNumber() (string, error) {
+	tok := p.PeekToken()
+
+	// Check for number
+	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		p.AdvanceToken()
+		return num.Value, nil
+	}
+
+	return "", p.Expected("number", tok)
 }

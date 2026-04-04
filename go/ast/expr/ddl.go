@@ -1676,33 +1676,362 @@ func (r *RaiseUsing) exprNode()       {}
 func (r *RaiseUsing) Span() span.Span { return span.Span{} }
 func (r *RaiseUsing) String() string  { return "" }
 
-// CopySource represents COPY source.
-type CopySource struct{}
+// CopySource represents the source for a COPY command: a table or a query.
+type CopySource struct {
+	TableName *ast.ObjectName
+	Columns   []*ast.Ident
+	Query     interface{} // *query.Query - using interface{} to avoid import cycle
+	SpanVal   span.Span
+}
 
-func (c *CopySource) exprNode()       {}
-func (c *CopySource) Span() span.Span { return span.Span{} }
-func (c *CopySource) String() string  { return "" }
+func (c *CopySource) exprNode() {}
 
-// CopyTarget represents COPY target.
-type CopyTarget struct{}
+// Span returns the source span for this expression.
+func (c *CopySource) Span() span.Span { return c.SpanVal }
 
-func (c *CopyTarget) exprNode()       {}
-func (c *CopyTarget) Span() span.Span { return span.Span{} }
-func (c *CopyTarget) String() string  { return "" }
+// String returns the SQL representation.
+func (c *CopySource) String() string {
+	if c.Query != nil {
+		// Use fmt.Sprintf with %v to call String() method if available
+		return fmt.Sprintf(" (%v)", c.Query)
+	}
+	if c.TableName != nil {
+		var parts []string
+		parts = append(parts, c.TableName.String())
+		if len(c.Columns) > 0 {
+			colStrs := make([]string, len(c.Columns))
+			for i, col := range c.Columns {
+				colStrs[i] = col.String()
+			}
+			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+		}
+		return " " + strings.Join(parts, " ")
+	}
+	return ""
+}
 
-// CopyOption represents COPY option.
-type CopyOption struct{}
+// CopyTargetKind represents the kind of COPY target.
+type CopyTargetKind int
 
-func (c *CopyOption) exprNode()       {}
+const (
+	CopyTargetKindStdin CopyTargetKind = iota
+	CopyTargetKindStdout
+	CopyTargetKindFile
+	CopyTargetKindProgram
+)
+
+// CopyTarget represents the target for a COPY command: STDIN, STDOUT, a file, or a program.
+type CopyTarget struct {
+	Kind     CopyTargetKind
+	Filename string // For File kind
+	Command  string // For Program kind
+	SpanVal  span.Span
+}
+
+func (c *CopyTarget) exprNode() {}
+
+// Span returns the source span for this expression.
+func (c *CopyTarget) Span() span.Span { return c.SpanVal }
+
+// String returns the SQL representation.
+func (c *CopyTarget) String() string {
+	switch c.Kind {
+	case CopyTargetKindStdin:
+		return "STDIN"
+	case CopyTargetKindStdout:
+		return "STDOUT"
+	case CopyTargetKindFile:
+		return fmt.Sprintf("'%s'", escapeSingleQuote(c.Filename))
+	case CopyTargetKindProgram:
+		return fmt.Sprintf("PROGRAM '%s'", escapeSingleQuote(c.Command))
+	}
+	return ""
+}
+
+// escapeSingleQuote escapes single quotes in a string for SQL.
+func escapeSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
+// CopyOption represents an option in a COPY statement (PostgreSQL 9.0+).
+type CopyOption struct {
+	OptionType CopyOptionType
+	Value      interface{} // Can be Ident, bool, char, string, or []Ident
+}
+
+// CopyOptionType represents the type of COPY option.
+type CopyOptionType int
+
+const (
+	CopyOptionFormat CopyOptionType = iota
+	CopyOptionFreeze
+	CopyOptionDelimiter
+	CopyOptionNull
+	CopyOptionHeader
+	CopyOptionQuote
+	CopyOptionEscape
+	CopyOptionForceQuote
+	CopyOptionForceNotNull
+	CopyOptionForceNull
+	CopyOptionEncoding
+)
+
+func (c *CopyOption) exprNode() {}
+
+// Span returns the source span for this expression.
 func (c *CopyOption) Span() span.Span { return span.Span{} }
-func (c *CopyOption) String() string  { return "" }
 
-// CopyLegacyOption represents COPY legacy option.
-type CopyLegacyOption struct{}
+// String returns the SQL representation.
+func (c *CopyOption) String() string {
+	switch c.OptionType {
+	case CopyOptionFormat:
+		if ident, ok := c.Value.(*ast.Ident); ok {
+			return fmt.Sprintf("FORMAT %s", ident.String())
+		}
+	case CopyOptionFreeze:
+		if val, ok := c.Value.(bool); ok && !val {
+			return "FREEZE FALSE"
+		}
+		return "FREEZE"
+	case CopyOptionDelimiter:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("DELIMITER '%s'", val)
+		}
+	case CopyOptionNull:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("NULL '%s'", escapeSingleQuote(val))
+		}
+	case CopyOptionHeader:
+		if val, ok := c.Value.(bool); ok && !val {
+			return "HEADER FALSE"
+		}
+		return "HEADER"
+	case CopyOptionQuote:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("QUOTE '%s'", val)
+		}
+	case CopyOptionEscape:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("ESCAPE '%s'", val)
+		}
+	case CopyOptionForceQuote:
+		if cols, ok := c.Value.([]*ast.Ident); ok {
+			colStrs := make([]string, len(cols))
+			for i, col := range cols {
+				colStrs[i] = col.String()
+			}
+			return fmt.Sprintf("FORCE_QUOTE (%s)", strings.Join(colStrs, ", "))
+		}
+	case CopyOptionForceNotNull:
+		if cols, ok := c.Value.([]*ast.Ident); ok {
+			colStrs := make([]string, len(cols))
+			for i, col := range cols {
+				colStrs[i] = col.String()
+			}
+			return fmt.Sprintf("FORCE_NOT_NULL (%s)", strings.Join(colStrs, ", "))
+		}
+	case CopyOptionForceNull:
+		if cols, ok := c.Value.([]*ast.Ident); ok {
+			colStrs := make([]string, len(cols))
+			for i, col := range cols {
+				colStrs[i] = col.String()
+			}
+			return fmt.Sprintf("FORCE_NULL (%s)", strings.Join(colStrs, ", "))
+		}
+	case CopyOptionEncoding:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("ENCODING '%s'", escapeSingleQuote(val))
+		}
+	}
+	return ""
+}
 
-func (c *CopyLegacyOption) exprNode()       {}
+// CopyLegacyOptionType represents the type of COPY legacy option.
+type CopyLegacyOptionType int
+
+const (
+	CopyLegacyOptionAcceptAnyDate CopyLegacyOptionType = iota
+	CopyLegacyOptionAcceptInvChars
+	CopyLegacyOptionAddQuotes
+	CopyLegacyOptionAllowOverwrite
+	CopyLegacyOptionBinary
+	CopyLegacyOptionBlankAsNull
+	CopyLegacyOptionBzip2
+	CopyLegacyOptionCleanPath
+	CopyLegacyOptionCompUpdate
+	CopyLegacyOptionCsv
+	CopyLegacyOptionDateFormat
+	CopyLegacyOptionDelimiter
+	CopyLegacyOptionEmptyAsNull
+	CopyLegacyOptionEncrypted
+	CopyLegacyOptionEscape
+	CopyLegacyOptionExtension
+	CopyLegacyOptionFixedWidth
+	CopyLegacyOptionGzip
+	CopyLegacyOptionHeader
+	CopyLegacyOptionIamRole
+	CopyLegacyOptionIgnoreHeader
+	CopyLegacyOptionJson
+	CopyLegacyOptionManifest
+	CopyLegacyOptionMaxFileSize
+	CopyLegacyOptionNull
+	CopyLegacyOptionParallel
+	CopyLegacyOptionParquet
+	CopyLegacyOptionPartitionBy
+	CopyLegacyOptionRegion
+	CopyLegacyOptionRemoveQuotes
+	CopyLegacyOptionRowGroupSize
+	CopyLegacyOptionStatUpdate
+	CopyLegacyOptionTimeFormat
+	CopyLegacyOptionTruncateColumns
+	CopyLegacyOptionZstd
+	CopyLegacyOptionCredentials
+)
+
+// CopyLegacyOption represents a legacy option in a COPY statement (pre-PostgreSQL 9.0, Redshift).
+type CopyLegacyOption struct {
+	OptionType CopyLegacyOptionType
+	Value      interface{} // Type depends on OptionType
+}
+
+func (c *CopyLegacyOption) exprNode() {}
+
+// Span returns the source span for this expression.
 func (c *CopyLegacyOption) Span() span.Span { return span.Span{} }
-func (c *CopyLegacyOption) String() string  { return "" }
+
+// String returns the SQL representation.
+func (c *CopyLegacyOption) String() string {
+	switch c.OptionType {
+	case CopyLegacyOptionAcceptAnyDate:
+		return "ACCEPTANYDATE"
+	case CopyLegacyOptionAcceptInvChars:
+		if val, ok := c.Value.(string); ok && val != "" {
+			return fmt.Sprintf("ACCEPTINVCHARS '%s'", escapeSingleQuote(val))
+		}
+		return "ACCEPTINVCHARS"
+	case CopyLegacyOptionAddQuotes:
+		return "ADDQUOTES"
+	case CopyLegacyOptionAllowOverwrite:
+		return "ALLOWOVERWRITE"
+	case CopyLegacyOptionBinary:
+		return "BINARY"
+	case CopyLegacyOptionBlankAsNull:
+		return "BLANKSASNULL"
+	case CopyLegacyOptionBzip2:
+		return "BZIP2"
+	case CopyLegacyOptionCleanPath:
+		return "CLEANPATH"
+	case CopyLegacyOptionCompUpdate:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("COMPUPDATE %s", val)
+		}
+		return "COMPUPDATE"
+	case CopyLegacyOptionCsv:
+		return "CSV"
+	case CopyLegacyOptionDateFormat:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("DATEFORMAT '%s'", escapeSingleQuote(val))
+		}
+		return "DATEFORMAT"
+	case CopyLegacyOptionDelimiter:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("DELIMITER '%s'", val)
+		}
+		return "DELIMITER"
+	case CopyLegacyOptionEmptyAsNull:
+		return "EMPTYASNULL"
+	case CopyLegacyOptionEncrypted:
+		return "ENCRYPTED"
+	case CopyLegacyOptionEscape:
+		return "ESCAPE"
+	case CopyLegacyOptionExtension:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("EXTENSION '%s'", escapeSingleQuote(val))
+		}
+		return "EXTENSION"
+	case CopyLegacyOptionFixedWidth:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("FIXEDWIDTH '%s'", escapeSingleQuote(val))
+		}
+		return "FIXEDWIDTH"
+	case CopyLegacyOptionGzip:
+		return "GZIP"
+	case CopyLegacyOptionHeader:
+		return "HEADER"
+	case CopyLegacyOptionIamRole:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("IAM_ROLE '%s'", escapeSingleQuote(val))
+		}
+		return "IAM_ROLE"
+	case CopyLegacyOptionIgnoreHeader:
+		if val, ok := c.Value.(int); ok {
+			return fmt.Sprintf("IGNOREHEADER %d", val)
+		}
+		return "IGNOREHEADER"
+	case CopyLegacyOptionJson:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("JSON '%s'", escapeSingleQuote(val))
+		}
+		return "JSON"
+	case CopyLegacyOptionManifest:
+		return "MANIFEST"
+	case CopyLegacyOptionMaxFileSize:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("MAXFILESIZE %s", val)
+		}
+		return "MAXFILESIZE"
+	case CopyLegacyOptionNull:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("NULL '%s'", escapeSingleQuote(val))
+		}
+		return "NULL"
+	case CopyLegacyOptionParallel:
+		if val, ok := c.Value.(bool); ok {
+			if val {
+				return "PARALLEL TRUE"
+			}
+			return "PARALLEL FALSE"
+		}
+		return "PARALLEL"
+	case CopyLegacyOptionParquet:
+		return "PARQUET"
+	case CopyLegacyOptionRegion:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("REGION '%s'", escapeSingleQuote(val))
+		}
+		return "REGION"
+	case CopyLegacyOptionRemoveQuotes:
+		return "REMOVEQUOTES"
+	case CopyLegacyOptionRowGroupSize:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("ROWGROUPSIZE %s", val)
+		}
+		return "ROWGROUPSIZE"
+	case CopyLegacyOptionStatUpdate:
+		if val, ok := c.Value.(bool); ok {
+			if val {
+				return "STATUPDATE TRUE"
+			}
+			return "STATUPDATE FALSE"
+		}
+		return "STATUPDATE"
+	case CopyLegacyOptionTimeFormat:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("TIMEFORMAT '%s'", escapeSingleQuote(val))
+		}
+		return "TIMEFORMAT"
+	case CopyLegacyOptionTruncateColumns:
+		return "TRUNCATECOLUMNS"
+	case CopyLegacyOptionZstd:
+		return "ZSTD"
+	case CopyLegacyOptionCredentials:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("CREDENTIALS '%s'", escapeSingleQuote(val))
+		}
+		return "CREDENTIALS"
+	}
+	return ""
+}
 
 // CopyIntoSnowflakeKind represents COPY INTO Snowflake kind.
 type CopyIntoSnowflakeKind int
