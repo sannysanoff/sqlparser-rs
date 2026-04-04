@@ -356,14 +356,16 @@ func parseDescribe(p *Parser) (ast.Statement, error) {
 }
 
 // parseShow parses SHOW statements
-// parseShow parses SHOW statements
+// Reference: src/parser/mod.rs:15030
 func parseShow(p *Parser) (ast.Statement, error) {
 	// Parse optional modifiers that can appear before the object type
-	var full, extended, global, session bool
+	var terse, full, extended, global, session, external bool
 
 	// Try to parse optional modifiers
 	for {
 		switch {
+		case !terse && p.PeekKeyword("TERSE"):
+			terse = p.ParseKeyword("TERSE")
 		case !full && p.PeekKeyword("FULL"):
 			full = p.ParseKeyword("FULL")
 		case !extended && p.PeekKeyword("EXTENDED"):
@@ -372,6 +374,8 @@ func parseShow(p *Parser) (ast.Statement, error) {
 			global = p.ParseKeyword("GLOBAL")
 		case !session && p.PeekKeyword("SESSION"):
 			session = p.ParseKeyword("SESSION")
+		case !external && p.PeekKeyword("EXTERNAL"):
+			external = p.ParseKeyword("EXTERNAL")
 		default:
 			goto doneModifiers
 		}
@@ -383,23 +387,77 @@ doneModifiers:
 		return parseShowCreate(p)
 	}
 
-	// Determine the object type
-	switch {
-	case p.PeekKeyword("COLUMNS") || p.PeekKeyword("FIELDS"):
+	// Check for COLUMNS/FIELDS
+	if p.PeekKeyword("COLUMNS") || p.PeekKeyword("FIELDS") {
 		return parseShowColumns(p, extended, full)
-	case p.PeekKeyword("TABLES"):
-		return parseShowTables(p, extended, full)
-	case p.PeekKeyword("STATUS"):
-		return parseShowStatus(p, global, session)
-	case p.PeekKeyword("VARIABLES"):
-		return parseShowVariables(p, global, session)
-	case p.PeekKeyword("COLLATION"):
-		return parseShowCollation(p)
-	case p.PeekKeyword("CHARSET") || p.PeekKeyword("CHARACTER"):
-		return parseShowCharset(p)
-	default:
-		return nil, p.ExpectedRef("COLUMNS, FIELDS, TABLES, STATUS, VARIABLES, CREATE, COLLATION, CHARSET, or CHARACTER after SHOW", p.PeekTokenRef())
 	}
+
+	// Check for TABLES
+	if p.PeekKeyword("TABLES") {
+		return parseShowTables(p, terse, extended, full, external)
+	}
+
+	// Check for MATERIALIZED VIEWS
+	if p.PeekKeyword("MATERIALIZED") {
+		p.AdvanceToken()
+		if !p.PeekKeyword("VIEWS") {
+			return nil, p.ExpectedRef("VIEWS after MATERIALIZED", p.PeekTokenRef())
+		}
+		return parseShowViews(p, terse, true)
+	}
+
+	// Check for VIEWS
+	if p.PeekKeyword("VIEWS") {
+		return parseShowViews(p, terse, false)
+	}
+
+	// Check for FUNCTIONS
+	if p.PeekKeyword("FUNCTIONS") {
+		return parseShowFunctions(p)
+	}
+
+	// Check for DATABASES
+	if p.PeekKeyword("DATABASES") {
+		return parseShowDatabases(p, terse)
+	}
+
+	// Check for SCHEMAS
+	if p.PeekKeyword("SCHEMAS") {
+		return parseShowSchemas(p, terse)
+	}
+
+	// Check for STATUS
+	if p.PeekKeyword("STATUS") {
+		return parseShowStatus(p, global, session)
+	}
+
+	// Check for VARIABLES
+	if p.PeekKeyword("VARIABLES") {
+		return parseShowVariables(p, global, session)
+	}
+
+	// Check for COLLATION
+	if p.PeekKeyword("COLLATION") {
+		return parseShowCollation(p)
+	}
+
+	// Check for CHARSET/CHARACTER SET
+	if p.PeekKeyword("CHARSET") || p.PeekKeyword("CHARACTER") {
+		return parseShowCharset(p)
+	}
+
+	// Check for OBJECTS (Snowflake)
+	if p.PeekKeyword("OBJECTS") {
+		return parseShowObjects(p, terse)
+	}
+
+	// Extended/full without valid target
+	if extended || full {
+		return nil, fmt.Errorf("EXTENDED/FULL are not supported with this type of SHOW query")
+	}
+
+	// SHOW variable (MySQL style: SHOW ENGINE INNODB STATUS)
+	return parseShowVariable(p)
 }
 
 // parseShowColumns parses SHOW COLUMNS/FIELDS statements
@@ -473,10 +531,22 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 }
 
 // parseShowTables parses SHOW TABLES statements
-func parseShowTables(p *Parser, extended, full bool) (ast.Statement, error) {
+// Reference: src/parser/mod.rs:15157
+func parseShowTables(p *Parser, terse, extended, full, external bool) (ast.Statement, error) {
 	p.AdvanceToken()
 
 	options := &expr.ShowStatementOptions{}
+
+	// Parse optional LIKE (for dialects that support LIKE before IN)
+	if p.GetDialect().SupportsShowLikeBeforeIn() && p.PeekKeyword("LIKE") {
+		p.AdvanceToken()
+		likePattern, err := p.ParseLikePattern()
+		if err != nil {
+			return nil, err
+		}
+		options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+		options.FilterPosition = expr.ShowStatementFilterPositionInfix
+	}
 
 	// Parse optional FROM/IN clause
 	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
@@ -495,7 +565,8 @@ func parseShowTables(p *Parser, extended, full bool) (ast.Statement, error) {
 		}
 	}
 
-	// Parse optional LIKE or WHERE clause
+	// Parse optional LIKE or WHERE clause (for dialects that support suffix filters)
+	// Also try parsing a bare string literal (Snowflake-style suffix filter)
 	if p.PeekKeyword("LIKE") {
 		p.AdvanceToken()
 		likePattern, err := p.ParseLikePattern()
@@ -503,6 +574,7 @@ func parseShowTables(p *Parser, extended, full bool) (ast.Statement, error) {
 			return nil, err
 		}
 		options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+		options.FilterPosition = expr.ShowStatementFilterPositionSuffix
 	} else if p.PeekKeyword("WHERE") {
 		p.AdvanceToken()
 		exprParser := NewExpressionParser(p)
@@ -511,11 +583,23 @@ func parseShowTables(p *Parser, extended, full bool) (ast.Statement, error) {
 			return nil, err
 		}
 		options.Filter = &expr.ShowStatementFilter{Where: whereExpr}
+		options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+	} else {
+		// Try to parse a bare string literal (Snowflake-style: SHOW TABLES IN db1 'abc')
+		tok := p.PeekToken()
+		if strTok, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			suffixStr := strTok.Value
+			options.Filter = &expr.ShowStatementFilter{SuffixString: &suffixStr}
+			options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+		}
 	}
 
 	return &statement.ShowTables{
+		Terse:       terse,
 		Extended:    extended,
 		Full:        full,
+		External:    external,
 		ShowOptions: options,
 	}, nil
 }
@@ -605,6 +689,150 @@ func parseShowCharset(p *Parser) (ast.Statement, error) {
 		Filter:          filter,
 		UseCharacterSet: useCharacterSet,
 	}, nil
+}
+
+// parseShowDatabases parses SHOW DATABASES statements
+// Reference: src/parser/mod.rs:15097
+func parseShowDatabases(p *Parser, terse bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	history := p.ParseKeyword("HISTORY")
+	options := parseShowStmtOptions(p)
+	return &statement.ShowDatabases{
+		Terse:       terse,
+		History:     history,
+		ShowOptions: options,
+	}, nil
+}
+
+// parseShowSchemas parses SHOW SCHEMAS statements
+// Reference: src/parser/mod.rs:15107
+func parseShowSchemas(p *Parser, terse bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	history := p.ParseKeyword("HISTORY")
+	options := parseShowStmtOptions(p)
+	return &statement.ShowSchemas{
+		Terse:       terse,
+		History:     history,
+		ShowOptions: options,
+	}, nil
+}
+
+// parseShowViews parses SHOW VIEWS or SHOW MATERIALIZED VIEWS statements
+// Reference: src/parser/mod.rs:15176
+func parseShowViews(p *Parser, terse bool, materialized bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	options := parseShowStmtOptions(p)
+	return &statement.ShowViews{
+		Terse:        terse,
+		Materialized: materialized,
+		ShowOptions:  options,
+	}, nil
+}
+
+// parseShowFunctions parses SHOW FUNCTIONS statements
+// Reference: src/parser/mod.rs:15190
+func parseShowFunctions(p *Parser) (ast.Statement, error) {
+	p.AdvanceToken()
+	filter := parseShowFilter(p)
+	return &statement.ShowFunctions{Filter: filter}, nil
+}
+
+// parseShowObjects parses SHOW OBJECTS statements (Snowflake)
+func parseShowObjects(p *Parser, terse bool) (ast.Statement, error) {
+	p.AdvanceToken()
+	options := parseShowStmtOptions(p)
+	return &statement.ShowObjects{
+		Terse:       terse,
+		ShowOptions: options,
+	}, nil
+}
+
+// parseShowVariable parses SHOW variable statements (MySQL style: SHOW ENGINE INNODB STATUS)
+func parseShowVariable(p *Parser) (ast.Statement, error) {
+	// Parse one or more identifiers (e.g., "ENGINE INNODB STATUS")
+	var identifiers []*ast.Ident
+	for {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			break
+		}
+		identifiers = append(identifiers, ident)
+	}
+	return &statement.ShowVariable{Variable: identifiers}, nil
+}
+
+// parseShowStmtOptions parses SHOW statement options (LIKE, WHERE, IN, FROM, LIMIT, STARTS WITH)
+// Reference: src/parser/mod.rs:19845
+func parseShowStmtOptions(p *Parser) *expr.ShowStatementOptions {
+	options := &expr.ShowStatementOptions{}
+
+	// Parse optional LIKE/WHERE (infix position - before IN/FROM for some dialects)
+	if p.GetDialect().SupportsShowLikeBeforeIn() {
+		if p.PeekKeyword("LIKE") {
+			p.AdvanceToken()
+			likePattern, err := p.ParseLikePattern()
+			if err == nil {
+				options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+				options.FilterPosition = expr.ShowStatementFilterPositionInfix
+			}
+		} else if p.PeekKeyword("WHERE") {
+			p.AdvanceToken()
+			exprParser := NewExpressionParser(p)
+			whereExpr, err := exprParser.ParseExpr()
+			if err == nil {
+				options.Filter = &expr.ShowStatementFilter{Where: whereExpr}
+				options.FilterPosition = expr.ShowStatementFilterPositionInfix
+			}
+		}
+	}
+
+	// Parse optional IN/FROM clause
+	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
+		clause := expr.ShowStatementInClauseFrom
+		if p.PeekKeyword("IN") {
+			clause = expr.ShowStatementInClauseIn
+		}
+		p.AdvanceToken()
+		dbName, err := p.ParseIdentifier()
+		if err == nil {
+			options.ShowIn = &expr.ShowStatementIn{
+				Clause:     clause,
+				ParentName: &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: dbName}}},
+			}
+		}
+	}
+
+	// Parse optional LIKE/WHERE (suffix position - after IN/FROM for some dialects)
+	// Also try parsing a bare string literal for Snowflake-style suffix filter
+	if !p.GetDialect().SupportsShowLikeBeforeIn() || options.Filter == nil {
+		if p.PeekKeyword("LIKE") {
+			p.AdvanceToken()
+			likePattern, err := p.ParseLikePattern()
+			if err == nil {
+				options.Filter = &expr.ShowStatementFilter{Like: &likePattern}
+				options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+			}
+		} else if p.PeekKeyword("WHERE") {
+			p.AdvanceToken()
+			exprParser := NewExpressionParser(p)
+			whereExpr, err := exprParser.ParseExpr()
+			if err == nil {
+				options.Filter = &expr.ShowStatementFilter{Where: whereExpr}
+				options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+			}
+		} else {
+			// Try to parse a bare string literal (Snowflake-style: SHOW TABLES IN db1 'abc')
+			tok := p.PeekToken()
+			if strTok, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+				p.AdvanceToken()
+				suffixStr := strTok.Value
+				options.Filter = &expr.ShowStatementFilter{SuffixString: &suffixStr}
+				options.FilterPosition = expr.ShowStatementFilterPositionSuffix
+			}
+		}
+	}
+
+	return options
 }
 
 // parseShowFilter parses an optional LIKE or WHERE clause for SHOW statements

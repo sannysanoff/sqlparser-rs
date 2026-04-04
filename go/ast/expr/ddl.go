@@ -2446,8 +2446,9 @@ func (s ShowStatementFilterPosition) String() string { return "" }
 
 // ShowStatementFilter represents SHOW statement filter.
 type ShowStatementFilter struct {
-	Like  *string
-	Where Expr
+	Like         *string
+	Where        Expr
+	SuffixString *string // For Snowflake-style suffix string literal (e.g., SHOW TABLES IN db1 'abc')
 }
 
 func (s *ShowStatementFilter) exprNode()       {}
@@ -2458,6 +2459,9 @@ func (s *ShowStatementFilter) String() string {
 	}
 	if s.Where != nil {
 		return fmt.Sprintf("WHERE %s", s.Where.String())
+	}
+	if s.SuffixString != nil {
+		return fmt.Sprintf("'%s'", *s.SuffixString)
 	}
 	return ""
 }

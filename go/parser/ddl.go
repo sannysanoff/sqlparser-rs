@@ -28,17 +28,36 @@ import (
 )
 
 // ParseCreate parses a CREATE statement
+// Reference: src/parser/mod.rs:5095
 func ParseCreate(p *Parser) (ast.Statement, error) {
-	// Check for OR REPLACE
+	// Check for OR REPLACE / OR ALTER
 	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
+	_ = p.ParseKeywords([]string{"OR", "ALTER"}) // orAlter not used yet
+
+	// Check for LOCAL/GLOBAL
+	local := p.ParseKeyword("LOCAL")
+	global := p.ParseKeyword("GLOBAL")
+	var globalOpt *bool
+	if global {
+		globalOpt = &[]bool{true}[0]
+	} else if local {
+		globalOpt = &[]bool{false}[0]
+	}
+
+	// Check for TRANSIENT
+	transient := p.ParseKeyword("TRANSIENT")
 
 	// Check for TEMPORARY/TEMP
 	temporary := p.ParseKeyword("TEMPORARY") || p.ParseKeyword("TEMP")
 
+	// Check for PERSISTENT (DuckDB)
+	// Note: Persistent is not stored separately, it's just a modifier
+	p.ParseKeyword("PERSISTENT")
+
 	// Try various CREATE targets
 	switch {
 	case p.PeekKeyword("TABLE"):
-		return parseCreateTable(p, orReplace, temporary)
+		return parseCreateTable(p, orReplace, temporary, globalOpt, transient)
 	case p.PeekKeyword("VIEW"):
 		return parseCreateView(p, orReplace, temporary)
 	case p.PeekKeyword("INDEX"):
@@ -85,7 +104,8 @@ func ParseCreate(p *Parser) (ast.Statement, error) {
 }
 
 // parseCreateTable parses CREATE TABLE
-func parseCreateTable(p *Parser, orReplace, temporary bool) (ast.Statement, error) {
+// Reference: src/parser/mod.rs:8339
+func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transient bool) (ast.Statement, error) {
 	// Consume TABLE keyword
 	if _, err := p.ExpectKeyword("TABLE"); err != nil {
 		return nil, err
@@ -113,13 +133,55 @@ func parseCreateTable(p *Parser, orReplace, temporary bool) (ast.Statement, erro
 		constraints = cons
 	}
 
+	// Check for AS (CREATE TABLE ... AS SELECT)
+	var asQuery *query.Query
+	if p.PeekKeyword("AS") {
+		p.AdvanceToken()
+		innerQuery, err := p.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		// Extract query from the returned statement
+		switch q := innerQuery.(type) {
+		case *QueryStatement:
+			asQuery = q.Query
+		case *SelectStatement:
+			// Convert SelectStatement to query.Query
+			asQuery = &query.Query{
+				Body: &query.SelectSetExpr{
+					Select: &q.Select,
+				},
+			}
+		case *ValuesStatement:
+			asQuery = q.Query
+		}
+	}
+
+	// Check for LIKE (CREATE TABLE ... LIKE)
+	var like *expr.CreateTableLikeKind
+	if p.PeekKeyword("LIKE") {
+		p.AdvanceToken()
+		likeTable, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		like = &expr.CreateTableLikeKind{
+			Name: likeTable,
+			Kind: expr.CreateTableLikePlain,
+		}
+	}
+
 	return &statement.CreateTable{
 		OrReplace:   orReplace,
 		Temporary:   temporary,
+		Global:      global,
+		Transient:   transient,
 		IfNotExists: ifNotExists,
 		Name:        tableName,
 		Columns:     columns,
 		Constraints: constraints,
+		Query:       asQuery,
+		Like:        like,
 	}, nil
 }
 
