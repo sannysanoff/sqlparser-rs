@@ -139,13 +139,45 @@ parts = append(parts, fmt.Sprintf("FROM %s", n.Name.String()))
 **Solution:** Ensure all statement types that can contain queries (CREATE VIEW, INSERT, etc.) handle both SelectStatement and QueryStatement
 **Rust Reference:** `src/parser/mod.rs:13599-13610` - WITH clause parsing in `parse_query()`
 
+### 11. **Stub Implementation Returns Empty Values**
+**Error:** `LOCK TABLES t READ` parses with empty table name: `Table="", Alias="t"`
+**Root Cause:** A stub `parseIdentifier()` function returns `&ast.Ident{}` (empty) instead of actually parsing the token
+**Solution:** Always verify helper functions actually parse data, not just return empty structs:
+```go
+// BAD - returns empty identifier
+func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
+    return &ast.Ident{}, nil  // Silent failure!
+}
+
+// GOOD - actually parses the token
+func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
+    tok := parser.PeekToken()
+    if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+        parser.AdvanceToken()
+        return &ast.Ident{Value: word.Word.Value}, nil
+    }
+    return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
+}
+```
+**Discovery:** Found in MySQL dialect's parseLockTables - stub was causing table name to be empty while alias was correctly parsed
+
 ---
 
 ## Current Status
 
 **Implementation Phase: 27% TEST PASS RATE** - Major Chunks Implementation In Progress
 
-### Recent Progress (April 4, 2026) - Named Arguments + CTE Implementation
+### Recent Progress (April 4, 2026) - GRANT/REVOKE + LOCK TABLES Implementation
+- ✅ **GRANT Statement Parsing** - `GRANT ALL ON foo.* TO 'user'@'%'` now working for MySQL
+- ✅ **REVOKE Statement Parsing** - `REVOKE SELECT ON foo FROM user1` now working  
+- ✅ **LOCK TABLES Parsing** - `LOCK TABLES t READ/WRITE` with implicit AS now working
+- ✅ **UNLOCK TABLES Parsing** - `UNLOCK TABLES` statement now working
+- ✅ **3 MORE MYSQL TESTS PASSING** - Now 55/130 passing (42%)
+  - Fixed TestParseGrant - MySQL GRANT with wildcards and user@host syntax
+  - Fixed TestParseRevoke - MySQL REVOKE with wildcards
+  - Fixed TestParseLockTables - MySQL LOCK TABLES with READ/WRITE and AS alias
+
+### Previous Progress (April 4, 2026) - Named Arguments + CTE Implementation
 - ✅ **Named Arguments Parsing** - `FUN(a => '1', b => '2')` syntax now working for PostgreSQL
 - ✅ **CTE (WITH clause) Parsing** - Basic CTE parsing implemented: `WITH a AS (SELECT ...) SELECT ...`
 - 🔄 **2 MORE TESTS PASSING** - PostgreSQL tests now 24/157 (up from 23)
@@ -210,8 +242,11 @@ parts = append(parts, fmt.Sprintf("FROM %s", n.Name.String()))
 | Test Suite | Status | Passing | Failing | Total | Pass Rate |
 |------------|--------|---------|---------|-------|-----------|
 | **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 138 | 297 | 435 | **32%** |
+| **Common Tests** | 🔄 IN PROGRESS | 140 | 295 | 435 | **32%** |
 | **PostgreSQL** | 🔄 IN PROGRESS | 24 | 133 | 157 | **15%** |
+| **MySQL** | 🔄 IN PROGRESS | 55 | 70 | 125 | **44%** |
+| **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | **9%** |
+| **TOTAL** | **30% COMPLETE** | **232** | **586** | **818** | **28%** |
 | **MySQL** | 🔄 IN PROGRESS | 52 | 73 | 125 | **42%** |
 | **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | **9%** |
 | **TOTAL** | **27% COMPLETE** | **223** | **591** | **814** | **27%** |
@@ -884,28 +919,28 @@ func main() {
 23. ✅ PREPARE/EXECUTE/DEALLOCATE - Prepared statements
 
 **In Progress:**
-1. 🔄 Test suite porting - 223/814 tests passing (27%)
+1. 🔄 Test suite porting - 232/818 tests passing (28%)
 2. 🔄 CTE (WITH clause) parsing - basic implementation complete, needs refinement for CREATE VIEW
-3. 🔄 Remaining parser features for 591 failing tests
+3. 🔄 Remaining parser features for 586 failing tests
 
 **Line Counts:**
-- Rust Source: 67,345 lines
-- Rust Tests: 49,886 lines  
-- Go Source: 66,115 lines (98% of Rust source - including tests)
-- Go Tests: ~22,000 lines included in Go source count
+- Rust Source: 134,187 lines
+- Rust Tests: 99,772 lines  
+- Go Source: 103,252 lines (77% of Rust source)
+- Go Tests: ~28,978 lines (29% of Rust tests)
 
 **Remaining:**
-1. ⏳ Reach 50% test pass rate (need ~160 more tests passing)
+1. ⏳ Reach 50% test pass rate (need ~177 more tests passing)
    - CTE handling in CREATE VIEW and other statements
    - Window function edge cases
    - JSON operators for PostgreSQL
    - COPY statement parsing
-   - GRANT/REVOKE statements
+   - Complex GRANT/REVOKE edge cases (~100 more tests)
 2. ⏳ Performance benchmarks
 3. ⏳ CI/CD pipeline
 
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (Named Arguments + CTE Implementation)  
-**Status:** TPC-H 100% (44/44), MySQL 42% (52/125), PostgreSQL 15% (24/157), Common 32% (138/435), Snowflake 9% (9/97), Total 223/814 Tests Passing
+**Last Updated:** April 4, 2026 (GRANT/REVOKE + LOCK TABLES Implementation)  
+**Status:** TPC-H 100% (44/44), MySQL 44% (55/125), PostgreSQL 15% (24/157), Common 32% (140/435), Snowflake 9% (9/97), Total 232/818 Tests Passing

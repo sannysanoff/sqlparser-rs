@@ -29,14 +29,23 @@ import (
 // ============================================================================
 
 // Grant represents a GRANT statement
+// Reference: src/ast/dcl.rs Grant
 type Grant struct {
 	BaseStatement
-	Privileges      *Privileges
-	Objects         *GrantObjects
-	Grantees        []*Grantee
+	// Privileges is the set of privileges being granted
+	Privileges *Privileges
+	// Objects is the set of objects on which privileges are granted
+	Objects *GrantObjects
+	// Grantees is the list of grantees
+	Grantees []*Grantee
+	// WithGrantOption indicates if WITH GRANT OPTION was specified
 	WithGrantOption bool
-	GrantedBy       *Grantee
-	CurrentGrants   *CurrentGrantsKind
+	// AsGrantor is the optional AS clause for the grantor
+	AsGrantor *ast.Ident
+	// GrantedBy is the optional GRANTED BY clause
+	GrantedBy *ast.Ident
+	// CurrentGrants is the type of current grants (COPY/REVOKE)
+	CurrentGrants *CurrentGrantsKind
 }
 
 func (g *Grant) statementNode() {}
@@ -66,6 +75,16 @@ func (g *Grant) String() string {
 		f.WriteString(" WITH GRANT OPTION")
 	}
 
+	if g.AsGrantor != nil {
+		f.WriteString(" AS ")
+		f.WriteString(g.AsGrantor.String())
+	}
+
+	if g.GrantedBy != nil {
+		f.WriteString(" GRANTED BY ")
+		f.WriteString(g.GrantedBy.String())
+	}
+
 	return f.String()
 }
 
@@ -74,14 +93,22 @@ func (g *Grant) String() string {
 // ============================================================================
 
 // Revoke represents a REVOKE statement
+// Reference: src/ast/dcl.rs Revoke
 type Revoke struct {
 	BaseStatement
-	Privileges    *Privileges
-	Objects       *GrantObjects
-	Grantees      []*Grantee
-	GrantedBy     *Grantee
-	Cascade       bool
-	Restrict      bool
+	// Privileges is the set of privileges being revoked
+	Privileges *Privileges
+	// Objects is the set of objects on which privileges are revoked
+	Objects *GrantObjects
+	// Grantees is the list of grantees
+	Grantees []*Grantee
+	// GrantedBy is the optional GRANTED BY clause
+	GrantedBy *ast.Ident
+	// Cascade indicates if CASCADE was specified
+	Cascade bool
+	// Restrict indicates if RESTRICT was specified
+	Restrict bool
+	// CurrentGrants is the type of current grants
 	CurrentGrants *CurrentGrantsKind
 }
 
@@ -106,6 +133,19 @@ func (r *Revoke) String() string {
 			f.WriteString(", ")
 		}
 		f.WriteString(grantee.String())
+	}
+
+	if r.GrantedBy != nil {
+		f.WriteString(" GRANTED BY ")
+		f.WriteString(r.GrantedBy.String())
+	}
+
+	if r.Cascade {
+		f.WriteString(" CASCADE")
+	}
+
+	if r.Restrict {
+		f.WriteString(" RESTRICT")
 	}
 
 	return f.String()
@@ -300,40 +340,195 @@ func (l LockTableType) String() string {
 // ============================================================================
 
 // Privileges represents a list of privileges in a GRANT/REVOKE statement
+// Reference: src/ast/mod.rs Privileges
 type Privileges struct {
+	// All indicates if ALL PRIVILEGES was specified
 	All bool
-	// TODO: Add specific privilege types
+	// WithPrivilegesKeyword indicates if the PRIVILEGES keyword was used after ALL
+	WithPrivilegesKeyword bool
+	// Actions contains specific privilege actions (if All is false)
+	Actions []*Action
 }
 
 func (p *Privileges) String() string {
+	var f strings.Builder
 	if p.All {
-		return "ALL PRIVILEGES"
+		f.WriteString("ALL")
+		if p.WithPrivilegesKeyword {
+			f.WriteString(" PRIVILEGES")
+		}
+	} else if len(p.Actions) > 0 {
+		for i, action := range p.Actions {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(action.String())
+		}
+	}
+	return f.String()
+}
+
+// GrantObjectType represents the type of objects being granted
+type GrantObjectType int
+
+const (
+	// GrantObjectTypeTables - Tables
+	GrantObjectTypeTables GrantObjectType = iota
+	// GrantObjectTypeAllSequencesInSchema - ALL SEQUENCES IN SCHEMA
+	GrantObjectTypeAllSequencesInSchema
+	// GrantObjectTypeAllTablesInSchema - ALL TABLES IN SCHEMA
+	GrantObjectTypeAllTablesInSchema
+	// GrantObjectTypeAllViewsInSchema - ALL VIEWS IN SCHEMA
+	GrantObjectTypeAllViewsInSchema
+	// GrantObjectTypeFutureTablesInSchema - FUTURE TABLES IN SCHEMA
+	GrantObjectTypeFutureTablesInSchema
+)
+
+// GrantObjects represents the objects on which privileges are granted
+// Reference: src/ast/mod.rs GrantObjects
+type GrantObjects struct {
+	ObjectType GrantObjectType
+	// Tables is the list of table names (for GrantObjectTypeTables)
+	Tables []*ast.ObjectName
+	// Schemas is the list of schema names (for IN SCHEMA variants)
+	Schemas []*ast.ObjectName
+}
+
+func (g *GrantObjects) String() string {
+	var f strings.Builder
+	switch g.ObjectType {
+	case GrantObjectTypeTables:
+		if len(g.Tables) > 0 {
+			for i, table := range g.Tables {
+				if i > 0 {
+					f.WriteString(", ")
+				}
+				f.WriteString(table.String())
+			}
+		}
+	case GrantObjectTypeAllTablesInSchema:
+		f.WriteString("ALL TABLES IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeAllSequencesInSchema:
+		f.WriteString("ALL SEQUENCES IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeAllViewsInSchema:
+		f.WriteString("ALL VIEWS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	}
+	return f.String()
+}
+
+// GranteesType represents the type of grantee
+// Reference: src/ast/mod.rs GranteesType
+type GranteesType int
+
+const (
+	// GranteesTypeNone - No type specified
+	GranteesTypeNone GranteesType = iota
+	// GranteesTypeRole - ROLE
+	GranteesTypeRole
+	// GranteesTypeUser - USER
+	GranteesTypeUser
+	// GranteesTypeShare - SHARE
+	GranteesTypeShare
+	// GranteesTypeGroup - GROUP
+	GranteesTypeGroup
+	// GranteesTypePublic - PUBLIC
+	GranteesTypePublic
+	// GranteesTypeDatabaseRole - DATABASE ROLE
+	GranteesTypeDatabaseRole
+	// GranteesTypeApplication - APPLICATION
+	GranteesTypeApplication
+	// GranteesTypeApplicationRole - APPLICATION ROLE
+	GranteesTypeApplicationRole
+)
+
+func (g GranteesType) String() string {
+	switch g {
+	case GranteesTypeRole:
+		return "ROLE "
+	case GranteesTypeUser:
+		return "USER "
+	case GranteesTypeShare:
+		return "SHARE "
+	case GranteesTypeGroup:
+		return "GROUP "
+	case GranteesTypePublic:
+		return "PUBLIC"
+	case GranteesTypeDatabaseRole:
+		return "DATABASE ROLE "
+	case GranteesTypeApplication:
+		return "APPLICATION "
+	case GranteesTypeApplicationRole:
+		return "APPLICATION ROLE "
+	default:
+		return ""
+	}
+}
+
+// GranteeName represents the name of a grantee
+// Reference: src/ast/mod.rs GranteeName
+type GranteeName struct {
+	// User is the user part (for 'user'@'host' syntax)
+	User *ast.Ident
+	// Host is the host part (for 'user'@'host' syntax)
+	Host *ast.Ident
+	// ObjectName is a simple object name (if not using user@host)
+	ObjectName *ast.ObjectName
+}
+
+func (g *GranteeName) String() string {
+	if g.User != nil && g.Host != nil {
+		return g.User.String() + "@" + g.Host.String()
+	}
+	if g.ObjectName != nil {
+		return g.ObjectName.String()
 	}
 	return ""
 }
 
-// GrantObjects represents the objects on which privileges are granted
-type GrantObjects struct {
-	// TODO: Add object types
-}
-
-func (g *GrantObjects) String() string {
-	return ""
-}
-
 // Grantee represents a grantee (user or role)
+// Reference: src/ast/mod.rs Grantee
 type Grantee struct {
-	Name string
+	// GranteeType is the type of grantee (role, user, public, etc.)
+	GranteeType GranteesType
+	// Name is the name of the grantee (nil for PUBLIC)
+	Name *GranteeName
 }
 
 func (g *Grantee) String() string {
-	return g.Name
+	var f strings.Builder
+	f.WriteString(g.GranteeType.String())
+	if g.Name != nil {
+		f.WriteString(g.Name.String())
+	}
+	return f.String()
 }
 
 // CurrentGrantsKind represents the type of current grants
 type CurrentGrantsKind int
 
 const (
-	CurrentGrantsRole CurrentGrantsKind = iota
-	CurrentGrantsSystem
+	// CurrentGrantsNone - No current grants clause
+	CurrentGrantsNone CurrentGrantsKind = iota
+	// CurrentGrantsCopy - COPY CURRENT GRANTS
+	CurrentGrantsCopy
+	// CurrentGrantsRevoke - REVOKE CURRENT GRANTS
+	CurrentGrantsRevoke
 )

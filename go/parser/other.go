@@ -108,7 +108,58 @@ func parseDropTable(p *Parser, temporary bool) (ast.Statement, error) {
 	}, nil
 }
 
-// parseCommaSeparatedObjectNames parses a comma-separated list of object names
+// parseGrantObjectNames parses a comma-separated list of object names for GRANT/REVOKE
+// This version handles wildcards like "foo.*" or "*.*"
+func parseGrantObjectNames(p *Parser) ([]*ast.ObjectName, error) {
+	var names []*ast.ObjectName
+	for {
+		name, err := parseGrantObjectName(p)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+	return names, nil
+}
+
+// parseGrantObjectName parses a single object name that may contain wildcards
+// Handles patterns like "foo.*" or "*.*"
+func parseGrantObjectName(p *Parser) (*ast.ObjectName, error) {
+	var parts []ast.ObjectNamePart
+
+	for {
+		tok := p.PeekToken()
+
+		// Handle wildcard *
+		if _, ok := tok.Token.(tokenizer.TokenMul); ok {
+			p.NextToken() // consume *
+			// Create a wildcard identifier
+			parts = append(parts, &ast.ObjectNamePartIdentifier{
+				Ident: &ast.Ident{Value: "*"},
+			})
+		} else {
+			// Parse regular identifier
+			ident, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
+		}
+
+		// Check if there's a period - if so, continue to next part
+		if p.ConsumeToken(tokenizer.TokenPeriod{}) {
+			continue
+		}
+
+		// No more parts
+		break
+	}
+
+	return &ast.ObjectName{Parts: parts}, nil
+}
 func parseCommaSeparatedObjectNames(p *Parser) ([]*ast.ObjectName, error) {
 	var names []*ast.ObjectName
 	for {
@@ -673,13 +724,319 @@ func parseRollback(p *Parser) (ast.Statement, error) {
 }
 
 // parseGrant parses GRANT statements
+// Reference: src/parser/mod.rs parse_grant (line 16697)
 func parseGrant(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("GRANT statement parsing not yet fully implemented")
+	// Parse privileges and objects
+	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect TO keyword
+	if _, err := p.ExpectKeyword("TO"); err != nil {
+		return nil, err
+	}
+
+	// Parse grantees
+	grantees, err := parseGrantees(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional WITH GRANT OPTION
+	withGrantOption := p.ParseKeywords([]string{"WITH", "GRANT", "OPTION"})
+
+	// Parse optional COPY/REVOKE CURRENT GRANTS (Snowflake)
+	var currentGrants *statement.CurrentGrantsKind
+	if p.ParseKeywords([]string{"COPY", "CURRENT", "GRANTS"}) {
+		kind := statement.CurrentGrantsCopy
+		currentGrants = &kind
+	} else if p.ParseKeywords([]string{"REVOKE", "CURRENT", "GRANTS"}) {
+		kind := statement.CurrentGrantsRevoke
+		currentGrants = &kind
+	}
+
+	// Parse optional AS clause
+	var asGrantor *ast.Ident
+	if p.ParseKeyword("AS") {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		asGrantor = ident
+	}
+
+	// Parse optional GRANTED BY clause
+	var grantedBy *ast.Ident
+	if p.ParseKeywords([]string{"GRANTED", "BY"}) {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		grantedBy = ident
+	}
+
+	return &statement.Grant{
+		Privileges:      privileges,
+		Objects:         objects,
+		Grantees:        grantees,
+		WithGrantOption: withGrantOption,
+		AsGrantor:       asGrantor,
+		GrantedBy:       grantedBy,
+		CurrentGrants:   currentGrants,
+	}, nil
+}
+
+// parseGrantDenyRevokePrivilegesObjects parses privileges and objects for GRANT/DENY/REVOKE
+// Reference: src/parser/mod.rs parse_grant_deny_revoke_privileges_objects (line 16807)
+func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *statement.GrantObjects, error) {
+	var privileges *statement.Privileges
+
+	// Parse privilege level
+	if p.ParseKeyword("ALL") {
+		withPrivilegesKeyword := p.ParseKeyword("PRIVILEGES")
+		privileges = &statement.Privileges{
+			All:                   true,
+			WithPrivilegesKeyword: withPrivilegesKeyword,
+		}
+	} else {
+		// Parse specific actions
+		actions, err := parseActionsList(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		privileges = &statement.Privileges{
+			All:     false,
+			Actions: actions,
+		}
+	}
+
+	// Parse optional ON clause for objects
+	if !p.ParseKeyword("ON") {
+		return privileges, nil, nil
+	}
+
+	// Parse object type
+	objects := &statement.GrantObjects{}
+
+	// Check for ALL TABLES IN SCHEMA, ALL SEQUENCES IN SCHEMA, etc.
+	if p.ParseKeywords([]string{"ALL", "TABLES", "IN", "SCHEMA"}) {
+		objects.ObjectType = statement.GrantObjectTypeAllTablesInSchema
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else if p.ParseKeywords([]string{"ALL", "SEQUENCES", "IN", "SCHEMA"}) {
+		objects.ObjectType = statement.GrantObjectTypeAllSequencesInSchema
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else if p.ParseKeywords([]string{"ALL", "VIEWS", "IN", "SCHEMA"}) {
+		objects.ObjectType = statement.GrantObjectTypeAllViewsInSchema
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else {
+		// Regular table list - use parseGrantObjectNames to handle wildcards like foo.*
+		objects.ObjectType = statement.GrantObjectTypeTables
+		tables, err := parseGrantObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Tables = tables
+	}
+
+	return privileges, objects, nil
+}
+
+// parseActionsList parses a comma-separated list of privilege actions
+// Reference: src/parser/mod.rs parse_actions_list
+func parseActionsList(p *Parser) ([]*statement.Action, error) {
+	var actions []*statement.Action
+
+	for {
+		action, err := parseGrantPermission(p)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, action)
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return actions, nil
+}
+
+// parseGrantPermission parses a single privilege action
+// Reference: src/parser/mod.rs parse_grant_permission (line 17021)
+func parseGrantPermission(p *Parser) (*statement.Action, error) {
+	tok := p.PeekToken()
+	word, ok := tok.Token.(tokenizer.TokenWord)
+	if !ok {
+		return nil, p.expected("privilege name", tok)
+	}
+
+	actionType, found := statement.ParseActionType(word.Value)
+	if !found {
+		return nil, p.expected("privilege name", tok)
+	}
+	p.NextToken() // consume the keyword
+
+	action := &statement.Action{
+		ActionType: actionType,
+	}
+
+	// Check for column list: SELECT(col1, col2)
+	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+		p.NextToken() // consume (
+		columns, err := parseCommaSeparatedIdents(p)
+		if err != nil {
+			return nil, err
+		}
+		action.Columns = columns
+		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return action, nil
+}
+
+// parseGrantees parses a comma-separated list of grantees
+// Reference: src/parser/mod.rs parse_grantees (line 16738)
+func parseGrantees(p *Parser) ([]*statement.Grantee, error) {
+	var grantees []*statement.Grantee
+	granteeType := statement.GranteesTypeNone
+
+	for {
+		newGranteeType := granteeType
+
+		// Check for grantee type keywords
+		if p.ParseKeyword("ROLE") {
+			newGranteeType = statement.GranteesTypeRole
+		} else if p.ParseKeyword("USER") {
+			newGranteeType = statement.GranteesTypeUser
+		} else if p.ParseKeyword("SHARE") {
+			newGranteeType = statement.GranteesTypeShare
+		} else if p.ParseKeyword("GROUP") {
+			newGranteeType = statement.GranteesTypeGroup
+		} else if p.ParseKeyword("PUBLIC") {
+			newGranteeType = statement.GranteesTypePublic
+		} else if p.ParseKeywords([]string{"DATABASE", "ROLE"}) {
+			newGranteeType = statement.GranteesTypeDatabaseRole
+		} else if p.ParseKeywords([]string{"APPLICATION", "ROLE"}) {
+			newGranteeType = statement.GranteesTypeApplicationRole
+		} else if p.ParseKeyword("APPLICATION") {
+			newGranteeType = statement.GranteesTypeApplication
+		}
+
+		// Update grantee type if a new one was specified
+		if newGranteeType != granteeType {
+			granteeType = newGranteeType
+		}
+
+		// Handle PUBLIC grantee (no name needed)
+		if granteeType == statement.GranteesTypePublic {
+			grantees = append(grantees, &statement.Grantee{
+				GranteeType: granteeType,
+				Name:        nil,
+			})
+		} else {
+			// Parse grantee name
+			name, err := parseGranteeName(p)
+			if err != nil {
+				return nil, err
+			}
+			grantees = append(grantees, &statement.Grantee{
+				GranteeType: granteeType,
+				Name:        name,
+			})
+		}
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return grantees, nil
+}
+
+// parseGranteeName parses a grantee name (identifier or 'user'@'host')
+// Reference: src/parser/mod.rs parse_grantee_name (line 17273)
+func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
+	// Parse the first identifier (user name or object name)
+	ident, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for @ symbol (MySQL user@host syntax)
+	if p.ConsumeToken(tokenizer.TokenAtSign{}) {
+		host, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		return &statement.GranteeName{
+			User: ident,
+			Host: host,
+		}, nil
+	}
+
+	// Simple object name
+	return &statement.GranteeName{
+		ObjectName: ast.NewObjectNameFromIdents(ident),
+	}, nil
 }
 
 // parseRevoke parses REVOKE statements
+// Reference: src/parser/mod.rs parse_revoke (line 17322)
 func parseRevoke(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("REVOKE statement parsing not yet fully implemented")
+	// Parse privileges and objects
+	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect FROM keyword
+	if _, err := p.ExpectKeyword("FROM"); err != nil {
+		return nil, err
+	}
+
+	// Parse grantees
+	grantees, err := parseGrantees(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional GRANTED BY clause
+	var grantedBy *ast.Ident
+	if p.ParseKeywords([]string{"GRANTED", "BY"}) {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		grantedBy = ident
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	return &statement.Revoke{
+		Privileges: privileges,
+		Objects:    objects,
+		Grantees:   grantees,
+		GrantedBy:  grantedBy,
+		Cascade:    cascade,
+		Restrict:   restrict,
+	}, nil
 }
 
 // parseUse parses USE statements
@@ -1115,12 +1472,12 @@ func ParseSet(p *Parser) (ast.Statement, error) {
 
 // ParseGrant parses GRANT statements
 func ParseGrant(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("GRANT statement parsing not yet fully implemented")
+	return parseGrant(p)
 }
 
 // ParseRevoke parses REVOKE statements
 func ParseRevoke(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("REVOKE statement parsing not yet fully implemented")
+	return parseRevoke(p)
 }
 
 // ParseUse parses USE statements

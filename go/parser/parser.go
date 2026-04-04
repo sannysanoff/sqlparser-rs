@@ -718,11 +718,11 @@ func (p *Parser) parseRelease() (ast.Statement, error) {
 }
 
 func (p *Parser) parseLock() (ast.Statement, error) {
-	return nil, p.expectedRef("LOCK not yet implemented", p.PeekTokenRef())
+	return nil, p.expectedRef("LOCK not yet implemented for generic dialect", p.PeekTokenRef())
 }
 
 func (p *Parser) parseUnlock() (ast.Statement, error) {
-	return nil, p.expectedRef("UNLOCK not yet implemented", p.PeekTokenRef())
+	return nil, p.expectedRef("UNLOCK not yet implemented for generic dialect", p.PeekTokenRef())
 }
 
 func (p *Parser) parseRename() (ast.Statement, error) {

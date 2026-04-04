@@ -18,6 +18,8 @@
 package mysql
 
 import (
+	"fmt"
+
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
@@ -1067,9 +1069,12 @@ func parseLockTable(parser dialects.ParserAccessor) (*statement.LockTable, error
 
 // parseIdentifier parses an identifier from the parser.
 func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
-	// This would typically call into the parser's identifier parsing
-	// For now, return an empty identifier
-	return &ast.Ident{}, nil
+	tok := parser.PeekToken()
+	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+		parser.AdvanceToken()
+		return &ast.Ident{Value: word.Word.Value}, nil
+	}
+	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }
 
 // parseOptionalAlias parses an optional alias after a table name.

@@ -1,0 +1,146 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package statement
+
+import (
+	"strings"
+
+	"github.com/user/sqlparser/ast"
+)
+
+// ============================================================================
+// Privilege Actions for GRANT/REVOKE
+// ============================================================================
+
+// Action represents a specific privilege action in a GRANT/REVOKE statement
+// Reference: src/ast/mod.rs Action
+type Action struct {
+	// ActionType is the type of privilege (SELECT, INSERT, etc.)
+	ActionType ActionType
+	// Columns is an optional list of columns for column-level privileges
+	Columns []*ast.Ident
+}
+
+func (a *Action) String() string {
+	var f strings.Builder
+	f.WriteString(a.ActionType.String())
+	if len(a.Columns) > 0 {
+		f.WriteString(" (")
+		for i, col := range a.Columns {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(col.String())
+		}
+		f.WriteString(")")
+	}
+	return f.String()
+}
+
+// ActionType represents the type of privilege
+type ActionType int
+
+const (
+	// ActionTypeConnect - CONNECT
+	ActionTypeConnect ActionType = iota
+	// ActionTypeCreate - CREATE
+	ActionTypeCreate
+	// ActionTypeDelete - DELETE
+	ActionTypeDelete
+	// ActionTypeExecute - EXECUTE
+	ActionTypeExecute
+	// ActionTypeInsert - INSERT
+	ActionTypeInsert
+	// ActionTypeReferences - REFERENCES
+	ActionTypeReferences
+	// ActionTypeSelect - SELECT
+	ActionTypeSelect
+	// ActionTypeTemporary - TEMPORARY
+	ActionTypeTemporary
+	// ActionTypeTrigger - TRIGGER
+	ActionTypeTrigger
+	// ActionTypeTruncate - TRUNCATE
+	ActionTypeTruncate
+	// ActionTypeUpdate - UPDATE
+	ActionTypeUpdate
+	// ActionTypeUsage - USAGE
+	ActionTypeUsage
+)
+
+func (a ActionType) String() string {
+	switch a {
+	case ActionTypeConnect:
+		return "CONNECT"
+	case ActionTypeCreate:
+		return "CREATE"
+	case ActionTypeDelete:
+		return "DELETE"
+	case ActionTypeExecute:
+		return "EXECUTE"
+	case ActionTypeInsert:
+		return "INSERT"
+	case ActionTypeReferences:
+		return "REFERENCES"
+	case ActionTypeSelect:
+		return "SELECT"
+	case ActionTypeTemporary:
+		return "TEMPORARY"
+	case ActionTypeTrigger:
+		return "TRIGGER"
+	case ActionTypeTruncate:
+		return "TRUNCATE"
+	case ActionTypeUpdate:
+		return "UPDATE"
+	case ActionTypeUsage:
+		return "USAGE"
+	default:
+		return ""
+	}
+}
+
+// ParseActionType parses a string into an ActionType
+func ParseActionType(s string) (ActionType, bool) {
+	switch strings.ToUpper(s) {
+	case "CONNECT":
+		return ActionTypeConnect, true
+	case "CREATE":
+		return ActionTypeCreate, true
+	case "DELETE":
+		return ActionTypeDelete, true
+	case "EXECUTE":
+		return ActionTypeExecute, true
+	case "INSERT":
+		return ActionTypeInsert, true
+	case "REFERENCES":
+		return ActionTypeReferences, true
+	case "SELECT":
+		return ActionTypeSelect, true
+	case "TEMPORARY":
+		return ActionTypeTemporary, true
+	case "TRIGGER":
+		return ActionTypeTrigger, true
+	case "TRUNCATE":
+		return ActionTypeTruncate, true
+	case "UPDATE":
+		return ActionTypeUpdate, true
+	case "USAGE":
+		return ActionTypeUsage, true
+	default:
+		return ActionTypeConnect, false
+	}
+}
