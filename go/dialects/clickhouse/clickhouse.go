@@ -520,6 +520,11 @@ func (d *ClickHouseDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
+// SupportsUnnestTableFactor returns false for ClickHouseDialect.
+func (d *ClickHouseDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true if the dialect supports
 // SEMANTIC_VIEW() table functions.
 func (d *ClickHouseDialect) SupportsSemanticViewTableFactor() bool {

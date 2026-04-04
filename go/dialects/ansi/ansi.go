@@ -30,8 +30,8 @@ package ansi
 
 import (
 	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/token"
 	"github.com/user/sqlparser/dialects"
+	"github.com/user/sqlparser/token"
 )
 
 // AnsiDialect is a dialect for strict ANSI SQL:2011 compliance.
@@ -468,6 +468,11 @@ func (d *AnsiDialect) SupportsParensAroundTableFactor() bool {
 
 // SupportsValuesAsTableFactor returns false for AnsiDialect.
 func (d *AnsiDialect) SupportsValuesAsTableFactor() bool {
+	return false
+}
+
+// SupportsUnnestTableFactor returns false for AnsiDialect.
+func (d *AnsiDialect) SupportsUnnestTableFactor() bool {
 	return false
 }
 

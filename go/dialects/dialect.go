@@ -554,6 +554,10 @@ type Dialect interface {
 	// as a table factor without requiring parentheses.
 	SupportsValuesAsTableFactor() bool
 
+	// SupportsUnnestTableFactor returns true if the dialect supports UNNEST
+	// as a table factor (BigQuery/PostgreSQL).
+	SupportsUnnestTableFactor() bool
+
 	// SupportsSemanticViewTableFactor returns true if the dialect supports
 	// SEMANTIC_VIEW() table functions.
 	SupportsSemanticViewTableFactor() bool

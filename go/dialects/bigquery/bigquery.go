@@ -502,6 +502,11 @@ func (d *BigQueryDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns true for BigQueryDialect.
+func (d *BigQueryDialect) SupportsUnnestTableFactor() bool {
+	return true
+}
+
 // SupportsSemanticViewTableFactor returns false for BigQueryDialect.
 func (d *BigQueryDialect) SupportsSemanticViewTableFactor() bool {
 	return false

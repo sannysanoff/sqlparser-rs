@@ -252,7 +252,7 @@ func parseCreateView(p *Parser, orReplace, temporary bool) (ast.Statement, error
 	}
 
 	// Convert statement to *query.Query
-	// The parser returns a SelectStatement which embeds query.Select
+	// The parser returns SelectStatement or QueryStatement (for CTE WITH clauses)
 	// We need to wrap it in a query.Query for CreateView
 	var q *query.Query
 	switch s := stmt.(type) {
@@ -262,6 +262,9 @@ func parseCreateView(p *Parser, orReplace, temporary bool) (ast.Statement, error
 		q = &query.Query{
 			Body: &query.SelectSetExpr{Select: &selectCopy},
 		}
+	case *QueryStatement:
+		// CTE query (WITH clause) - use the Query directly
+		q = s.Query
 	default:
 		return nil, fmt.Errorf("expected SELECT query in CREATE VIEW, got %T", stmt)
 	}

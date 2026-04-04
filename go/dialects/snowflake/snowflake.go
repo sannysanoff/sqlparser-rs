@@ -724,6 +724,11 @@ func (d *SnowflakeDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
+// SupportsUnnestTableFactor returns false for SnowflakeDialect.
+func (d *SnowflakeDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true for Snowflake.
 func (d *SnowflakeDialect) SupportsSemanticViewTableFactor() bool {
 	return true

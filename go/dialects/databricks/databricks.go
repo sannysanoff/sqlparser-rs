@@ -482,6 +482,11 @@ func (d *DatabricksDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
+// SupportsUnnestTableFactor returns false for DatabricksDialect.
+func (d *DatabricksDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns false for DatabricksDialect.
 func (d *DatabricksDialect) SupportsSemanticViewTableFactor() bool {
 	return false

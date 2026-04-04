@@ -530,6 +530,11 @@ func (d *RedshiftSqlDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for RedshiftSqlDialect.
+func (d *RedshiftSqlDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns false for RedshiftSqlDialect.
 func (d *RedshiftSqlDialect) SupportsSemanticViewTableFactor() bool {
 	return false

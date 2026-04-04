@@ -458,6 +458,11 @@ func (d *GenericDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
+// SupportsUnnestTableFactor returns false for GenericDialect.
+func (d *GenericDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns false for GenericDialect.
 func (d *GenericDialect) SupportsSemanticViewTableFactor() bool {
 	return false

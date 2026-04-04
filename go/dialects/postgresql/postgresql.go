@@ -506,6 +506,11 @@ func (d *PostgreSqlDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns true for PostgreSqlDialect.
+func (d *PostgreSqlDialect) SupportsUnnestTableFactor() bool {
+	return true
+}
+
 // SupportsSemanticViewTableFactor returns false for PostgreSqlDialect.
 func (d *PostgreSqlDialect) SupportsSemanticViewTableFactor() bool {
 	return false

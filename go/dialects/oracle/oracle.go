@@ -485,6 +485,11 @@ func (d *OracleDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for OracleDialect.
+func (d *OracleDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns false for OracleDialect.
 func (d *OracleDialect) SupportsSemanticViewTableFactor() bool {
 	return false

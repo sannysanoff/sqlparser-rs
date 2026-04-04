@@ -733,24 +733,351 @@ func parseJoin(p *Parser) (query.Join, error) {
 }
 
 // parseTableFactor parses a single table reference
+// Reference: src/parser/mod.rs:15472 parse_table_factor
 func parseTableFactor(p *Parser) (query.TableFactor, error) {
 	// Check for TABLE(<expr>) syntax
 	if p.ParseKeyword("TABLE") {
 		return parseTableFunction(p)
 	}
 
-	// Check for subquery: (SELECT ...)
-	if isSubqueryStart(p) {
-		return parseDerivedTable(p)
-	}
-
-	// Check for LATERAL (if supported)
+	// Check for LATERAL (must be followed by subquery or table function)
 	if p.ParseKeyword("LATERAL") {
 		return parseLateralTable(p)
 	}
 
+	// Check for parenthesized expression: could be subquery or nested join
+	if isParenthesizedStart(p) {
+		return parseParenthesizedTableFactor(p)
+	}
+
+	// Check for VALUES as table factor (Snowflake/Databricks)
+	if p.GetDialect().SupportsValuesAsTableFactor() {
+		if p.PeekKeyword("VALUES") {
+			return parseValuesTableFactor(p)
+		}
+	}
+
+	// Check for UNNEST (BigQuery/PostgreSQL)
+	if p.GetDialect().SupportsUnnestTableFactor() {
+		if p.ParseKeyword("UNNEST") {
+			return parseUnnestTableFactor(p)
+		}
+	}
+
 	// Otherwise, it's a table name
 	return parseTableName(p)
+}
+
+// isParenthesizedStart checks if next token is a left paren
+func isParenthesizedStart(p *Parser) bool {
+	tok := p.PeekToken()
+	_, ok := tok.Token.(tokenizer.TokenLParen)
+	return ok
+}
+
+// parseParenthesizedTableFactor parses (subquery) or (nested_join)
+// Reference: src/parser/mod.rs:15497-15609
+func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
+	// Consume the opening paren
+	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// First, try to parse a derived table (subquery)
+	// This handles cases like (SELECT ...), (WITH ... SELECT ...)
+	if isSubqueryStartAfterParen(p) {
+		return parseDerivedTableAfterParen(p)
+	}
+
+	// Not a subquery - parse as nested join
+	// Inside the parentheses we expect a table factor followed by joins
+	// Reference: src/parser/mod.rs:15541
+	tableAndJoins, err := parseTableAndJoins(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect closing paren
+	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	// Check if it's actually a nested join or just a parenthesized table
+	if len(tableAndJoins.Joins) > 0 {
+		// It's a nested join: (a JOIN b)
+		return &query.NestedJoinTableFactor{
+			TableWithJoins: tableAndJoins,
+			Alias:          alias,
+		}, nil
+	}
+
+	// No joins inside - check if it's a nested NestedJoin or dialect-specific parens
+	if _, ok := tableAndJoins.Relation.(*query.NestedJoinTableFactor); ok {
+		// Case (B): `(foo JOIN bar)` not followed by other joins, but wrapped in extra parens
+		return &query.NestedJoinTableFactor{
+			TableWithJoins: tableAndJoins,
+			Alias:          alias,
+		}, nil
+	}
+
+	// Dialect-specific: Snowflake allows parens around lone table names
+	if p.GetDialect().SupportsParensAroundTableFactor() {
+		// Apply outer alias to inner table if present
+		if alias != nil {
+			applyTableAlias(tableAndJoins.Relation, alias)
+		}
+		return tableAndJoins.Relation, nil
+	}
+
+	// Standard SQL: derived tables and bare tables cannot appear alone in parentheses
+	// e.g., FROM (mytable) is not allowed without JOIN
+	return &query.NestedJoinTableFactor{
+		TableWithJoins: tableAndJoins,
+		Alias:          alias,
+	}, nil
+}
+
+// isSubqueryStartAfterParen checks if we're at a subquery after consuming '('
+func isSubqueryStartAfterParen(p *Parser) bool {
+	// Check if it's SELECT or WITH after the paren
+	nextTok := p.PeekToken()
+	if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+		kw := strings.ToUpper(string(word.Word.Keyword))
+		return kw == "SELECT" || kw == "WITH"
+	}
+	return false
+}
+
+// parseDerivedTableAfterParen parses (SELECT ...) or (WITH ... SELECT ...) when we've already consumed '('
+func parseDerivedTableAfterParen(p *Parser) (query.TableFactor, error) {
+	// Parse the subquery
+	subquery, err := parseQuery(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for alias (required for subqueries)
+	alias, err := parseTableAlias(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &query.DerivedTableFactor{
+		Subquery: wrapQueryAsQuery(subquery),
+		Alias:    alias,
+	}, nil
+}
+
+// parseTableAndJoins parses a table factor followed by optional joins
+// Reference: src/parser/mod.rs:15278 parse_table_and_joins
+func parseTableAndJoins(p *Parser) (*query.TableWithJoins, error) {
+	relation, err := parseTableFactor(p)
+	if err != nil {
+		return nil, err
+	}
+
+	joins, err := parseJoins(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &query.TableWithJoins{
+		Relation: relation,
+		Joins:    joins,
+	}, nil
+}
+
+// parseJoins parses zero or more JOIN clauses
+func parseJoins(p *Parser) ([]query.Join, error) {
+	var joins []query.Join
+	for isJoinKeyword(p.PeekToken()) {
+		join, err := parseJoin(p)
+		if err != nil {
+			return nil, err
+		}
+		joins = append(joins, join)
+	}
+	return joins, nil
+}
+
+// applyTableAlias applies an alias to a table factor
+func applyTableAlias(table query.TableFactor, alias *query.TableAlias) {
+	// This function sets the alias on the table factor if it doesn't already have one
+	switch t := table.(type) {
+	case *query.TableTableFactor:
+		if t.Alias == nil {
+			t.Alias = alias
+		}
+	case *query.DerivedTableFactor:
+		if t.Alias == nil {
+			t.Alias = alias
+		}
+	case *query.TableFunctionTableFactor:
+		if t.Alias == nil {
+			t.Alias = alias
+		}
+	case *query.NestedJoinTableFactor:
+		if t.Alias == nil {
+			t.Alias = alias
+		}
+	}
+}
+
+// parseValuesTableFactor parses VALUES (...) as a table factor
+// Reference: src/parser/mod.rs:15610-15646
+func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
+	// Accept either VALUES or VALUE keyword
+	isValueKeyword := p.ParseKeyword("VALUE")
+	if !isValueKeyword && !p.ParseKeyword("VALUES") {
+		return nil, p.Expected("VALUES", p.PeekToken())
+	}
+
+	var rows [][]query.Expr
+
+	for {
+		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		// Check for empty row () - some dialects allow this
+		if _, isRParen := p.PeekToken().Token.(tokenizer.TokenRParen); isRParen {
+			p.AdvanceToken()
+			rows = append(rows, []query.Expr{})
+		} else {
+			row, err := parseCommaSeparatedQueryExprs(p)
+			if err != nil {
+				return nil, err
+			}
+
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			rows = append(rows, row)
+		}
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	// Create the VALUES expression
+	values := &query.Values{
+		ValueKeyword: isValueKeyword,
+		Rows:         rows,
+	}
+
+	valuesSetExpr := &query.ValuesSetExpr{
+		Values: values,
+	}
+
+	q := &query.Query{
+		Body: valuesSetExpr,
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.DerivedTableFactor{
+		Subquery: q,
+		Alias:    alias,
+	}, nil
+}
+
+// parseUnnestTableFactor parses UNNEST(array_expr) [WITH OFFSET]
+// Reference: src/parser/mod.rs:15647-15681
+func parseUnnestTableFactor(p *Parser) (query.TableFactor, error) {
+	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	ep := NewExpressionParser(p)
+	arrayExprs, err := parseCommaSeparatedExprs(ep)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// WITH ORDINALITY (PostgreSQL)
+	withOrdinality := p.ParseKeywords([]string{"WITH", "ORDINALITY"})
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	// WITH OFFSET (BigQuery)
+	withOffset := p.ParseKeywords([]string{"WITH", "OFFSET"})
+	var withOffsetAlias *query.Ident
+	if withOffset {
+		if p.ParseKeyword("AS") {
+			ident, err := p.ParseIdentifier()
+			if err == nil {
+				withOffsetAlias = &query.Ident{Value: ident.Value}
+			}
+		}
+	}
+
+	// Convert []expr.Expr to []query.Expr
+	var queryExprs []query.Expr
+	for _, e := range arrayExprs {
+		queryExprs = append(queryExprs, &queryExprWrapper{expr: e})
+	}
+
+	return &query.UnnestTableFactor{
+		ArrayExprs:      queryExprs,
+		WithOffset:      withOffset,
+		WithOffsetAlias: withOffsetAlias,
+		WithOrdinality:  withOrdinality,
+		Alias:           alias,
+	}, nil
+}
+
+// parseCommaSeparatedExprs parses a comma-separated list of expressions
+func parseCommaSeparatedExprs(ep *ExpressionParser) ([]expr.Expr, error) {
+	var exprs []expr.Expr
+
+	for {
+		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, e)
+
+		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return exprs, nil
+}
+
+// parseCommaSeparatedQueryExprs parses a comma-separated list of query expressions
+func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
+	var exprs []query.Expr
+
+	ep := NewExpressionParser(p)
+	for {
+		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, &queryExprWrapper{expr: e})
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return exprs, nil
 }
 
 // isSubqueryStart checks if next token starts a subquery
@@ -1073,26 +1400,6 @@ func parseOrderByExpressions(p *Parser) ([]query.OrderByExpr, error) {
 	return exprs, nil
 }
 
-// parseCommaSeparatedQueryExprs parses a comma-separated list of query.Expr
-func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
-	var exprs []query.Expr
-	ep := NewExpressionParser(p)
-
-	for {
-		e, err := ep.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		exprs = append(exprs, &queryExprWrapper{expr: e})
-
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
-			break
-		}
-	}
-
-	return exprs, nil
-}
-
 // parseCommaSeparatedQueryIdents parses a comma-separated list of query.Ident
 func parseCommaSeparatedQueryIdents(p *Parser) ([]query.Ident, error) {
 	var idents []query.Ident
@@ -1399,6 +1706,9 @@ func parseCTE(p *Parser) (query.CTE, error) {
 				Select: &selStmt.Select,
 			},
 		}
+	} else if qStmt, ok := innerQuery.(*QueryStatement); ok {
+		// Nested CTE (WITH clause inside CTE)
+		cte.Query = qStmt.Query
 	}
 	cte.Alias = alias
 

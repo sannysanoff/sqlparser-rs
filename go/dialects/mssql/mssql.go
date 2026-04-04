@@ -549,6 +549,11 @@ func (d *MsSqlDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for MsSqlDialect.
+func (d *MsSqlDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true if the dialect supports
 // SEMANTIC_VIEW() table functions.
 func (d *MsSqlDialect) SupportsSemanticViewTableFactor() bool {

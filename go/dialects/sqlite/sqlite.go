@@ -469,6 +469,11 @@ func (d *SQLiteDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
+// SupportsUnnestTableFactor returns false for SQLiteDialect.
+func (d *SQLiteDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns false for SQLite.
 func (d *SQLiteDialect) SupportsSemanticViewTableFactor() bool {
 	return false

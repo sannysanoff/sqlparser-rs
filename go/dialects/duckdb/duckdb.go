@@ -515,6 +515,11 @@ func (d *DuckDbDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for DuckDbDialect.
+func (d *DuckDbDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true if the dialect supports
 // SEMANTIC_VIEW() table functions.
 func (d *DuckDbDialect) SupportsSemanticViewTableFactor() bool {

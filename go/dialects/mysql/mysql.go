@@ -562,6 +562,11 @@ func (d *MySqlDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for MySqlDialect.
+func (d *MySqlDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true if the dialect supports
 // SEMANTIC_VIEW() table functions.
 func (d *MySqlDialect) SupportsSemanticViewTableFactor() bool {

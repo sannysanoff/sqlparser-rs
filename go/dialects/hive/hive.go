@@ -518,6 +518,11 @@ func (d *HiveDialect) SupportsValuesAsTableFactor() bool {
 	return false
 }
 
+// SupportsUnnestTableFactor returns false for HiveDialect.
+func (d *HiveDialect) SupportsUnnestTableFactor() bool {
+	return false
+}
+
 // SupportsSemanticViewTableFactor returns true if the dialect supports
 // SEMANTIC_VIEW() table functions.
 func (d *HiveDialect) SupportsSemanticViewTableFactor() bool {

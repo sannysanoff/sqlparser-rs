@@ -240,43 +240,84 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 **Solution:** The Rust implementation uses separate fields: `begin: bool` and `transaction: Option<BeginTransactionKind>`. For START TRANSACTION, `begin` is false. For BEGIN TRANSACTION, `begin` is true and `transaction` is Some(Transaction). Update the Go AST to match this structure.
 **Implementation:** The parsing works correctly, but the AST needs an additional field to track whether the original statement used START vs BEGIN.
 
+### 19. **CTE Query Not Set in parseCTE (Nil Pointer Dereference)**
+**Error:** `panic: runtime error: invalid memory address: c.Query.String()` when parsing CTEs
+**Root Cause:** In `parseCTE()`, the code only creates the Query when `innerQuery` is a `*SelectStatement`, but when there's a nested WITH clause, `innerQuery` is a `*QueryStatement`, leaving `cte.Query` as nil.
+**Solution:** Handle both `*SelectStatement` and `*QueryStatement` in parseCTE:
+```go
+if selStmt, ok := innerQuery.(*SelectStatement); ok {
+    cte.Query = &query.Query{...}
+} else if qStmt, ok := innerQuery.(*QueryStatement); ok {
+    // Nested CTE (WITH clause inside CTE)
+    cte.Query = qStmt.Query
+}
+```
+**Files Modified:** `parser/query.go:parseCTE()`
+
+### 20. **Parenthesized JOINs Not Parsed**
+**Error:** `expected identifier, found (` when parsing `FROM (a NATURAL JOIN b)`
+**Root Cause:** `parseTableFactor()` only checks for subqueries starting with `(SELECT` or `(WITH`, not parenthesized JOINs like `(a JOIN b)`
+**Solution:** Implement proper table factor parsing following Rust reference:
+1. Try to parse a derived table first (subquery with SELECT/WITH)
+2. If that fails, parse table_and_joins inside the parentheses
+3. If there are joins, create a NestedJoin table factor
+4. Support dialect-specific `supports_parens_around_table_factor()` for Snowflake
+**Implementation:** 
+```go
+func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
+    // Consume the opening paren
+    p.ExpectToken(tokenizer.TokenLParen{})
+    
+    // First, try to parse a derived table (subquery)
+    if isSubqueryStartAfterParen(p) {
+        return parseDerivedTableAfterParen(p)
+    }
+    
+    // Not a subquery - parse as nested join
+    tableAndJoins, err := parseTableAndJoins(p)
+    // ... handle as NestedJoin
+}
+```
+**Reference:** `src/parser/mod.rs:15497-15609` - parse_table_factor with nested join handling
+
 ---
 
 ## Current Status
 
-**Implementation Phase: 36% TEST PASS RATE** - Transaction Statements & Core Features Implemented
+**Implementation Phase: 32% TEST PASS RATE** - Parenthesized JOINs & CTE in CREATE VIEW Fixed
 
-### Current Test Statistics (April 4, 2026)
+### Current Test Statistics (April 4, 2026 - Update 2)
 
 | Test Suite | Status | Passing | Failing | Total | Pass Rate |
 |------------|--------|---------|---------|-------|-----------|
 | **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 166 | 269 | 435 | **38%** |
-| **PostgreSQL** | 🔄 IN PROGRESS | 29 | 128 | 157 | **18%** |
-| **MySQL** | 🔄 IN PROGRESS | 56 | 69 | 125 | **45%** |
-| **Snowflake** | 🔄 IN PROGRESS | 13 | 84 | 97 | **13%** |
-| **TOTAL** | **36% COMPLETE** | **308** | **550** | **858** | **36%** |
+| **Common Tests** | 🔄 IN PROGRESS | 236 | 291 | 527 | **45%** |
+| **PostgreSQL** | 🔄 IN PROGRESS | 30 | 128 | 158 | **19%** |
+| **MySQL** | 🔄 IN PROGRESS | 56 | 70 | 126 | **44%** |
+| **Snowflake** | 🔄 IN PROGRESS | 46 | 301 | 347 | **13%** |
+| **TOTAL** | **32% COMPLETE** | **368** | **790** | **1,158** | **32%** |
 
-### Line Counts (April 4, 2026)
-- **Rust Source:** 196,963 lines
+### Line Counts (April 4, 2026 - Update 2)
+- **Rust Source:** 67,345 lines
 - **Rust Tests:** 49,886 lines  
-- **Go Source:** ~69,573 lines (35% of Rust source)
-- **Go Tests:** 14,251 lines (29% of Rust tests)
+- **Go Source:** ~55,471 lines (82% of Rust source)
+- **Go Tests:** 14,489 lines (29% of Rust tests)
 
-### Major Missing Features (Blocking 200+ Tests)
+### Recent Progress (April 4, 2026) - Parenthesized JOINs & CTE Fixes
+- ✅ **Parenthesized JOIN Parsing** - `FROM (a NATURAL JOIN b)` now working
+  - Implemented proper `parseTableFactor` with nested join detection
+  - Reference: `src/parser/mod.rs:15497-15609`
+- ✅ **CTE in CREATE VIEW** - `CREATE VIEW v AS WITH a AS (...) SELECT ...` now working
+  - Fixed `parseCreateView` to handle `*QueryStatement` (CTE queries)
+  - Fixed `parseCTE` to handle nested CTEs (QueryStatement inside CTE)
+- ✅ **UNNEST Table Factor** - BigQuery/PostgreSQL UNNEST support added
+  - Added `SupportsUnnestTableFactor()` dialect method
+  - Implemented `parseUnnestTableFactor()` for array unnesting
+- ✅ **VALUES as Table Factor** - Snowflake/Databricks VALUES support
+  - Added `parseValuesTableFactor()` for `FROM VALUES (...)` syntax
+- ✅ **6 More Tests Passing** - Total increased from 362 to 368
 
-Based on test failure analysis, the following features need implementation (in priority order):
-
-1. ✅ **INTERVAL in Window Frames** (~20 tests) - FIXED
-2. ✅ **Typed String Literals** (~10 tests) - FIXED
-3. ✅ **TABLE Function** (~5 tests) - FIXED
-4. ✅ **Transaction Statements** (~15 tests) - IMPLEMENTED: COMMIT, ROLLBACK, SAVEPOINT, RELEASE, LISTEN, NOTIFY, UNLISTEN, PRAGMA
-5. 🔄 **Snowflake COPY INTO** (~20 tests) - PARTIALLY IMPLEMENTED
-6. **PIVOT/UNPIVOT** (~10 tests) - BigQuery/Snowflake pivot operations
-7. **JSON_TABLE** (~1 test) - MySQL JSON table function
-8. **Snowflake SHOW Commands** (~15 tests)
-
-### Recent Progress (April 4, 2026) - Transaction Statements Implementation
+### Previous Progress (April 4, 2026) - Transaction Statements Implementation
 - ✅ **Transaction Statement Parsing** - Full implementation ported from Rust
   - `COMMIT [TRANSACTION|WORK] [AND [NO] CHAIN]` - fully working with serialization
   - `ROLLBACK [TRANSACTION|WORK] [AND [NO] CHAIN] [TO SAVEPOINT name]` - fully working
@@ -1109,22 +1150,26 @@ func main() {
 23. ✅ PREPARE/EXECUTE/DEALLOCATE - Prepared statements
 24. ✅ Typed String Literals - TIMESTAMPTZ, JSON, BIGNUMERIC
 25. ✅ TABLE Function - `SELECT * FROM TABLE(<expr>)` syntax
-26. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
+26. ✅ Parenthesized JOINs - `FROM (a NATURAL JOIN b)` syntax
+27. ✅ CTE in CREATE VIEW - `CREATE VIEW v AS WITH ... SELECT ...`
+28. ✅ UNNEST Table Factor - BigQuery/PostgreSQL array unnesting
+29. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
 
 **In Progress:**
-1. 🔄 Test suite porting - 256/814 tests passing (31%)
-2. 🔄 CTE (WITH clause) parsing - basic implementation complete, needs refinement for CREATE VIEW
+1. 🔄 Test suite porting - 368/1,158 tests passing (32%)
+2. ✅ CTE (WITH clause) parsing - IMPLEMENTED for CREATE VIEW and queries
 3. 🔄 Snowflake COPY INTO - Core parsing working, serialization needs FROM query support
-3. 🔄 Remaining parser features for 558 failing tests
+4. 🔄 Remaining parser features for 790 failing tests
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~54,700 lines (81% of Rust source)
+- Go Source: ~55,471 lines (82% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)
 
 **Remaining:**
 1. ⏳ Reach 50% test pass rate (need ~150 more tests passing)
+   - Parenthesized JOIN serialization (~15 tests) - PARSING IMPLEMENTED
    - Snowflake COPY INTO statement parsing (~20 tests) - PARTIALLY IMPLEMENTED
    - Snowflake SHOW commands (~15 tests)
    - PIVOT/UNPIVOT operations (~10 tests)
@@ -1136,11 +1181,11 @@ func main() {
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (Snowflake COPY INTO Implementation)
-**Status:** TPC-H 100% (44/44), MySQL 44% (55/125), PostgreSQL 18% (29/157), Common 37% (162/435), Snowflake 10% (10/97), Total 256/814 Tests Passing
+**Last Updated:** April 4, 2026 (Parenthesized JOINs & CTE in CREATE VIEW Implementation)
+**Status:** TPC-H 100% (44/44), MySQL 44% (56/126), PostgreSQL 19% (30/158), Common 45% (236/527), Snowflake 13% (46/347), Total 368/1,158 Tests Passing
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~54,700 lines (81% of Rust source) - Added Snowflake COPY INTO parsing
+- Go Source: ~55,471 lines (82% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)
