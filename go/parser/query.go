@@ -734,6 +734,11 @@ func parseJoin(p *Parser) (query.Join, error) {
 
 // parseTableFactor parses a single table reference
 func parseTableFactor(p *Parser) (query.TableFactor, error) {
+	// Check for TABLE(<expr>) syntax
+	if p.ParseKeyword("TABLE") {
+		return parseTableFunction(p)
+	}
+
 	// Check for subquery: (SELECT ...)
 	if isSubqueryStart(p) {
 		return parseDerivedTable(p)
@@ -843,6 +848,33 @@ func parseLateralTable(p *Parser) (query.TableFactor, error) {
 	return &query.DerivedTableFactor{
 		Lateral: true,
 		Alias:   alias,
+	}, nil
+}
+
+// parseTableFunction parses TABLE(<expr>) [AS <alias>]
+// Reference: src/parser/mod.rs:15490-15496
+func parseTableFunction(p *Parser) (query.TableFactor, error) {
+	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse the expression inside TABLE(...)
+	ep := NewExpressionParser(p)
+	exprVal, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.TableFunctionTableFactor{
+		Expr:  &queryExprWrapper{expr: exprVal},
+		Alias: alias,
 	}, nil
 }
 
@@ -1237,6 +1269,10 @@ func parseWindowFrame(p *Parser) (*query.WindowFrame, error) {
 
 // parseWindowFrameBound parses a window frame bound
 func parseWindowFrameBound(p *Parser) (query.WindowFrameBound, error) {
+	// DEBUG
+	curTok := p.GetCurrentToken()
+	fmt.Printf("DEBUG parseWindowFrameBound: curTok=%T=%v\n", curTok.Token, curTok.Token)
+
 	if p.ParseKeyword("CURRENT") {
 		if !p.ParseKeyword("ROW") {
 			return nil, fmt.Errorf("expected ROW after CURRENT")

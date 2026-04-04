@@ -773,9 +773,9 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 	dataTypeName := word.Word.Keyword
 	isDataType := false
 	switch dataTypeName {
-	case "DATE", "TIME", "TIMESTAMP", "INTERVAL", "DATETIME",
-		"DECIMAL", "NUMERIC", "CHAR", "VARCHAR", "NCHAR", "NVARCHAR",
-		"CHARACTER", "BINARY", "VARBINARY":
+	case "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "INTERVAL", "DATETIME",
+		"DECIMAL", "NUMERIC", "BIGNUMERIC", "CHAR", "VARCHAR", "NCHAR", "NVARCHAR",
+		"CHARACTER", "BINARY", "VARBINARY", "JSON":
 		isDataType = true
 	}
 

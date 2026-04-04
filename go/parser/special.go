@@ -763,7 +763,11 @@ func (ep *ExpressionParser) parseWindowFrameBound() (*expr.WindowFrameBound, err
 	}
 
 	// Check for INTERVAL expression (used in RANGE frames)
-	if ep.parser.PeekKeyword("INTERVAL") {
+	// When the next token is a string literal, we need to parse it as an INTERVAL
+	// Reference: src/parser/mod.rs:2575-2578
+	nextTok := ep.parser.PeekTokenRef()
+	if _, isString := nextTok.Token.(tokenizer.TokenSingleQuotedString); isString {
+		// The expression is a string literal, parse as INTERVAL
 		intervalExpr, err := ep.parseIntervalExpr()
 		if err != nil {
 			return nil, err
