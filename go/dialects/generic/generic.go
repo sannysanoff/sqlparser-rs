@@ -458,9 +458,10 @@ func (d *GenericDialect) SupportsValuesAsTableFactor() bool {
 	return true
 }
 
-// SupportsUnnestTableFactor returns false for GenericDialect.
+// SupportsUnnestTableFactor returns true for GenericDialect.
+// Reference: src/parser/mod.rs:15646 - dialect_of!(self is BigQueryDialect | PostgreSqlDialect | GenericDialect)
 func (d *GenericDialect) SupportsUnnestTableFactor() bool {
-	return false
+	return true
 }
 
 // SupportsSemanticViewTableFactor returns false for GenericDialect.

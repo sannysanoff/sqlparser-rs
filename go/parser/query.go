@@ -34,7 +34,8 @@ import (
 type SelectStatement struct {
 	ast.BaseStatement
 	query.Select
-	LimitClause query.LimitClause
+	LimitClause   query.LimitClause
+	PipeOperators []query.PipeOperator // Pipe operators for |> syntax
 }
 
 // Span returns the source span
@@ -131,9 +132,20 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Attach WITH clause to the statement if present
-	if withClause != nil {
-		// Create a Query statement that wraps the body with the WITH clause
+	// Check if we need to create a Query wrapper (for WITH clause or pipe operators)
+	needsQueryWrapper := withClause != nil
+
+	// Get pipe operators from SelectStatement if present
+	var pipeOperators []query.PipeOperator
+	if selStmt, ok := body.(*SelectStatement); ok {
+		pipeOperators = selStmt.PipeOperators
+		if len(pipeOperators) > 0 {
+			needsQueryWrapper = true
+		}
+	}
+
+	// Create a Query statement if needed
+	if needsQueryWrapper {
 		if selStmt, ok := body.(*SelectStatement); ok {
 			return &QueryStatement{
 				Query: &query.Query{
@@ -141,6 +153,7 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 					Body: &query.SelectSetExpr{
 						Select: &selStmt.Select,
 					},
+					PipeOperators: pipeOperators,
 				},
 			}, nil
 		}
@@ -351,6 +364,12 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse pipe operators (BigQuery/DuckDB |> syntax)
+	pipeOperators, err := parsePipeOperators(p)
+	if err != nil {
+		return nil, err
+	}
+
 	return &SelectStatement{
 		Select: query.Select{
 			Projection:          projection,
@@ -363,7 +382,8 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			WindowBeforeQualify: windowBeforeQualify,
 			Flavor:              query.SelectFlavorStandard,
 		},
-		LimitClause: limitClause,
+		LimitClause:   limitClause,
+		PipeOperators: pipeOperators,
 	}, nil
 }
 
@@ -1780,4 +1800,254 @@ func parseSubquery(p *Parser) (interface{}, error) {
 
 func parseOutputClause(p *Parser, tok tokenizer.TokenWithSpan) (interface{}, error) {
 	return nil, nil
+}
+
+// parsePipeOperators parses BigQuery/DuckDB pipe operators (|> SELECT, |> WHERE, etc.)
+// Reference: src/parser/mod.rs:13726 parse_pipe_operators
+func parsePipeOperators(p *Parser) ([]query.PipeOperator, error) {
+	var pipeOperators []query.PipeOperator
+
+	for p.ConsumeToken(tokenizer.TokenVerticalBarRightAngleBracket{}) {
+		// Parse the keyword after |>
+		tok := p.PeekToken()
+		word, ok := tok.Token.(tokenizer.TokenWord)
+		if !ok {
+			return nil, fmt.Errorf("expected keyword after |>, found %v", tok.Token)
+		}
+
+		kw := strings.ToUpper(string(word.Word.Keyword))
+		p.AdvanceToken() // consume the keyword
+
+		switch kw {
+		case "SELECT":
+			exprs, err := parseProjection(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeSelect{Exprs: exprs},
+			})
+
+		case "EXTEND":
+			exprs, err := parseProjection(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeExtend{Exprs: exprs},
+			})
+
+		case "SET":
+			assignments, err := parseQueryAssignments(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeSet{Assignments: assignments},
+			})
+
+		case "DROP":
+			columns, err := parseQueryIdents(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeDrop{Columns: columns},
+			})
+
+		case "AS":
+			alias, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeAs{Alias: query.Ident{Value: alias.Value}},
+			})
+
+		case "WHERE":
+			ep := NewExpressionParser(p)
+			expr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeWhere{Expr: &queryExprWrapper{expr: expr}},
+			})
+
+		case "LIMIT":
+			ep := NewExpressionParser(p)
+			expr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			var offset query.Expr
+			if p.ParseKeyword("OFFSET") {
+				offExpr, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				offset = &queryExprWrapper{expr: offExpr}
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeLimit{
+					Expr:   &queryExprWrapper{expr: expr},
+					Offset: offset,
+				},
+			})
+
+		case "ORDER":
+			if !p.ParseKeyword("BY") {
+				return nil, fmt.Errorf("expected BY after ORDER")
+			}
+			exprs, err := parseOrderByExpressions(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeOrderBy{Exprs: exprs},
+			})
+
+		case "AGGREGATE":
+			// Simplified AGGREGATE parsing - full implementation would handle GROUP BY
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeAggregate{},
+			})
+
+		case "RENAME":
+			mappings, err := parseQueryIdentWithAliasList(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeRename{Mappings: mappings},
+			})
+
+		case "UNION", "INTERSECT", "EXCEPT":
+			// These are more complex and would need full implementation
+			// For now, add a placeholder
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeUnion{},
+			})
+
+		case "TABLESAMPLE":
+			// Simplified TABLESAMPLE parsing
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeTableSample{},
+			})
+
+		case "CALL":
+			// Simplified CALL parsing
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeCall{},
+			})
+
+		case "PIVOT":
+			// Simplified PIVOT parsing
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipePivot{},
+			})
+
+		case "UNPIVOT":
+			// Simplified UNPIVOT parsing
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeUnpivot{},
+			})
+
+		case "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS":
+			// Join pipe operators - simplified
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeJoin{},
+			})
+
+		default:
+			return nil, fmt.Errorf("unexpected keyword after |>: %s", kw)
+		}
+	}
+
+	return pipeOperators, nil
+}
+
+// parseQueryAssignments parses a comma-separated list of assignments (col = val) for pipe operators
+func parseQueryAssignments(p *Parser) ([]query.Assignment, error) {
+	var assignments []query.Assignment
+
+	for {
+		col, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+			return nil, err
+		}
+
+		ep := NewExpressionParser(p)
+		val, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		assignments = append(assignments, query.Assignment{
+			Column: query.Ident{Value: col.Value},
+			Value:  &queryExprWrapper{expr: val},
+		})
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return assignments, nil
+}
+
+// parseQueryIdents parses a comma-separated list of identifiers for pipe operators
+func parseQueryIdents(p *Parser) ([]query.Ident, error) {
+	var ids []query.Ident
+
+	for {
+		id, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, query.Ident{Value: id.Value})
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return ids, nil
+}
+
+// parseQueryIdentWithAliasList parses a comma-separated list of identifiers with optional aliases
+func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
+	var mappings []query.IdentWithAlias
+
+	for {
+		id, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		mapping := query.IdentWithAlias{
+			Ident: query.Ident{Value: id.Value},
+		}
+
+		// Check for optional AS alias
+		if p.ParseKeyword("AS") {
+			alias, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			mapping.Alias = query.Ident{Value: alias.Value}
+		}
+
+		mappings = append(mappings, mapping)
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return mappings, nil
 }
