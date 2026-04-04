@@ -261,6 +261,8 @@ func (p *Parser) parseStatementByKeyword(keyword string, tok tokenizer.TokenWith
 		return p.parseGrant()
 	case "REVOKE":
 		return p.parseRevoke()
+	case "DENY":
+		return p.parseDeny()
 	case "USE":
 		return p.parseUse()
 	case "ANALYZE":
@@ -545,6 +547,10 @@ func (p *Parser) parseGrant() (ast.Statement, error) {
 
 func (p *Parser) parseRevoke() (ast.Statement, error) {
 	return ParseRevoke(p)
+}
+
+func (p *Parser) parseDeny() (ast.Statement, error) {
+	return ParseDeny(p)
 }
 
 func (p *Parser) parseUse() (ast.Statement, error) {

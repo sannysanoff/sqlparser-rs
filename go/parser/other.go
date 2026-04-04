@@ -237,7 +237,38 @@ func parseDropIndex(p *Parser) (ast.Statement, error) {
 }
 
 func parseDropRole(p *Parser) (ast.Statement, error) {
-	return nil, p.ExpectedRef("DROP ROLE not yet implemented", p.PeekTokenRef())
+	// ROLE keyword is expected (already checked by caller)
+	if _, err := p.ExpectKeyword("ROLE"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated role names (identifiers) - convert to ObjectNames
+	names := make([]*ast.ObjectName, 0)
+	for {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, ast.NewObjectNameFromIdents(ident))
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	// Parse optional CASCADE/RESTRICT
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	return &statement.Drop{
+		ObjectType: expr.ObjectTypeRole,
+		IfExists:   ifExists,
+		Names:      names,
+		Cascade:    cascade,
+		Restrict:   restrict,
+	}, nil
 }
 
 func parseDropDatabase(p *Parser) (ast.Statement, error) {
@@ -841,6 +872,58 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 			return nil, nil, err
 		}
 		objects.Schemas = schemas
+	} else if p.ParseKeywords([]string{"ALL", "MATERIALIZED", "VIEWS", "IN", "SCHEMA"}) {
+		// Snowflake: ALL MATERIALIZED VIEWS IN SCHEMA
+		objects.ObjectType = statement.GrantObjectTypeAllViewsInSchema // Treat as views for now
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else if p.ParseKeywords([]string{"ALL", "EXTERNAL", "TABLES", "IN", "SCHEMA"}) {
+		// Snowflake: ALL EXTERNAL TABLES IN SCHEMA
+		objects.ObjectType = statement.GrantObjectTypeAllTablesInSchema // Treat as tables for now
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else if p.ParseKeywords([]string{"ALL", "FUNCTIONS", "IN", "SCHEMA"}) {
+		// Snowflake: ALL FUNCTIONS IN SCHEMA
+		objects.ObjectType = statement.GrantObjectTypeAllTablesInSchema // Generic handling
+		schemas, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Schemas = schemas
+	} else if p.ParseKeyword("SEQUENCE") {
+		objects.ObjectType = statement.GrantObjectTypeSequences
+		tables, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Tables = tables
+	} else if p.ParseKeyword("DATABASE") {
+		objects.ObjectType = statement.GrantObjectTypeDatabases
+		tables, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Tables = tables
+	} else if p.ParseKeyword("SCHEMA") {
+		objects.ObjectType = statement.GrantObjectTypeSchemas
+		tables, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Tables = tables
+	} else if p.ParseKeyword("VIEW") {
+		objects.ObjectType = statement.GrantObjectTypeViews
+		tables, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.Tables = tables
 	} else {
 		// Regular table list - use parseGrantObjectNames to handle wildcards like foo.*
 		objects.ObjectType = statement.GrantObjectTypeTables
@@ -891,6 +974,7 @@ func parseGrantPermission(p *Parser) (*statement.Action, error) {
 
 	action := &statement.Action{
 		ActionType: actionType,
+		RawKeyword: word.Word.Value, // Preserve original keyword form
 	}
 
 	// Check for column list: SELECT(col1, col2)
@@ -992,6 +1076,56 @@ func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
 	// Simple object name
 	return &statement.GranteeName{
 		ObjectName: ast.NewObjectNameFromIdents(ident),
+	}, nil
+}
+
+// parseDeny parses DENY statements
+// Reference: src/parser/mod.rs parse_deny (line 17289)
+func parseDeny(p *Parser) (ast.Statement, error) {
+	// Parse privileges and objects
+	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// DENY requires objects to be specified
+	if objects == nil {
+		return nil, fmt.Errorf("DENY statements must specify an object")
+	}
+
+	// Expect TO keyword
+	if _, err := p.ExpectKeyword("TO"); err != nil {
+		return nil, err
+	}
+
+	// Parse grantees
+	grantees, err := parseGrantees(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE
+	var cascadeOpt statement.CascadeOption
+	if p.ParseKeyword("CASCADE") {
+		cascadeOpt = statement.Cascade
+	}
+
+	// Parse optional AS clause (GRANTED BY in MSSQL)
+	var grantedBy *ast.Ident
+	if p.ParseKeyword("AS") {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		grantedBy = ident
+	}
+
+	return &statement.DenyStatement{
+		Privileges: privileges,
+		Objects:    objects,
+		Grantees:   grantees,
+		GrantedBy:  grantedBy,
+		Cascade:    cascadeOpt,
 	}, nil
 }
 
@@ -1478,6 +1612,11 @@ func ParseGrant(p *Parser) (ast.Statement, error) {
 // ParseRevoke parses REVOKE statements
 func ParseRevoke(p *Parser) (ast.Statement, error) {
 	return parseRevoke(p)
+}
+
+// ParseDeny parses DENY statements
+func ParseDeny(p *Parser) (ast.Statement, error) {
+	return parseDeny(p)
 }
 
 // ParseUse parses USE statements

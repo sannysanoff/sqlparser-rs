@@ -582,7 +582,25 @@ func parseSqlOptions(p *Parser) ([]*expr.SqlOption, error) {
 }
 
 func parseCreateRole(p *Parser, orReplace bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE ROLE not yet implemented", p.PeekTokenRef())
+	// ROLE keyword is expected (already checked by caller)
+	if _, err := p.ExpectKeyword("ROLE"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse comma-separated role names (identifiers, not full object names)
+	names, err := parseCommaSeparatedIdents(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.CreateRole{
+		IfNotExists: ifNotExists,
+		Names:       names,
+		Options:     nil, // Role options not yet implemented (Postgres/MSSQL specific)
+	}, nil
 }
 
 func parseCreateDatabase(p *Parser) (ast.Statement, error) {

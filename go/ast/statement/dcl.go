@@ -152,6 +152,33 @@ func (r *Revoke) String() string {
 }
 
 // ============================================================================
+// CASCADE OPTION
+// ============================================================================
+
+// CascadeOption represents CASCADE or RESTRICT options
+type CascadeOption int
+
+const (
+	// CascadeNone - no cascade option specified
+	CascadeNone CascadeOption = iota
+	// Cascade - apply cascading action
+	Cascade
+	// Restrict - restrict the action
+	Restrict
+)
+
+func (c CascadeOption) String() string {
+	switch c {
+	case Cascade:
+		return "CASCADE"
+	case Restrict:
+		return "RESTRICT"
+	default:
+		return ""
+	}
+}
+
+// ============================================================================
 // DENY
 // ============================================================================
 
@@ -161,6 +188,8 @@ type DenyStatement struct {
 	Privileges *Privileges
 	Objects    *GrantObjects
 	Grantees   []*Grantee
+	GrantedBy  *ast.Ident
+	Cascade    CascadeOption
 }
 
 func (d *DenyStatement) statementNode() {}
@@ -177,6 +206,13 @@ func (d *DenyStatement) String() string {
 			f.WriteString(", ")
 		}
 		f.WriteString(grantee.String())
+	}
+	if d.Cascade == Cascade {
+		f.WriteString(" CASCADE")
+	}
+	if d.GrantedBy != nil {
+		f.WriteString(" AS ")
+		f.WriteString(d.GrantedBy.String())
 	}
 	return f.String()
 }
@@ -374,6 +410,14 @@ type GrantObjectType int
 const (
 	// GrantObjectTypeTables - Tables
 	GrantObjectTypeTables GrantObjectType = iota
+	// GrantObjectTypeSequences - Sequences (ON SEQUENCE ...)
+	GrantObjectTypeSequences
+	// GrantObjectTypeDatabases - Databases (ON DATABASE ...)
+	GrantObjectTypeDatabases
+	// GrantObjectTypeSchemas - Schemas (ON SCHEMA ...)
+	GrantObjectTypeSchemas
+	// GrantObjectTypeViews - Views (ON VIEW ...)
+	GrantObjectTypeViews
 	// GrantObjectTypeAllSequencesInSchema - ALL SEQUENCES IN SCHEMA
 	GrantObjectTypeAllSequencesInSchema
 	// GrantObjectTypeAllTablesInSchema - ALL TABLES IN SCHEMA
@@ -405,6 +449,38 @@ func (g *GrantObjects) String() string {
 				}
 				f.WriteString(table.String())
 			}
+		}
+	case GrantObjectTypeSequences:
+		f.WriteString("SEQUENCE ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeDatabases:
+		f.WriteString("DATABASE ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeSchemas:
+		f.WriteString("SCHEMA ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeViews:
+		f.WriteString("VIEW ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
 		}
 	case GrantObjectTypeAllTablesInSchema:
 		f.WriteString("ALL TABLES IN SCHEMA ")

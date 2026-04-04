@@ -362,28 +362,78 @@ func (t *Tokenizer) tokenizeUnicodeStringLiteral(state *State) (Token, error) {
 
 ---
 
+### Pattern L: Hardcoded Prefix Characters in Tokenizer Special Cases
+
+**Problem:** Tokenizer functions that handle special character prefixes (like Q'...', E'...', X'...') using hardcoded uppercase characters instead of preserving the actual input character.
+
+**Example - tokenizeQuoteDelimitedLiteral:**
+
+```go
+// INCORRECT - hardcodes uppercase "Q"
+func (t *Tokenizer) tokenizeQuoteDelimitedLiteral(state *State) (Token, error) {
+    state.Next() // consume Q/q
+    next, ok := state.Peek()
+    if !ok || next != '\'' {
+        word := t.tokenizeWord(state, "Q")  // Wrong! Always uses uppercase Q
+        return MakeWord(word, nil), nil
+    }
+    // ...
+}
+
+// Result: "quaternion" becomes "Quaternion" when not followed by quote
+```
+
+```go
+// CORRECT - preserves original character case
+func (t *Tokenizer) tokenizeQuoteDelimitedLiteral(state *State) (Token, error) {
+    ch, _ := state.Peek()  // Save original character (Q or q)
+    state.Next()           // consume Q/q
+    next, ok := state.Peek()
+    if !ok || next != '\'' {
+        word := t.tokenizeWord(state, string(ch))  // Use original case
+        return MakeWord(word, nil), nil
+    }
+    // ...
+}
+
+// Result: "quaternion" stays "quaternion" - original case preserved
+```
+
+**Key Lesson:** When tokenizer functions check for special prefixes (Q/q, E/e, X/x, etc.) and need to fall back to regular identifier tokenization, always use the actual consumed character rather than a hardcoded literal. The pattern of:
+1. Check current character with `state.Peek()`
+2. Save the character before consuming
+3. Use `string(ch)` instead of hardcoded "Q"
+
+This affects functions like `tokenizeQuoteDelimitedLiteral`, `tokenizeEscapedStringLiteral`, `tokenizeHexStringLiteral`, and others that handle special prefix characters. Reference: `src/tokenizer.rs` lines 544-628 for Rust reference implementation.
+
+---
+
 ## Current Status
 
-**Overall Progress: 40% Test Pass Rate** (334/858 tests passing)
+**Overall Progress: 41% Test Pass Rate** (356/858 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
 | **TPC-H**        | ✅ Perfect        | 44      | 44    | **100%**  |
-| **Common Tests** | 🔄 In Progress   | 180     | 435   | **41%**   |
-| **PostgreSQL**   | 🔄 In Progress   | 38      | 157   | **24%**   |
+| **Common Tests** | 🔄 In Progress   | 200     | 435   | **46%**   |
+| **PostgreSQL**   | 🔄 In Progress   | 40      | 157   | **25%**   |
 | **MySQL**        | 🔄 In Progress   | 58      | 125   | **46%**   |
 | **Snowflake**    | 🔄 In Progress   | 14      | 97    | **14%**   |
-| **TOTAL**        | **39% Complete** | **334** | 858   | **39%**   |
+| **TOTAL**        | **41% Complete** | **356** | 858   | **41%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
 - Go Source: 55,766 lines (83% of Rust)
-- Go Tests: 14,492 lines
+- Go Tests: 15,405 lines
 
 ---
 
 ## Recent Progress (Concise)
+
+### April 4, 2026 - CREATE ROLE, DROP ROLE, DENY, and Pattern L Fix
+
+Implemented CREATE ROLE and DROP ROLE parsers, added DENY statement support, and fixed critical tokenizer case preservation bugs. The tokenizer was hardcoding uppercase prefixes in `tokenizeQuoteDelimitedLiteral`, `tokenizeEscapedStringLiteral`, and `tokenizeHexStringLiteral`, causing identifiers like "quaternion" to become "Quaternion" in GenericDialect. Added Pattern L documenting this widespread issue. **22 more tests passing** (356/858 total, 41% pass rate).
 
 ### April 4, 2026 - Tokenizer Case Preservation Fix
 

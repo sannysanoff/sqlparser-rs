@@ -546,15 +546,16 @@ func (t *Tokenizer) tokenizeQuoteDelimitedLiteral(state *State) (Token, error) {
 		return t.tokenizeIdentifier(state)
 	}
 
-	state.Next() // consume Q/q
+	ch, _ := state.Peek() // Get the actual character (Q or q)
+	state.Next()          // consume Q/q
 
 	next, ok := state.Peek()
 	if !ok || next != '\'' {
-		word := t.tokenizeWord(state, "Q")
+		word := t.tokenizeWord(state, string(ch))
 		return MakeWord(word, nil), nil
 	}
 
-	qs, err := t.tokenizeQuoteDelimitedString(state, []rune{'Q'})
+	qs, err := t.tokenizeQuoteDelimitedString(state, []rune{ch})
 	if err != nil {
 		return nil, err
 	}
@@ -566,11 +567,12 @@ func (t *Tokenizer) tokenizeEscapedStringLiteral(state *State) (Token, error) {
 		return t.tokenizeIdentifier(state)
 	}
 
-	state.Next() // consume E/e
+	ch, _ := state.Peek() // Get the actual character (E or e)
+	state.Next()          // consume E/e
 
 	next, ok := state.Peek()
 	if !ok || next != '\'' {
-		word := t.tokenizeWord(state, "E")
+		word := t.tokenizeWord(state, string(ch))
 		return MakeWord(word, nil), nil
 	}
 
@@ -610,11 +612,12 @@ func (t *Tokenizer) tokenizeUnicodeStringLiteral(state *State) (Token, error) {
 }
 
 func (t *Tokenizer) tokenizeHexStringLiteral(state *State) (Token, error) {
-	state.Next() // consume X/x
+	ch, _ := state.Peek() // Get the actual character (X or x)
+	state.Next()          // consume X/x
 
 	next, ok := state.Peek()
 	if !ok || next != '\'' {
-		word := t.tokenizeWord(state, "X")
+		word := t.tokenizeWord(state, string(ch))
 		return MakeWord(word, nil), nil
 	}
 

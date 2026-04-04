@@ -32,13 +32,21 @@ import (
 type Action struct {
 	// ActionType is the type of privilege (SELECT, INSERT, etc.)
 	ActionType ActionType
+	// RawKeyword is the original keyword as it appeared in the SQL (e.g., "EXEC" vs "EXECUTE")
+	// If empty, the canonical form from ActionType.String() will be used
+	RawKeyword string
 	// Columns is an optional list of columns for column-level privileges
 	Columns []*ast.Ident
 }
 
 func (a *Action) String() string {
 	var f strings.Builder
-	f.WriteString(a.ActionType.String())
+	// Use RawKeyword if available, otherwise use canonical form
+	if a.RawKeyword != "" {
+		f.WriteString(a.RawKeyword)
+	} else {
+		f.WriteString(a.ActionType.String())
+	}
 	if len(a.Columns) > 0 {
 		f.WriteString(" (")
 		for i, col := range a.Columns {
@@ -62,6 +70,8 @@ const (
 	ActionTypeCreate
 	// ActionTypeDelete - DELETE
 	ActionTypeDelete
+	// ActionTypeDrop - DROP
+	ActionTypeDrop
 	// ActionTypeExecute - EXECUTE
 	ActionTypeExecute
 	// ActionTypeInsert - INSERT
@@ -90,6 +100,8 @@ func (a ActionType) String() string {
 		return "CREATE"
 	case ActionTypeDelete:
 		return "DELETE"
+	case ActionTypeDrop:
+		return "DROP"
 	case ActionTypeExecute:
 		return "EXECUTE"
 	case ActionTypeInsert:
@@ -122,7 +134,9 @@ func ParseActionType(s string) (ActionType, bool) {
 		return ActionTypeCreate, true
 	case "DELETE":
 		return ActionTypeDelete, true
-	case "EXECUTE":
+	case "DROP":
+		return ActionTypeDrop, true
+	case "EXECUTE", "EXEC":
 		return ActionTypeExecute, true
 	case "INSERT":
 		return ActionTypeInsert, true

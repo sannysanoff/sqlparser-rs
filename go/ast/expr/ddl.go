@@ -1063,14 +1063,56 @@ func (a *AlterRoleOperation) exprNode()       {}
 func (a *AlterRoleOperation) Span() span.Span { return span.Span{} }
 func (a *AlterRoleOperation) String() string  { return "" }
 
-// ObjectType represents object type.
+// ObjectType represents object type for DROP statements.
+// Reference: src/ast/mod.rs ObjectType
 type ObjectType int
 
 const (
 	ObjectTypeNone ObjectType = iota
+	ObjectTypeTable
+	ObjectTypeView
+	ObjectTypeMaterializedView
+	ObjectTypeIndex
+	ObjectTypeSchema
+	ObjectTypeDatabase
+	ObjectTypeRole
+	ObjectTypeSequence
+	ObjectTypeStage
+	ObjectTypeType
+	ObjectTypeUser
+	ObjectTypeStream
 )
 
-func (o ObjectType) String() string { return "" }
+func (o ObjectType) String() string {
+	switch o {
+	case ObjectTypeTable:
+		return "TABLE"
+	case ObjectTypeView:
+		return "VIEW"
+	case ObjectTypeMaterializedView:
+		return "MATERIALIZED VIEW"
+	case ObjectTypeIndex:
+		return "INDEX"
+	case ObjectTypeSchema:
+		return "SCHEMA"
+	case ObjectTypeDatabase:
+		return "DATABASE"
+	case ObjectTypeRole:
+		return "ROLE"
+	case ObjectTypeSequence:
+		return "SEQUENCE"
+	case ObjectTypeStage:
+		return "STAGE"
+	case ObjectTypeType:
+		return "TYPE"
+	case ObjectTypeUser:
+		return "USER"
+	case ObjectTypeStream:
+		return "STREAM"
+	default:
+		return ""
+	}
+}
 
 // SchemaName represents schema name variants.
 // Supports PostgreSQL-style AUTHORIZATION syntax.
