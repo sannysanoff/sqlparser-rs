@@ -423,14 +423,14 @@ type CopyIntoSnowflake struct {
 	FromObj             *ast.ObjectName
 	FromObjAlias        *ast.Ident
 	StageParams         *expr.StageParamsObject
-	FromTransformations []*expr.StageLoadSelectItemKind
+	FromTransformations []*expr.StageLoadSelectItemWrapper
 	FromQuery           *query.Query
 	Files               []string
 	Pattern             *string
 	FileFormat          *expr.KeyValueOptions
 	CopyOptions         *expr.KeyValueOptions
 	ValidationMode      *string
-	Partition           expr.Expr
+	Partition           ast.Expr
 }
 
 func (c *CopyIntoSnowflake) statementNode() {}
@@ -439,6 +439,81 @@ func (c *CopyIntoSnowflake) String() string {
 	var f strings.Builder
 	f.WriteString("COPY INTO ")
 	f.WriteString(c.Into.String())
+
+	// Add column list if present
+	if len(c.IntoColumns) > 0 {
+		cols := make([]string, len(c.IntoColumns))
+		for i, col := range c.IntoColumns {
+			cols[i] = col.String()
+		}
+		f.WriteString(" (")
+		f.WriteString(strings.Join(cols, ", "))
+		f.WriteString(")")
+	}
+
+	// Add FROM clause
+	if c.FromObj != nil {
+		f.WriteString(" FROM ")
+		f.WriteString(c.FromObj.String())
+		if c.FromObjAlias != nil {
+			f.WriteString(" AS ")
+			f.WriteString(c.FromObjAlias.String())
+		}
+	}
+
+	// Add stage params
+	if c.StageParams != nil {
+		stageParamsStr := c.StageParams.String()
+		if stageParamsStr != "" {
+			f.WriteString(" ")
+			f.WriteString(stageParamsStr)
+		}
+	}
+
+	// Add FILE_FORMAT
+	if c.FileFormat != nil && len(c.FileFormat.Options) > 0 {
+		f.WriteString(" FILE_FORMAT = (")
+		f.WriteString(c.FileFormat.String())
+		f.WriteString(")")
+	}
+
+	// Add FILES
+	if len(c.Files) > 0 {
+		f.WriteString(" FILES = (")
+		quotedFiles := make([]string, len(c.Files))
+		for i, file := range c.Files {
+			quotedFiles[i] = fmt.Sprintf("'%s'", file)
+		}
+		f.WriteString(strings.Join(quotedFiles, ", "))
+		f.WriteString(")")
+	}
+
+	// Add PATTERN
+	if c.Pattern != nil {
+		f.WriteString(" PATTERN = '")
+		f.WriteString(*c.Pattern)
+		f.WriteString("'")
+	}
+
+	// Add VALIDATION_MODE
+	if c.ValidationMode != nil {
+		f.WriteString(" VALIDATION_MODE = ")
+		f.WriteString(*c.ValidationMode)
+	}
+
+	// Add COPY_OPTIONS
+	if c.CopyOptions != nil && len(c.CopyOptions.Options) > 0 {
+		f.WriteString(" COPY_OPTIONS = (")
+		f.WriteString(c.CopyOptions.String())
+		f.WriteString(")")
+	}
+
+	// Add PARTITION BY
+	if c.Partition != nil {
+		f.WriteString(" PARTITION BY ")
+		f.WriteString(c.Partition.String())
+	}
+
 	return f.String()
 }
 

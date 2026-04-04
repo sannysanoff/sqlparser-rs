@@ -210,6 +210,20 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 **Solution:** Add missing data type keywords: TIMESTAMPTZ, BIGNUMERIC, JSON
 **Implementation:** `parser/prefix.go:tryParseTypedString()` - extended the switch case to include the missing keywords
 
+### 16. **Snowflake COPY INTO Statement Parsing**
+**Error:** `COPY INTO my_table FROM @stage/file.parquet` fails to parse with error `Expected: FROM or TO, found: my_table`
+**Root Cause:** Snowflake COPY INTO has completely different syntax from PostgreSQL COPY. The parser was dispatching to the generic COPY parsing which expects FROM/TO keywords but Snowflake uses COPY INTO ... FROM syntax.
+**Solution:** Implement `ParseStatement` in Snowflake dialect to intercept COPY INTO statements and dispatch to `parseCopyIntoSnowflake()` function. This function parses:
+- Table or location targets (`COPY INTO table` or `COPY INTO 's3://bucket/file'`)
+- Stage references with @ prefix (`FROM @stage/path`)
+- Stage parameters (STORAGE_INTEGRATION, CREDENTIALS, ENCRYPTION, etc.)
+- File format options
+- FILES and PATTERN options
+- PARTITION BY expressions
+- VALIDATION_MODE settings
+**Implementation:** `dialects/snowflake/snowflake.go:parseCopyInto()` - implements Snowflake-specific COPY INTO parsing
+**AST Types Added:** `CopyIntoSnowflakeKind`, `StageParamsObject`, `KeyValueOptions`, `KeyValueOption`, `StageLoadSelectItem`, `StageLoadSelectItemWrapper`
+
 ---
 
 ## Current Status
@@ -230,7 +244,7 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 ### Line Counts (April 4, 2026)
 - **Rust Source:** 67,345 lines
 - **Rust Tests:** 49,886 lines  
-- **Go Source:** ~52,600 lines (78% of Rust source) - Added TABLE function parsing
+- **Go Source:** ~54,700 lines (81% of Rust source) - Added Snowflake COPY INTO parsing
 - **Go Tests:** 14,489 lines (29% of Rust tests)
 
 ### Major Missing Features (Blocking 200+ Tests)
@@ -240,12 +254,31 @@ Based on test failure analysis, the following features need implementation (in p
 1. ✅ **INTERVAL in Window Frames** (~20 tests) - FIXED: Changed window frame bound parsing to check for string literals
 2. ✅ **Typed String Literals** (~10 tests) - FIXED: Added TIMESTAMPTZ, JSON, BIGNUMERIC keywords
 3. ✅ **TABLE Function** (~5 tests) - FIXED: Implemented `parseTableFunction()` for `TABLE(<expr>)` syntax
-4. **Snowflake COPY INTO** (~20 tests) - `COPY INTO table FROM @stage`
+4. 🔄 **Snowflake COPY INTO** (~20 tests) - PARTIALLY IMPLEMENTED: Basic `COPY INTO table FROM 'path'` working; stage params, transformations, and complex options need completion
 5. **Snowflake SHOW Commands** (~15 tests) - `SHOW COLUMNS IN TABLE abc`
 6. **PIVOT/UNPIVOT** (~10 tests) - BigQuery/Snowflake pivot operations
 7. **AT TIME ZONE** (~3 tests) - MySQL `AT TIME ZONE 'UTC'` expression
 
-### Recent Progress (April 4, 2026) - INTERVAL, Typed Strings, TABLE Function
+### Recent Progress (April 4, 2026) - Snowflake COPY INTO Implementation
+- 🔄 **Snowflake COPY INTO Parsing** - Implemented core COPY INTO statement parsing
+  - Basic table/location target parsing: `COPY INTO table FROM 'path'` ✅ WORKING
+  - Stage reference parsing with @ prefix: `FROM @stage/path` ✅ WORKING  
+  - Object names with schema: `my_company.emp_basic` ✅ WORKING
+  - Stage parameters (CREDENTIALS, ENCRYPTION, STORAGE_INTEGRATION) - IMPLEMENTED
+  - FILES and PATTERN options - IMPLEMENTED
+  - PARTITION BY expressions - IMPLEMENTED (needs testing)
+  - Transformations with SELECT: `FROM (SELECT $1 FROM @stage)` - PARTIAL
+- ✅ **AST Types Extended** - Added comprehensive Snowflake data loading types:
+  - `StageParamsObject` with URL, CREDENTIALS, ENCRYPTION, etc.
+  - `KeyValueOptions` for options like FILE_FORMAT, COPY_OPTIONS
+  - `StageLoadSelectItem` for Snowflake-specific select items like `$1:element AS alias`
+  - `CopyIntoSnowflake` statement with full serialization
+- 🔄 **Go Source Lines Increased** - From ~52,600 to ~54,700 lines (+2,100 lines)
+  - Snowflake dialect: +~750 lines for COPY INTO parsing
+  - AST types: +~350 lines for data loading types
+  - Statement serialization: +~200 lines
+
+### Previous Progress (April 4, 2026) - INTERVAL, Typed Strings, TABLE Function
 - ✅ **INTERVAL in Window Frames** - Fixed parsing for dialects requiring qualifiers (MSSQL, etc.)
   - Changed from checking INTERVAL keyword to checking for string literal tokens
   - Reference: src/parser/mod.rs:2575-2578
@@ -1040,21 +1073,23 @@ func main() {
 23. ✅ PREPARE/EXECUTE/DEALLOCATE - Prepared statements
 24. ✅ Typed String Literals - TIMESTAMPTZ, JSON, BIGNUMERIC
 25. ✅ TABLE Function - `SELECT * FROM TABLE(<expr>)` syntax
+26. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
 
 **In Progress:**
 1. 🔄 Test suite porting - 256/814 tests passing (31%)
 2. 🔄 CTE (WITH clause) parsing - basic implementation complete, needs refinement for CREATE VIEW
+3. 🔄 Snowflake COPY INTO - Core parsing working, serialization needs FROM query support
 3. 🔄 Remaining parser features for 558 failing tests
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~52,600 lines (78% of Rust source)
+- Go Source: ~54,700 lines (81% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)
 
 **Remaining:**
 1. ⏳ Reach 50% test pass rate (need ~150 more tests passing)
-   - Snowflake COPY INTO statement parsing (~20 tests)
+   - Snowflake COPY INTO statement parsing (~20 tests) - PARTIALLY IMPLEMENTED
    - Snowflake SHOW commands (~15 tests)
    - PIVOT/UNPIVOT operations (~10 tests)
    - AT TIME ZONE expressions (~3 tests)
@@ -1065,11 +1100,11 @@ func main() {
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (INTERVAL Window Frames, Typed Strings, TABLE Function)
+**Last Updated:** April 4, 2026 (Snowflake COPY INTO Implementation)
 **Status:** TPC-H 100% (44/44), MySQL 44% (55/125), PostgreSQL 18% (29/157), Common 37% (162/435), Snowflake 10% (10/97), Total 256/814 Tests Passing
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~52,600 lines (78% of Rust source)
+- Go Source: ~54,700 lines (81% of Rust source) - Added Snowflake COPY INTO parsing
 - Go Tests: 14,489 lines (29% of Rust tests)

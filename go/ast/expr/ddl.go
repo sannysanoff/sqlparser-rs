@@ -1247,18 +1247,104 @@ func (m *MacroDefinition) Span() span.Span { return span.Span{} }
 func (m *MacroDefinition) String() string  { return "" }
 
 // StageParamsObject represents stage parameters object.
-type StageParamsObject struct{}
+type StageParamsObject struct {
+	Url                *string
+	Encryption         *KeyValueOptions
+	Endpoint           *string
+	StorageIntegration *string
+	Credentials        *KeyValueOptions
+}
 
 func (s *StageParamsObject) exprNode()       {}
 func (s *StageParamsObject) Span() span.Span { return span.Span{} }
-func (s *StageParamsObject) String() string  { return "" }
+func (s *StageParamsObject) String() string {
+	var parts []string
+	if s.Url != nil {
+		parts = append(parts, fmt.Sprintf("URL='%s'", escapeSingleQuote(*s.Url)))
+	}
+	if s.StorageIntegration != nil {
+		parts = append(parts, fmt.Sprintf("STORAGE_INTEGRATION=%s", *s.StorageIntegration))
+	}
+	if s.Endpoint != nil {
+		parts = append(parts, fmt.Sprintf("ENDPOINT='%s'", escapeSingleQuote(*s.Endpoint)))
+	}
+	if s.Credentials != nil && len(s.Credentials.Options) > 0 {
+		parts = append(parts, fmt.Sprintf("CREDENTIALS=(%s)", s.Credentials.String()))
+	}
+	if s.Encryption != nil && len(s.Encryption.Options) > 0 {
+		parts = append(parts, fmt.Sprintf("ENCRYPTION=(%s)", s.Encryption.String()))
+	}
+	return strings.Join(parts, " ")
+}
+
+// KeyValueOptionKind represents the kind of value for a key-value option.
+type KeyValueOptionKind int
+
+const (
+	KeyValueOptionKindSingle KeyValueOptionKind = iota
+	KeyValueOptionKindMulti
+	KeyValueOptionKindNested
+)
+
+// KeyValueOption represents a single key-value option.
+type KeyValueOption struct {
+	OptionName  string
+	OptionValue interface{} // Can be ast.Value, []ast.Value, or *KeyValueOptions
+	Kind        KeyValueOptionKind
+}
+
+func (k *KeyValueOption) String() string {
+	switch k.Kind {
+	case KeyValueOptionKindSingle:
+		if val, ok := k.OptionValue.(fmt.Stringer); ok {
+			return fmt.Sprintf("%s=%s", k.OptionName, val.String())
+		}
+		if val, ok := k.OptionValue.(string); ok {
+			return fmt.Sprintf("%s='%s'", k.OptionName, escapeSingleQuote(val))
+		}
+	case KeyValueOptionKindMulti:
+		if vals, ok := k.OptionValue.([]string); ok {
+			return fmt.Sprintf("%s=(%s)", k.OptionName, strings.Join(vals, ", "))
+		}
+	case KeyValueOptionKindNested:
+		if opts, ok := k.OptionValue.(*KeyValueOptions); ok {
+			return fmt.Sprintf("%s=(%s)", k.OptionName, opts.String())
+		}
+	}
+	return fmt.Sprintf("%s=%v", k.OptionName, k.OptionValue)
+}
+
+// KeyValueOptionsDelimiter represents the delimiter used between key-value options.
+type KeyValueOptionsDelimiter int
+
+const (
+	KeyValueOptionsDelimiterSpace KeyValueOptionsDelimiter = iota
+	KeyValueOptionsDelimiterComma
+)
 
 // KeyValueOptions represents key-value options.
-type KeyValueOptions struct{}
+type KeyValueOptions struct {
+	Options   []*KeyValueOption
+	Delimiter KeyValueOptionsDelimiter
+}
 
 func (k *KeyValueOptions) exprNode()       {}
 func (k *KeyValueOptions) Span() span.Span { return span.Span{} }
-func (k *KeyValueOptions) String() string  { return "" }
+func (k *KeyValueOptions) String() string {
+	var parts []string
+	for _, opt := range k.Options {
+		parts = append(parts, opt.String())
+	}
+	sep := " "
+	if k.Delimiter == KeyValueOptionsDelimiterComma {
+		sep = ", "
+	}
+	return strings.Join(parts, sep)
+}
+
+func escapeSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
 
 // SecretOption represents secret option.
 type SecretOption struct{}
@@ -1790,11 +1876,6 @@ func (c *CopyTarget) String() string {
 	return ""
 }
 
-// escapeSingleQuote escapes single quotes in a string for SQL.
-func escapeSingleQuote(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
-}
-
 // CopyOption represents an option in a COPY statement (PostgreSQL 9.0+).
 type CopyOption struct {
 	OptionType CopyOptionType
@@ -2080,18 +2161,73 @@ type CopyIntoSnowflakeKind int
 
 const (
 	CopyIntoSnowflakeKindNone CopyIntoSnowflakeKind = iota
+	CopyIntoSnowflakeKindTable
+	CopyIntoSnowflakeKindLocation
 )
 
-func (c CopyIntoSnowflakeKind) String() string { return "" }
+func (c CopyIntoSnowflakeKind) String() string {
+	switch c {
+	case CopyIntoSnowflakeKindTable:
+		return "TABLE"
+	case CopyIntoSnowflakeKindLocation:
+		return "LOCATION"
+	default:
+		return ""
+	}
+}
+
+// StageLoadSelectItem represents a single item in the SELECT list for data loading from staged files.
+type StageLoadSelectItem struct {
+	Alias      *ast.Ident
+	FileColNum int32
+	Element    *ast.Ident
+	ItemAs     *ast.Ident
+}
+
+func (s *StageLoadSelectItem) exprNode()       {}
+func (s *StageLoadSelectItem) Span() span.Span { return span.Span{} }
+func (s *StageLoadSelectItem) String() string {
+	var parts []string
+	if s.Alias != nil {
+		parts = append(parts, s.Alias.String()+".")
+	}
+	parts = append(parts, fmt.Sprintf("$%d", s.FileColNum))
+	if s.Element != nil {
+		parts = append(parts, ":"+s.Element.String())
+	}
+	if s.ItemAs != nil {
+		parts = append(parts, "AS "+s.ItemAs.String())
+	}
+	return strings.Join(parts, "")
+}
 
 // StageLoadSelectItemKind represents stage load SELECT item kind.
 type StageLoadSelectItemKind int
 
 const (
 	StageLoadSelectItemKindNone StageLoadSelectItemKind = iota
+	StageLoadSelectItemKindSelectItem
+	StageLoadSelectItemKindStageLoad
 )
 
 func (s StageLoadSelectItemKind) String() string { return "" }
+
+// StageLoadSelectItemWrapper wraps a stage load select item.
+type StageLoadSelectItemWrapper struct {
+	Kind StageLoadSelectItemKind
+	Item interface{} // Can be *StageLoadSelectItem or ast.SelectItem
+}
+
+func (s *StageLoadSelectItemWrapper) exprNode()       {}
+func (s *StageLoadSelectItemWrapper) Span() span.Span { return span.Span{} }
+func (s *StageLoadSelectItemWrapper) String() string {
+	if s.Item != nil {
+		if str, ok := s.Item.(fmt.Stringer); ok {
+			return str.String()
+		}
+	}
+	return ""
+}
 
 // CloseCursor represents CLOSE CURSOR.
 type CloseCursor struct{}
@@ -2704,16 +2840,6 @@ type WaitForStatement struct {
 func (w *WaitForStatement) exprNode()       {}
 func (w *WaitForStatement) Span() span.Span { return span.Span{} }
 func (w *WaitForStatement) String() string  { return "WAITFOR" }
-
-// KeyValueOption represents a key-value option.
-type KeyValueOption struct {
-	Key   string
-	Value string
-}
-
-func (k *KeyValueOption) exprNode()       {}
-func (k *KeyValueOption) Span() span.Span { return span.Span{} }
-func (k *KeyValueOption) String() string  { return fmt.Sprintf("%s=%s", k.Key, k.Value) }
 
 // ReferentialAction represents referential action (e.g., CASCADE, RESTRICT).
 type ReferentialAction int
