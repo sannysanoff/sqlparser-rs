@@ -717,17 +717,25 @@ func parseJoin(p *Parser) (query.Join, error) {
 		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
 			return query.Join{}, err
 		}
-		cols, err := parseCommaSeparatedQueryIdents(p)
+		// Parse qualified column names like (col1, t2.col1, schema.table.col)
+		// Reference: src/parser/mod.rs:16687 - parse_parenthesized_qualified_column_list
+		objNames, err := parseCommaSeparatedObjectNames(p)
 		if err != nil {
 			return query.Join{}, err
 		}
 		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
 			return query.Join{}, err
 		}
-		// Convert []query.Ident to []query.ObjectName for UsingJoinConstraint
-		attrs := make([]query.ObjectName, len(cols))
-		for i, col := range cols {
-			attrs[i] = query.ObjectName{Parts: []query.Ident{col}}
+		// Convert []*ast.ObjectName to []query.ObjectName
+		attrs := make([]query.ObjectName, len(objNames))
+		for i, objName := range objNames {
+			queryParts := make([]query.Ident, len(objName.Parts))
+			for j, part := range objName.Parts {
+				if identPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+					queryParts[j] = query.Ident{Value: identPart.Ident.Value}
+				}
+			}
+			attrs[i] = query.ObjectName{Parts: queryParts}
 		}
 		constraint = &query.UsingJoinConstraint{
 			Attrs: attrs,

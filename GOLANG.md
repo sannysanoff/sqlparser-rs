@@ -13,6 +13,7 @@ Complete re-implementation of sqlparser-rs in Go using automated transpilation w
 ⚠️ **ALWAYS USE RUST IMPLEMENTATION AS REFERENCE** ⚠️
 
 When implementing any parser functionality:
+
 1. **First, examine the Rust source** (`src/parser/mod.rs`, `src/ast/*.rs`, etc.)
 2. **Port the logic directly** - do not reinvent or redesign
 3. **Follow Rust naming conventions** where possible (e.g., `parse_create_view` → `parseCreateView`)
@@ -20,6 +21,7 @@ When implementing any parser functionality:
 5. **Comment with references** - cite the Rust file/line for complex logic
 
 **Why this matters:**
+
 - Ensures behavioral compatibility with the reference implementation
 - Reduces bugs by leveraging battle-tested code
 - Makes maintenance easier (changes in Rust can be tracked)
@@ -33,10 +35,74 @@ When implementing any parser functionality:
 
 Based on implementation experience, here are common errors encountered when porting Rust to Go and how to prevent them:
 
+### 23. **parseObjectName Parsing Comma-Separated Instead of Dot-Separated**
+
+**Error:** Compound identifiers like `schema.table` or `table.column` fail to parse correctly, resulting in only the first part being captured.
+**Root Cause:** The `parseObjectName()` function was incorrectly calling `parseCommaSeparatedIdents()` which expects commas between identifiers, instead of checking for dots (periods) to build a qualified name.
+**Solution:** Implement proper dot-separated parsing following the Rust reference:
+
+```go
+// OLD (incorrect) - parsed comma-separated
+func (ep *ExpressionParser) parseObjectName() (*expr.ObjectName, error) {
+    idents, err := ep.parseCommaSeparatedIdents()  // Wrong!
+    ...
+}
+
+// NEW (correct) - parse dot-separated
+func (ep *ExpressionParser) parseObjectName() (*expr.ObjectName, error) {
+    var parts []*expr.ObjectNamePart
+    for {
+        ident, err := ep.parseIdentifier()
+        if err != nil {
+            return nil, err
+        }
+        parts = append(parts, &expr.ObjectNamePart{...})
+        // Check for DOT to continue parsing more parts
+        if !ep.parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+            break
+        }
+    }
+    return &expr.ObjectName{Parts: parts}, nil
+}
+```
+
+**Rust Reference:** `src/parser/mod.rs:12715-12740` - parse_object_name_inner with dot-separated parts
+**Files Modified:** `parser/prefix.go:551-570`
+
+### 24. **JOIN USING Clause Not Parsing Qualified Column Names**
+
+**Error:** `Expected: ), found: .` when parsing `JOIN tbl2 USING(t2.col1)` with qualified column names in USING clause.
+**Root Cause:** The USING clause parsing was using `parseCommaSeparatedQueryIdents()` which only parses simple identifiers, not qualified names like `t2.col1`.
+**Solution:** Use `parseCommaSeparatedObjectNames()` (which parses dot-separated qualified names) instead of `parseCommaSeparatedQueryIdents()`:
+
+```go
+// OLD (incorrect) - only parses simple identifiers
+cols, err := parseCommaSeparatedQueryIdents(p)  // Can only parse "col1"
+
+// NEW (correct) - parses qualified identifiers
+objNames, err := parseCommaSeparatedObjectNames(p)  // Can parse "t2.col1"
+// Convert []*ast.ObjectName to []query.ObjectName for UsingJoinConstraint
+attrs := make([]query.ObjectName, len(objNames))
+for i, objName := range objNames {
+    queryParts := make([]query.Ident, len(objName.Parts))
+    for j, part := range objName.Parts {
+        if identPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+            queryParts[j] = query.Ident{Value: identPart.Ident.Value}
+        }
+    }
+    attrs[i] = query.ObjectName{Parts: queryParts}
+}
+```
+
+**Rust Reference:** `src/parser/mod.rs:16687` - parse_parenthesized_qualified_column_list for USING
+**Files Modified:** `parser/query.go:716-740`
+
 ### 21. **Array Subscript Tokenizer Bug**
+
 **Error:** `Expected close delimiter '[' before EOF` when parsing `SELECT a[1]` or `SELECT a[1][2][3]`
 **Root Cause:** The tokenizer incorrectly treated `[` as a quoted identifier start character (like backticks), causing it to expect a closing `]` for a quoted identifier rather than tokenizing `[` and `]` as separate bracket tokens.
 **Solution:** Remove `[` from the quoted identifier case in the tokenizer and add it as a simple token:
+
 ```go
 // OLD (incorrect)
 case '`', '[':
@@ -49,31 +115,38 @@ case '[':
     state.Next()
     return TokenLBracket{}, nil
 ```
+
 **Rust Reference:** `src/tokenizer.rs:1691` - `[` is tokenized as `Token::LBracket`
 **Files Modified:** `tokenizer/tokenizer.go:357`
 
 ### 1. **Named Arguments Parsing (`=>` operator)**
+
 **Error:** Parser fails with `Expected: ), found: =>` when parsing `FUN(a => '1', b => '2')`
 **Root Cause:** The `parseFunctionArgs()` function doesn't check for named argument syntax.
 **Solution:** Implement `parse_function_args()` that tries to parse `name => value` pattern using `maybe_parse` pattern:
+
 - Check if dialect supports named arguments
 - Try to parse `identifier => expr` before falling back to regular expression
 - Handle different operators: `=>` (RArrow), `=`, `:=`, `:`
-**Rust Reference:** `src/parser/mod.rs:17788-17836` - `parse_function_args()` function
+  **Rust Reference:** `src/parser/mod.rs:17788-17836` - `parse_function_args()` function
 
 ### 2. **Window Function OVER Clause Parsing**
+
 **Error:** Parser fails with `Expected: ), found: ORDER` when parsing `OVER (ORDER BY ...)`
 **Root Cause:** Window spec parsing logic doesn't properly handle the case when `OVER` is followed by `(`
 **Solution:** Ensure `parseWindowSpec()` is called after consuming `OVER` keyword:
+
 - Check for `OVER` keyword after parsing function args
 - If next token is `(`, parse window spec details
 - Handle both named window (`OVER w`) and inline window (`OVER (...)`) 
-**Rust Reference:** `src/parser/mod.rs:2477-2498` - OVER clause handling in `parse_function_call()`
+  **Rust Reference:** `src/parser/mod.rs:2477-2498` - OVER clause handling in `parse_function_call()`
 
 ### 3. **Token Type Assertions**
+
 **Error:** Panic or type assertion failure when accessing token fields
 **Root Cause:** Go type assertions like `tok.Token.(tokenizer.TokenWord)` fail if token is different type
 **Solution:** Always use safe type assertions with `ok` check:
+
 ```go
 if word, ok := tok.Token.(tokenizer.TokenWord); ok {
     // handle word
@@ -83,9 +156,11 @@ if word, ok := tok.Token.(tokenizer.TokenWord); ok {
 ```
 
 ### 4. **Case Sensitivity in Keyword Matching**
+
 **Error:** MySQL tests fail because `CURRENT_TIMESTAMP` serializes as `current_timestamp`
 **Root Cause:** Keywords are being lowercased instead of preserving original case
 **Solution:** For dialects that require case preservation (MySQL), store original identifier text:
+
 ```go
 // In serialization, check dialect
 if d.IsIdentifierCaseSensitive() {
@@ -93,12 +168,15 @@ if d.IsIdentifierCaseSensitive() {
 }
 return strings.ToLower(ident.Value)
 ```
+
 **Rust Reference:** MySQL dialect preserves identifier case in `src/dialect/mysql.rs`
 
 ### 5. **Missing Dialect Checks**
+
 **Error:** PostgreSQL-specific syntax works in generic dialect or vice versa
 **Root Cause:** Parser doesn't check `dialect.SupportsXxx()` before parsing dialect-specific features
 **Solution:** Always check dialect capabilities:
+
 ```go
 if p.GetDialect().SupportsNamedFnArgsWithRArrowOperator() {
     // parse => syntax
@@ -106,9 +184,11 @@ if p.GetDialect().SupportsNamedFnArgsWithRArrowOperator() {
 ```
 
 ### 6. **COMMA Handling in Lists**
+
 **Error:** Parser expects `)` but finds `,` or vice versa when parsing comma-separated lists
 **Root Cause:** Not properly checking for trailing commas or empty lists
 **Solution:** Use consistent pattern for comma-separated parsing:
+
 ```go
 for {
     item, err := parseItem()
@@ -120,9 +200,11 @@ for {
 ```
 
 ### 7. **AST Type Mismatches**
+
 **Error:** Cannot use `[]*expr.OrderByExpr` as `[]expr.Expr`
 **Root Cause:** Type system differences between Rust enums and Go interfaces
 **Solution:** Convert between types explicitly:
+
 ```go
 for _, ob := range orderByExprs {
     spec.OrderBy = append(spec.OrderBy, ob.Expr)
@@ -130,37 +212,45 @@ for _, ob := range orderByExprs {
 ```
 
 ### 8. **String Serialization Differences**
+
 **Error:** SQL round-trip fails because of missing spaces or extra parens
 **Root Cause:** `String()` methods don't match Rust's Display trait implementation
 **Solution:** Follow Rust's Display impl exactly, including spaces:
+
 ```rust
 // Rust
 write!(f, " FROM {}", self.name)
 ```
+
 ```go
 // Go
 parts = append(parts, fmt.Sprintf("FROM %s", n.Name.String()))
 ```
 
 ### 9. **Keyword vs Identifier Confusion**
+
 **Error:** `ROW_NUMBER()` parsed as keyword instead of function
 **Root Cause:** Keywords like `ROW_NUMBER` not recognized as valid function names
 **Solution:** Add keywords that can be function names to special handling in function call parsing
 
 ### 10. **Infinite Recursion in Expression Parsing**
+
 **Error:** Stack overflow in expression parsing
 **Root Cause:** `ParseExpr()` calling itself without proper termination conditions
 **Solution:** Use Pratt parser with proper precedence climbing and base case handling
 
 ### 15. **Identifier Case Normalization Across Dialects**
+
 **Error:** Test failures showing "expected D, actual d" - case sensitivity differences between dialects
 **Root Cause:** Different SQL dialects handle identifier casing differently:
+
 - PostgreSQL: traditionally normalizes unquoted identifiers to lowercase
 - MySQL: preserves original case
 - Generic: should preserve for round-trip compatibility
 
 **Solution:** The Rust reference implementation preserves original case for ALL dialects to ensure consistent AST comparison in tests. The parser should NOT do dialect-specific case normalization.
 **Implementation:**
+
 ```go
 // Just preserve the original value for all dialects
 ident := &expr.Ident{
@@ -168,6 +258,7 @@ ident := &expr.Ident{
     Value:   word.Word.Value,  // Use original, don't normalize
 }
 ```
+
 **Files Modified:** `parser/prefix.go:wordToIdent()`, `parser/core.go:parseIdentifierFromWord()`, `parser/parser.go:ParseIdentifier()`
 **Error:** Tests fail when CTEs used in CREATE VIEW: `expected SELECT query in CREATE VIEW, got *parser.QueryStatement`
 **Root Cause:** When WITH clause is present, parseQuery returns QueryStatement instead of SelectStatement
@@ -175,9 +266,11 @@ ident := &expr.Ident{
 **Rust Reference:** `src/parser/mod.rs:13599-13610` - WITH clause parsing in `parse_query()`
 
 ### 11. **Stub Implementation Returns Empty Values**
+
 **Error:** `LOCK TABLES t READ` parses with empty table name: `Table="", Alias="t"`
 **Root Cause:** A stub `parseIdentifier()` function returns `&ast.Ident{}` (empty) instead of actually parsing the token
 **Solution:** Always verify helper functions actually parse data, not just return empty structs:
+
 ```go
 // BAD - returns empty identifier
 func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
@@ -194,12 +287,15 @@ func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
     return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }
 ```
+
 **Discovery:** Found in MySQL dialect's parseLockTables - stub was causing table name to be empty while alias was correctly parsed
 
 ### 12. **Window Function OVER Clause Parsing - Premature Parenthesis Consumption**
+
 **Error:** Parser fails with `Expected: ), found: PARTITION` when parsing `ROW_NUMBER() OVER (PARTITION BY p)`
 **Root Cause:** In parseWindowSpec(), the code was consuming the `(` token at the beginning to check for empty `()`, then trying to consume it AGAIN for non-empty specs.
 **Solution:** Don't consume the `(` prematurely. Use PeekNthToken(1) to check if the next token after `(` is `)` before consuming:
+
 ```go
 // Check for empty window spec: OVER ()
 tok := ep.parser.PeekToken()
@@ -215,24 +311,29 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 }
 // Continue to parse non-empty window spec...
 ```
+
 **Rust Reference:** `src/parser/mod.rs` - parseWindowSpec handles `OVER ()` vs `OVER (PARTITION BY...)` differently
 
 ### 14. **INTERVAL in Window Frames for Dialects Requiring Qualifiers**
+
 **Error:** `INTERVAL requires a unit after the literal value` when parsing `RANGE BETWEEN INTERVAL '1' DAY PRECEDING` with MSSQL dialect
 **Root Cause:** The `parseWindowFrameBound()` function was checking for INTERVAL keyword and calling `parseIntervalExpr()`, but inside `parseIntervalExpr()`, when `RequireIntervalQualifier()` returned true (for MSSQL), it called `ep.ParseExpr()` which would recursively call `parseIntervalExpr()` again, causing the wrong token to be consumed.
 **Solution:** Follow Rust reference implementation (src/parser/mod.rs:2575-2578): check if the next token is a SingleQuotedString instead of checking for INTERVAL keyword. If it's a string literal, call `parseIntervalExpr()` directly.
 **Implementation:** `parser/special.go:parseWindowFrameBound()` - changed from checking `PeekKeyword("INTERVAL")` to checking for `TokenSingleQuotedString`
 
 ### 15. **Typed String Literals Missing Keywords**
+
 **Error:** `TIMESTAMPTZ '1999-01-01 01:23:34Z'`, `JSON '...'`, `BIGNUMERIC '...'` fail to parse
 **Root Cause:** The `tryParseTypedString()` function only recognized a limited set of data type keywords: DATE, TIME, TIMESTAMP, INTERVAL, DATETIME, DECIMAL, NUMERIC, CHAR, VARCHAR, NCHAR, NVARCHAR, CHARACTER, BINARY, VARBINARY
 **Solution:** Add missing data type keywords: TIMESTAMPTZ, BIGNUMERIC, JSON
 **Implementation:** `parser/prefix.go:tryParseTypedString()` - extended the switch case to include the missing keywords
 
 ### 16. **Snowflake COPY INTO Statement Parsing**
+
 **Error:** `COPY INTO my_table FROM @stage/file.parquet` fails to parse with error `Expected: FROM or TO, found: my_table`
 **Root Cause:** Snowflake COPY INTO has completely different syntax from PostgreSQL COPY. The parser was dispatching to the generic COPY parsing which expects FROM/TO keywords but Snowflake uses COPY INTO ... FROM syntax.
 **Solution:** Implement `ParseStatement` in Snowflake dialect to intercept COPY INTO statements and dispatch to `parseCopyIntoSnowflake()` function. This function parses:
+
 - Table or location targets (`COPY INTO table` or `COPY INTO 's3://bucket/file'`)
 - Stage references with @ prefix (`FROM @stage/path`)
 - Stage parameters (STORAGE_INTEGRATION, CREDENTIALS, ENCRYPTION, etc.)
@@ -240,29 +341,34 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 - FILES and PATTERN options
 - PARTITION BY expressions
 - VALIDATION_MODE settings
-**Implementation:** `dialects/snowflake/snowflake.go:parseCopyInto()` - implements Snowflake-specific COPY INTO parsing
-**AST Types Added:** `CopyIntoSnowflakeKind`, `StageParamsObject`, `KeyValueOptions`, `KeyValueOption`, `StageLoadSelectItem`, `StageLoadSelectItemWrapper`
+  **Implementation:** `dialects/snowflake/snowflake.go:parseCopyInto()` - implements Snowflake-specific COPY INTO parsing
+  **AST Types Added:** `CopyIntoSnowflakeKind`, `StageParamsObject`, `KeyValueOptions`, `KeyValueOption`, `StageLoadSelectItem`, `StageLoadSelectItemWrapper`
 
 ### 17. **AST Type Mismatch: expr.Expr vs ast.Expr**
+
 **Error:** `*expr.ValueExpr does not implement ast.Expr (missing method IsExpr)` or similar type errors
 **Root Cause:** The Go AST has two expression interfaces: `expr.Expr` (for expression types in `ast/expr/`) and `ast.Expr` (the sealed interface for all AST expressions). They have different method requirements:
+
 - `expr.Expr` requires: `exprNode()`, `Span()`, `String()`
 - `ast.Expr` requires: `node()`, `expr()`, `IsExpr()`, `Span()`, `String()`
-**Solution:** Use `expr.Expr` for statement fields that hold expressions (like `Pragma.Value`), not `ast.Expr`. When creating expressions in the parser, use types from the `expr` package like `expr.ValueExpr`, not `ast.ValueWithSpan`.
-**Implementation:** 
+  **Solution:** Use `expr.Expr` for statement fields that hold expressions (like `Pragma.Value`), not `ast.Expr`. When creating expressions in the parser, use types from the `expr` package like `expr.ValueExpr`, not `ast.ValueWithSpan`.
+  **Implementation:** 
 - Changed `Pragma.Value` from `ast.Expr` to `expr.Expr` in `go/ast/statement/misc.go`
 - Use `&expr.ValueExpr{Value: ast.NewSingleQuotedString(...)}` in parser
 
 ### 18. **START TRANSACTION vs BEGIN AST Distinction**
+
 **Error:** `START TRANSACTION` serializes as `BEGIN TRANSACTION`
 **Root Cause:** The `StartTransaction` AST struct uses a single `Begin` boolean field to distinguish between START and BEGIN, but this doesn't correctly handle the serialization case where `START TRANSACTION` should remain as `START TRANSACTION`, not be converted to `BEGIN TRANSACTION`.
 **Solution:** The Rust implementation uses separate fields: `begin: bool` and `transaction: Option<BeginTransactionKind>`. For START TRANSACTION, `begin` is false. For BEGIN TRANSACTION, `begin` is true and `transaction` is Some(Transaction). Update the Go AST to match this structure.
 **Implementation:** The parsing works correctly, but the AST needs an additional field to track whether the original statement used START vs BEGIN.
 
 ### 19. **CTE Query Not Set in parseCTE (Nil Pointer Dereference)**
+
 **Error:** `panic: runtime error: invalid memory address: c.Query.String()` when parsing CTEs
 **Root Cause:** In `parseCTE()`, the code only creates the Query when `innerQuery` is a `*SelectStatement`, but when there's a nested WITH clause, `innerQuery` is a `*QueryStatement`, leaving `cte.Query` as nil.
 **Solution:** Handle both `*SelectStatement` and `*QueryStatement` in parseCTE:
+
 ```go
 if selStmt, ok := innerQuery.(*SelectStatement); ok {
     cte.Query = &query.Query{...}
@@ -271,38 +377,48 @@ if selStmt, ok := innerQuery.(*SelectStatement); ok {
     cte.Query = qStmt.Query
 }
 ```
+
 **Files Modified:** `parser/query.go:parseCTE()`
 
 ### 20. **Parenthesized JOINs Not Parsed**
+
 **Error:** `expected identifier, found (` when parsing `FROM (a NATURAL JOIN b)`
 **Root Cause:** `parseTableFactor()` only checks for subqueries starting with `(SELECT` or `(WITH`, not parenthesized JOINs like `(a JOIN b)`
 **Solution:** Implement proper table factor parsing following Rust reference:
+
 1. Try to parse a derived table first (subquery with SELECT/WITH)
+
 2. If that fails, parse table_and_joins inside the parentheses
+
 3. If there are joins, create a NestedJoin table factor
+
 4. Support dialect-specific `supports_parens_around_table_factor()` for Snowflake
-**Implementation:** 
-```go
-func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
+   **Implementation:** 
+   
+   ```go
+   func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
     // Consume the opening paren
     p.ExpectToken(tokenizer.TokenLParen{})
-    
+   
     // First, try to parse a derived table (subquery)
     if isSubqueryStartAfterParen(p) {
         return parseDerivedTableAfterParen(p)
     }
-    
+   
     // Not a subquery - parse as nested join
     tableAndJoins, err := parseTableAndJoins(p)
     // ... handle as NestedJoin
-}
-```
-**Reference:** `src/parser/mod.rs:15497-15609` - parse_table_factor with nested join handling
+   }
+   ```
+   
+   **Reference:** `src/parser/mod.rs:15497-15609` - parse_table_factor with nested join handling
 
 ### 22. **Pipe Operator Parsing (|>)**
+
 **Error:** `Expected: end of statement, found: |>` when parsing `SELECT * FROM tbl |> SELECT id user_id`
 **Root Cause:** The pipe operator parsing for BigQuery/DuckDB syntax was not implemented.
 **Solution:** Implement `parsePipeOperators()` function that handles the `|>` syntax with various operators:
+
 - `|> SELECT exprs` - PipeSelect
 - `|> EXTEND exprs` - PipeExtend  
 - `|> SET assignments` - PipeSet
@@ -312,48 +428,52 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - `|> LIMIT expr [OFFSET expr]` - PipeLimit
 - `|> ORDER BY exprs` - PipeOrderBy
 - Additional operators: AGGREGATE, RENAME, UNION, INTERSECT, EXCEPT, TABLESAMPLE, CALL, PIVOT, UNPIVOT, JOIN
-**Rust Reference:** `src/parser/mod.rs:13726-13940` - `parse_pipe_operators()` function
-**Files Modified:** `parser/query.go` - Added `parsePipeOperators()`, `parseQueryAssignments()`, `parseQueryIdents()`, `parseQueryIdentWithAliasList()`
+  **Rust Reference:** `src/parser/mod.rs:13726-13940` - `parse_pipe_operators()` function
+  **Files Modified:** `parser/query.go` - Added `parsePipeOperators()`, `parseQueryAssignments()`, `parseQueryIdents()`, `parseQueryIdentWithAliasList()`
 
 ---
 
 ## Current Status
 
-**Implementation Phase: 27% TEST PASS RATE** - Pipe Operator Parsing Implemented
+**Implementation Phase: 40% TEST PASS RATE** - JOIN USING and parseObjectName Fixed
 
-### Current Test Statistics (April 4, 2026 - Update 4)
+### Current Test Statistics (April 4, 2026 - Update 5)
 
-| Test Suite | Status | Passing | Failing | Total | Pass Rate |
-|------------|--------|---------|---------|-------|-----------|
-| **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 175 | ~352 | 527 | **33%** |
-| **PostgreSQL** | 🔄 IN PROGRESS | 34 | 124 | 158 | **22%** |
-| **MySQL** | 🔄 IN PROGRESS | 56 | 70 | 126 | **44%** |
-| **Snowflake** | 🔄 IN PROGRESS | 14 | 333 | 347 | **4%** |
-| **TOTAL** | **28% COMPLETE** | **323** | ~835 | 1,158 | **28%** |
+| Test Suite       | Status           | Passing | Failing | Total | Pass Rate |
+| ---------------- | ---------------- | ------- | ------- | ----- | --------- |
+| **TPC-H**        | ✅ PERFECT        | 44      | 0       | 44    | **100%**  |
+| **Common Tests** | 🔄 IN PROGRESS   | 173     | 262     | 435   | **40%**   |
+| **PostgreSQL**   | 🔄 IN PROGRESS   | 35      | 122     | 157   | **22%**   |
+| **MySQL**        | 🔄 IN PROGRESS   | 58      | 67      | 125   | **46%**   |
+| **Snowflake**    | 🔄 IN PROGRESS   | 14      | 83      | 97    | **14%**   |
+| **TOTAL**        | **40% COMPLETE** | **324** | ~534    | 858   | **40%**   |
 
-### Line Counts (April 4, 2026 - Update 4)
+### Line Counts (April 4, 2026 - Update 5)
+
 - **Rust Source:** 67,345 lines
 - **Rust Tests:** 49,886 lines  
-- **Go Source:** ~69,963 lines (104% of Rust source)
+- **Go Source:** ~70,254 lines (104% of Rust source)
 - **Go Tests:** 14,251 lines (29% of Rust tests)
 
-### Recent Progress (April 4, 2026) - Pipe Operator Parsing Implemented
-- ✅ **GenericDialect UNNEST Support** - Fixed UNNEST table factor for GenericDialect
-  - Changed `SupportsUnnestTableFactor()` to return `true` for GenericDialect
-  - Reference: `src/parser/mod.rs:15646` - supports BigQueryDialect | PostgreSqlDialect | GenericDialect
-  - Files Modified: `dialects/generic/generic.go:461`
-- ✅ **Pipe Operator Parsing** - BigQuery/DuckDB `|>` syntax now working
-  - Implemented `parsePipeOperators()` with full operator support
-  - 3 pipe operator tests now passing: AS, SET, WHERE
-  - Reference: `src/parser/mod.rs:13726-13940`
-  - Files Modified: `parser/query.go` (+271 lines)
-- ✅ **TPC-H Still 100%** - All 22 queries parse and round-trip correctly
-- 🔄 **Go Source Lines Increased** - From ~55,474 to ~69,963 lines (+14,489 lines)
-  - Pipe operator implementation: +~270 lines
-  - Query AST types: +~150 lines
+### Recent Progress (April 4, 2026) - JOIN USING and parseObjectName Fixed
 
-### Previous Progress (April 4, 2026) - Array Subscript Parsing Fixed
+- ✅ **Fixed parseObjectName()** - Now correctly parses dot-separated qualified identifiers
+  - Changed from comma-separated to dot-separated identifier parsing
+  - Now supports `schema.table`, `table.column` syntax correctly
+  - Reference: `src/parser/mod.rs:12715` - parse_object_name_inner
+  - Files Modified: `parser/prefix.go:551-570`
+- ✅ **Fixed JOIN USING Clause** - Now parses qualified column names like `USING(t2.col1)`
+  - Changed from `parseCommaSeparatedQueryIdents()` to `parseCommaSeparatedObjectNames()`
+  - Now supports compound identifiers in USING clause for MySQL, PostgreSQL, etc.
+  - Reference: `src/parser/mod.rs:16687` - parse_parenthesized_qualified_column_list
+  - Files Modified: `parser/query.go:716-740`
+  - **2 Additional Tests Passing**: `TestParseJoinsUsing/t2.col1` and `TestParseJoinSyntaxVariants`
+- ✅ **MySQL Pass Rate Increased** - From 56/125 (45%) to 58/125 (46%)
+- ✅ **Common Pass Rate Increased** - From 172/435 (40%) to 173/435 (40%)
+- 🔄 **Go Source Lines Increased** - From ~69,963 to ~70,254 lines (+291 lines)
+
+### Previous Progress (April 4, 2026) - Pipe Operator Parsing Implemented
+
 - ✅ **Array Subscript Parsing** - `SELECT a[1]`, `SELECT a[1][2][3]` now working
   - Fixed tokenizer bug: `[` was incorrectly treated as quoted identifier start
   - Changed to return `TokenLBracket` like Rust reference implementation
@@ -371,6 +491,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - ✅ **6 More Tests Passing** - Total increased from 362 to 368
 
 ### Previous Progress (April 4, 2026) - Transaction Statements Implementation
+
 - ✅ **Transaction Statement Parsing** - Full implementation ported from Rust
   - `COMMIT [TRANSACTION|WORK] [AND [NO] CHAIN]` - fully working with serialization
   - `ROLLBACK [TRANSACTION|WORK] [AND [NO] CHAIN] [TO SAVEPOINT name]` - fully working
@@ -409,6 +530,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
   - Statement serialization: +~200 lines
 
 ### Previous Progress (April 4, 2026) - INTERVAL, Typed Strings, TABLE Function
+
 - ✅ **INTERVAL in Window Frames** - Fixed parsing for dialects requiring qualifiers (MSSQL, etc.)
   - Changed from checking INTERVAL keyword to checking for string literal tokens
   - Reference: src/parser/mod.rs:2575-2578
@@ -426,6 +548,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
   - TestParseTableFunction: ✅ PASSING
 
 ### Previous Progress (April 4, 2026) - MERGE Statement Implementation
+
 - ✅ **MERGE Statement Parsing** - `MERGE INTO ... USING ... ON ... WHEN MATCHED THEN ... WHEN NOT MATCHED THEN ...` now working
 - ✅ **MERGE Actions** - UPDATE SET, DELETE, INSERT (with VALUES and ROW) fully implemented
 - ✅ **MERGE WHEN Clauses** - MATCHED, NOT MATCHED, NOT MATCHED BY SOURCE/TARGET with AND predicates
@@ -440,6 +563,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
   - Multiple other MERGE-related tests now working
 
 ### Previous Progress (April 4, 2026) - COPY Statement + Window Function Fixes
+
 - ✅ **COPY Statement Parsing** - `COPY table FROM 'file.csv'`, `COPY table TO STDOUT` now working for PostgreSQL
 - ✅ **COPY Options** - FORMAT, DELIMITER, NULL, HEADER, QUOTE, ESCAPE, etc. (PostgreSQL 9.0+ format)
 - ✅ **COPY Legacy Options** - BINARY, CSV, GZIP, BZIP2, ZSTD, etc. (pre-PostgreSQL 9.0/Redshift format)
@@ -451,6 +575,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
   - QUALIFY tests parse correctly but fail on ROW_NUMBER vs row_number serialization
 
 ### Previous Progress (April 4, 2026) - GRANT/REVOKE + LOCK TABLES Implementation
+
 - ✅ **GRANT Statement Parsing** - `GRANT ALL ON foo.* TO 'user'@'%'` now working for MySQL
 - ✅ **REVOKE Statement Parsing** - `REVOKE SELECT ON foo FROM user1` now working  
 - ✅ **LOCK TABLES Parsing** - `LOCK TABLES t READ/WRITE` with implicit AS now working
@@ -461,11 +586,13 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
   - Fixed TestParseLockTables - MySQL LOCK TABLES with READ/WRITE and AS alias
 
 ### Previous Progress (April 4, 2026) - Named Arguments + CTE Implementation
+
 - ✅ **Named Arguments Parsing** - `FUN(a => '1', b => '2')` syntax now working for PostgreSQL
 - ✅ **CTE (WITH clause) Parsing** - Basic CTE parsing implemented: `WITH a AS (SELECT ...) SELECT ...`
 - 🔄 **2 MORE TESTS PASSING** - PostgreSQL tests now 24/157 (up from 23)
 
 ### Previous Progress (April 4, 2026) - INSERT/REPLACE Implementation
+
 - ✅ **5 MORE MYSQL TESTS PASSING** - Now 52/125 passing (42%)
   - Fixed TestParseInsertSet - MySQL `INSERT INTO tbl SET col1 = val1` syntax now working
   - Fixed TestParseReplaceInsert - MySQL `REPLACE INTO` and `REPLACE DELAYED INTO` now working
@@ -479,6 +606,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - ✅ **ON DUPLICATE KEY UPDATE** - Full implementation with comma-separated assignments
 
 ### Previous Progress (April 4, 2026)
+
 - ✅ **3 MORE MYSQL TESTS PASSING** - Now 47/130 passing (36.2%)
   - Fixed TestParseSubstringInSelect - Corrected test SQL formatting (spaces before commas)
   - Fixed TestParseLikeWithEscape - Updated to use proper escape characters ($ and #)
@@ -490,6 +618,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - ✅ **MySQL Tests: 47/130 passing (+3)** - 36.2% (exceeded 35% goal!)
 
 ### Previous Progress (April 1, 2026)
+
 - ✅ **MySQL LIMIT Comma Syntax: IMPLEMENTED** - `SELECT * FROM t LIMIT 10, 5` now works
 - ✅ **MySQL ALTER TABLE ADD COLUMN with Parentheses: IMPLEMENTED** - `ALTER TABLE tab ADD COLUMN (c1 INT, c2 INT)` syntax
 - ✅ **MySQL Column Positioning: IMPLEMENTED** - `FIRST` and `AFTER column` positioning in ALTER TABLE ADD COLUMN
@@ -498,11 +627,13 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - 🔄 **MySQL Tests: 41/130 passing (+8)** - 31.5% (need 5 more to reach 35% goal)
 
 **Remaining to 35% Goal:** Need 2 more tests passing. Main blockers:
+
 - LIKE ESCAPE backslash handling (tokenizer issue with `ESCAPE '\'`)
 - ON UPDATE CURRENT_TIMESTAMP() with parentheses (parsing issue)
 - Incomplete AST: TableConstraint serialization for inline indexes
 
 ### Previous Progress (March 31, 2026)
+
 - ✅ **TPC-H PERFECT SCORE: 44/44 (100%)** - All 22 queries parse + round-trip successfully
 - ✅ **MySQL UNSIGNED Data Types: IMPLEMENTED** - TINYINT UNSIGNED, INT(11) UNSIGNED, DECIMAL(10,2) UNSIGNED, etc.
 - ✅ **MySQL ALTER TABLE: 6 NEW TESTS PASSING** - DROP PRIMARY KEY, DROP FOREIGN KEY, CHANGE COLUMN, MODIFY COLUMN, DROP INDEX now working
@@ -522,20 +653,21 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 
 ### Current Test Statistics
 
-| Test Suite | Status | Passing | Failing | Total | Pass Rate |
-|------------|--------|---------|---------|-------|-----------|
-| **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 157 | 278 | 435 | **36%** |
-| **PostgreSQL** | 🔄 IN PROGRESS | 29 | 128 | 157 | **18%** |
-| **MySQL** | 🔄 IN PROGRESS | 55 | 70 | 125 | **44%** |
-| **Snowflake** | 🔄 IN PROGRESS | 10 | 87 | 97 | **10%** |
-| **TOTAL** | **31% COMPLETE** | **251** | **565** | **816** | **31%** |
-| **TOTAL** | **30% COMPLETE** | **232** | **586** | **818** | **28%** |
-| **MySQL** | 🔄 IN PROGRESS | 52 | 73 | 125 | **42%** |
-| **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | **9%** |
-| **TOTAL** | **27% COMPLETE** | **223** | **591** | **814** | **27%** |
+| Test Suite       | Status           | Passing | Failing | Total   | Pass Rate |
+| ---------------- | ---------------- | ------- | ------- | ------- | --------- |
+| **TPC-H**        | ✅ PERFECT        | 44      | 0       | 44      | **100%**  |
+| **Common Tests** | 🔄 IN PROGRESS   | 157     | 278     | 435     | **36%**   |
+| **PostgreSQL**   | 🔄 IN PROGRESS   | 29      | 128     | 157     | **18%**   |
+| **MySQL**        | 🔄 IN PROGRESS   | 55      | 70      | 125     | **44%**   |
+| **Snowflake**    | 🔄 IN PROGRESS   | 10      | 87      | 97      | **10%**   |
+| **TOTAL**        | **31% COMPLETE** | **251** | **565** | **816** | **31%**   |
+| **TOTAL**        | **30% COMPLETE** | **232** | **586** | **818** | **28%**   |
+| **MySQL**        | 🔄 IN PROGRESS   | 52      | 73      | 125     | **42%**   |
+| **Snowflake**    | 🔄 IN PROGRESS   | 9       | 88      | 97      | **9%**    |
+| **TOTAL**        | **27% COMPLETE** | **223** | **591** | **814** | **27%**   |
 
 ### What Works
+
 - ✅ Tokenizer: 29/29 tests passing
 - ✅ All 14 dialects compile
 - ✅ AST types (131 statements, 69 expressions, 117 data types)
@@ -579,6 +711,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - ✅ **Test Infrastructure** - Complete test utilities with `TestedDialects`, helper functions
 
 ### Current Parser Limitations
+
 - ✅ **Complex JOIN types** - SEMI JOIN, ANTI JOIN now supported
 - ✅ **Window functions** - Core implementation working (OVER, PARTITION BY, ORDER BY, frame specs)
 - 🔄 **Window function INTERVAL support** - Some dialect-specific edge cases remain
@@ -590,6 +723,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 - 🔄 **JSON operators** - PostgreSQL JSON operators need serialization fixes
 
 ### Remaining Work
+
 - ⏳ Reach 50% test pass rate (need ~160 more tests passing)
   - ALTER TABLE edge cases (2 tests)
   - COPY statements (Snowflake - ~20 tests)
@@ -747,50 +881,54 @@ sqlparser-go/
 
 ### Phase 1: Foundation (Priority: CRITICAL) ✅ COMPLETE
 
-| Test Suite | Source File | Target | # Tests | Status | Notes |
-|------------|-------------|--------|---------|--------|-------|
-| **Common Tests** | `tests/sqlparser_common.rs` | `tests/common/*.go` (24 files) | 461 | ✅ **97%** | 446/461 tests ported across batch files |
-| **Test Utilities** | `src/test_utils.rs` | `tests/utils/test_utils.go` | N/A | ✅ | Complete with `TestedDialects`, helpers, all 14 dialects |
+| Test Suite         | Source File                 | Target                         | # Tests | Status    | Notes                                                    |
+| ------------------ | --------------------------- | ------------------------------ | ------- | --------- | -------------------------------------------------------- |
+| **Common Tests**   | `tests/sqlparser_common.rs` | `tests/common/*.go` (24 files) | 461     | ✅ **97%** | 446/461 tests ported across batch files                  |
+| **Test Utilities** | `src/test_utils.rs`         | `tests/utils/test_utils.go`    | N/A     | ✅         | Complete with `TestedDialects`, helpers, all 14 dialects |
 
 **Test Files Created:**
+
 - `common_test.go` (58 tests)
 - `common_batch2_test.go` through `common_batch24_test.go` (388 tests)
 
 ### Phase 2: Major Dialects (Priority: HIGH) ⏳ PENDING
 
-| Test Suite | Source File | Target | # Tests | Status |
-|------------|-------------|--------|---------|--------|
-| **PostgreSQL** | `tests/sqlparser_postgres.rs` | `tests/postgres/postgres_test.go` | 172 | ⏳ |
-| **MySQL** | `tests/sqlparser_mysql.rs` | `tests/mysql/mysql_test.go` | 131 | ⏳ |
-| **Snowflake** | `tests/sqlparser_snowflake.rs` | `tests/snowflake/snowflake_test.go` | 155 | ⏳ |
+| Test Suite     | Source File                    | Target                              | # Tests | Status |
+| -------------- | ------------------------------ | ----------------------------------- | ------- | ------ |
+| **PostgreSQL** | `tests/sqlparser_postgres.rs`  | `tests/postgres/postgres_test.go`   | 172     | ⏳      |
+| **MySQL**      | `tests/sqlparser_mysql.rs`     | `tests/mysql/mysql_test.go`         | 131     | ⏳      |
+| **Snowflake**  | `tests/sqlparser_snowflake.rs` | `tests/snowflake/snowflake_test.go` | 155     | ⏳      |
 
 ### Phase 3: Secondary Dialects (Priority: MEDIUM) ⏳ PENDING
 
-| Test Suite | Source File | Target | # Tests | Status |
-|------------|-------------|--------|---------|--------|
-| **MSSQL** | `tests/sqlparser_mssql.rs` | `tests/mssql/mssql_test.go` | 67 | ⏳ |
-| **BigQuery** | `tests/sqlparser_bigquery.rs` | `tests/bigquery/bigquery_test.go` | 54 | ⏳ |
-| **ClickHouse** | `tests/sqlparser_clickhouse.rs` | `tests/clickhouse/clickhouse_test.go` | 47 | ⏳ |
-| **Hive** | `tests/sqlparser_hive.rs` | `tests/hive/hive_test.go` | 44 | ⏳ |
-| **SQLite** | `tests/sqlparser_sqlite.rs` | `tests/sqlite/sqlite_test.go` | 33 | ⏳ |
-| **DuckDB** | `tests/sqlparser_duckdb.rs` | `tests/duckdb/duckdb_test.go` | 26 | ⏳ |
+| Test Suite     | Source File                     | Target                                | # Tests | Status |
+| -------------- | ------------------------------- | ------------------------------------- | ------- | ------ |
+| **MSSQL**      | `tests/sqlparser_mssql.rs`      | `tests/mssql/mssql_test.go`           | 67      | ⏳      |
+| **BigQuery**   | `tests/sqlparser_bigquery.rs`   | `tests/bigquery/bigquery_test.go`     | 54      | ⏳      |
+| **ClickHouse** | `tests/sqlparser_clickhouse.rs` | `tests/clickhouse/clickhouse_test.go` | 47      | ⏳      |
+| **Hive**       | `tests/sqlparser_hive.rs`       | `tests/hive/hive_test.go`             | 44      | ⏳      |
+| **SQLite**     | `tests/sqlparser_sqlite.rs`     | `tests/sqlite/sqlite_test.go`         | 33      | ⏳      |
+| **DuckDB**     | `tests/sqlparser_duckdb.rs`     | `tests/duckdb/duckdb_test.go`         | 26      | ⏳      |
 
 ### Phase 4: Specialized Tests (Priority: LOW) ⏳ PENDING
 
-| Test Suite | Source File | Target | # Tests | Status |
-|------------|-------------|--------|---------|--------|
-| **Redshift** | `tests/sqlparser_redshift.rs` | `tests/redshift/redshift_test.go` | 22 | ⏳ |
-| **Pretty Print** | `tests/pretty_print.rs` | `tests/prettyprint/prettyprint_test.go` | 22 | ⏳ |
-| **Databricks** | `tests/sqlparser_databricks.rs` | `tests/databricks/databricks_test.go` | 12 | ⏳ |
-| **Oracle** | `tests/sqlparser_oracle.rs` | `tests/oracle/oracle_test.go` | 13 | ⏳ |
+| Test Suite       | Source File                     | Target                                  | # Tests | Status |
+| ---------------- | ------------------------------- | --------------------------------------- | ------- | ------ |
+| **Redshift**     | `tests/sqlparser_redshift.rs`   | `tests/redshift/redshift_test.go`       | 22      | ⏳      |
+| **Pretty Print** | `tests/pretty_print.rs`         | `tests/prettyprint/prettyprint_test.go` | 22      | ⏳      |
+| **Databricks**   | `tests/sqlparser_databricks.rs` | `tests/databricks/databricks_test.go`   | 12      | ⏳      |
+| **Oracle**       | `tests/sqlparser_oracle.rs`     | `tests/oracle/oracle_test.go`           | 13      | ⏳      |
 
 ### Porting Strategy
 
 For each test file:
 
 1. **Read Rust test** - Examine the test in `tests/sqlparser_*.rs`
+
 2. **Extract SQL** - Note the SQL being parsed
+
 3. **Port to Go** - Create equivalent Go test:
+   
    ```go
    func TestParseSelectFromFirst(t *testing.T) {
        // Reference: tests/sqlparser_common.rs:1234
@@ -798,17 +936,20 @@ For each test file:
        dialect := generic.NewGenericDialect()
        stmts, err := parser.ParseSQL(dialect, sql)
        require.NoError(t, err)
-       
+   
        // Verify the parsed result
        stmt := stmts[0].(*statement.Query)
        assert.NotNil(t, stmt)
        // Add specific assertions based on Rust test
    }
    ```
+
 4. **Tag with reference** - Always include the Rust source file and line number (e.g., `// Reference: tests/sqlparser_common.rs:1234`)
+
 5. **Run and verify** - Ensure the test passes
 
 **Test Coverage:**
+
 - **SELECT statements** - Wildcard, DISTINCT, ORDER BY, GROUP BY, HAVING, LIMIT, subqueries, CTEs
 - **INSERT statements** - VALUES, DEFAULT VALUES, SELECT source, RETURNING
 - **UPDATE statements** - SET assignments, WHERE, FROM, RETURNING
@@ -916,94 +1057,94 @@ type DataType interface {
 
 ### Phase 1: Core Infrastructure ✅ COMPLETE
 
-| Module | Source | Target | Lines | Status |
-|--------|--------|--------|-------|--------|
-| Keywords | `src/keywords.rs` | `token/keywords.go` | ~1,300 | ✅ Done |
-| Token Types | `src/tokenizer.rs` (Token enum) | `tokenizer/tokens.go` | ~150 types | ✅ Done |
-| Span/Location | `src/ast/spans.rs` | `span/span.go` | ~200 | ✅ Done |
-| Error Types | `src/parser/mod.rs` (ParserError) | `errors/errors.go` | ~50 | ✅ Done |
+| Module        | Source                            | Target                | Lines      | Status |
+| ------------- | --------------------------------- | --------------------- | ---------- | ------ |
+| Keywords      | `src/keywords.rs`                 | `token/keywords.go`   | ~1,300     | ✅ Done |
+| Token Types   | `src/tokenizer.rs` (Token enum)   | `tokenizer/tokens.go` | ~150 types | ✅ Done |
+| Span/Location | `src/ast/spans.rs`                | `span/span.go`        | ~200       | ✅ Done |
+| Error Types   | `src/parser/mod.rs` (ParserError) | `errors/errors.go`    | ~50        | ✅ Done |
 
 ### Phase 2: AST Types ✅ COMPLETE
 
-| Module | Source | Target | Types | Status |
-|--------|--------|--------|-------|--------|
-| Statements | `src/ast/mod.rs`, `src/ast/ddl.rs`, `src/ast/dml.rs`, `src/ast/dcl.rs` | `ast/statement/*.go` | 131 | ✅ Done |
-| Expressions | `src/ast/mod.rs`, `src/ast/operator.rs` | `ast/expr/*.go` | 69 | ✅ Done |
-| DataTypes | `src/ast/data_type.rs` | `ast/datatype/*.go` | 117 | ✅ Done |
-| Query | `src/ast/query.rs` | `ast/query/*.go` | 50+ | ✅ Done |
-| Values | `src/ast/value.rs` | `ast/value.go` | 20+ | ✅ Done |
+| Module      | Source                                                                 | Target               | Types | Status |
+| ----------- | ---------------------------------------------------------------------- | -------------------- | ----- | ------ |
+| Statements  | `src/ast/mod.rs`, `src/ast/ddl.rs`, `src/ast/dml.rs`, `src/ast/dcl.rs` | `ast/statement/*.go` | 131   | ✅ Done |
+| Expressions | `src/ast/mod.rs`, `src/ast/operator.rs`                                | `ast/expr/*.go`      | 69    | ✅ Done |
+| DataTypes   | `src/ast/data_type.rs`                                                 | `ast/datatype/*.go`  | 117   | ✅ Done |
+| Query       | `src/ast/query.rs`                                                     | `ast/query/*.go`     | 50+   | ✅ Done |
+| Values      | `src/ast/value.rs`                                                     | `ast/value.go`       | 20+   | ✅ Done |
 
 ### Phase 3: Tokenizer ✅ COMPLETE
 
-| Component | Source | Target | Lines | Status |
-|-----------|--------|--------|-------|--------|
-| Tokenizer | `src/tokenizer.rs` | `tokenizer/tokenizer.go` | ~4,500 | ✅ Done |
-| Tokenizer State | `src/tokenizer.rs` (State struct) | `tokenizer/state.go` | ~200 | ✅ Done |
-| Tokenization Functions | `src/tokenizer.rs` (~50 functions) | `tokenizer/tokenize_*.go` | ~3,000 | ✅ Done |
-| Unit Tests | `src/tokenizer.rs` (63 tests) | `tokenizer/tokenizer_test.go` | ~500 | ✅ 29/29 Passing |
+| Component              | Source                             | Target                        | Lines  | Status          |
+| ---------------------- | ---------------------------------- | ----------------------------- | ------ | --------------- |
+| Tokenizer              | `src/tokenizer.rs`                 | `tokenizer/tokenizer.go`      | ~4,500 | ✅ Done          |
+| Tokenizer State        | `src/tokenizer.rs` (State struct)  | `tokenizer/state.go`          | ~200   | ✅ Done          |
+| Tokenization Functions | `src/tokenizer.rs` (~50 functions) | `tokenizer/tokenize_*.go`     | ~3,000 | ✅ Done          |
+| Unit Tests             | `src/tokenizer.rs` (63 tests)      | `tokenizer/tokenizer_test.go` | ~500   | ✅ 29/29 Passing |
 
 ### Phase 4: Parser ✅ COMPLETE
 
-| Component | Source | Target | Lines | Status |
-|-----------|--------|--------|-------|--------|
-| Parser Core | `src/parser/mod.rs` (Parser struct) | `parser/parser.go` | ~2,000 | ✅ Done |
-| Statement Parsers | `src/parser/mod.rs` (~100 methods) | `parser/*.go` | ~8,000 | ✅ Done |
-| Expression Parsers | `src/parser/mod.rs` (~50 methods) | `parser/*.go` | ~6,000 | ✅ Done |
-| Parser State | `src/parser/mod.rs` (ParserState) | `parser/state.go` | ~100 | ✅ Done |
-| Parser Options | `src/parser/mod.rs` (ParserOptions) | `parser/options.go` | ~50 | ✅ Done |
-| Merge Parser | `src/parser/merge.rs` | `parser/merge.go` | ~500 | ✅ Done |
-| Alter Parser | `src/parser/alter.rs` | `parser/alter.go` | ~1,000 | ✅ Done |
+| Component          | Source                              | Target              | Lines  | Status |
+| ------------------ | ----------------------------------- | ------------------- | ------ | ------ |
+| Parser Core        | `src/parser/mod.rs` (Parser struct) | `parser/parser.go`  | ~2,000 | ✅ Done |
+| Statement Parsers  | `src/parser/mod.rs` (~100 methods)  | `parser/*.go`       | ~8,000 | ✅ Done |
+| Expression Parsers | `src/parser/mod.rs` (~50 methods)   | `parser/*.go`       | ~6,000 | ✅ Done |
+| Parser State       | `src/parser/mod.rs` (ParserState)   | `parser/state.go`   | ~100   | ✅ Done |
+| Parser Options     | `src/parser/mod.rs` (ParserOptions) | `parser/options.go` | ~50    | ✅ Done |
+| Merge Parser       | `src/parser/merge.rs`               | `parser/merge.go`   | ~500   | ✅ Done |
+| Alter Parser       | `src/parser/alter.rs`               | `parser/alter.go`   | ~1,000 | ✅ Done |
 
 ### Phase 5: Dialects ✅ COMPLETE
 
-| Module | Source | Target | Lines | Status |
-|--------|--------|--------|-------|--------|
-| Dialect Trait | `src/dialect/mod.rs` | `dialects/dialect.go` | ~150 methods | ✅ Done |
-| Generic | `src/dialect/generic.rs` | `dialects/generic/generic.go` | ~500 | ✅ Done |
-| PostgreSQL | `src/dialect/postgresql.rs` | `dialects/postgresql/postgresql.go` | ~800 | ✅ Done |
-| MySQL | `src/dialect/mysql.rs` | `dialects/mysql/mysql.go` | ~600 | ✅ Done |
-| SQLite | `src/dialect/sqlite.rs` | `dialects/sqlite/sqlite.go` | ~400 | ✅ Done |
-| BigQuery | `src/dialect/bigquery.rs` | `dialects/bigquery/bigquery.go` | ~500 | ✅ Done |
-| Snowflake | `src/dialect/snowflake.rs` | `dialects/snowflake/snowflake.go` | ~700 | ✅ Done |
-| DuckDB | `src/dialect/duckdb.rs` | `dialects/duckdb/duckdb.go` | ~500 | ✅ Done |
-| ClickHouse | `src/dialect/clickhouse.rs` | `dialects/clickhouse/clickhouse.go` | ~600 | ✅ Done |
-| Hive | `src/dialect/hive.rs` | `dialects/hive/hive.go` | ~400 | ✅ Done |
-| MSSQL | `src/dialect/mssql.rs` | `dialects/mssql/mssql.go` | ~500 | ✅ Done |
-| Redshift | `src/dialect/redshift.rs` | `dialects/redshift/redshift.go` | ~400 | ✅ Done |
-| Databricks | `src/dialect/databricks.rs` | `dialects/databricks/databricks.go` | ~300 | ✅ Done |
-| Oracle | `src/dialect/oracle.rs` | `dialects/oracle/oracle.go` | ~400 | ✅ Done |
-| ANSI | `src/dialect/ansi.rs` | `dialects/ansi/ansi.go` | ~300 | ✅ Done |
+| Module        | Source                      | Target                              | Lines        | Status |
+| ------------- | --------------------------- | ----------------------------------- | ------------ | ------ |
+| Dialect Trait | `src/dialect/mod.rs`        | `dialects/dialect.go`               | ~150 methods | ✅ Done |
+| Generic       | `src/dialect/generic.rs`    | `dialects/generic/generic.go`       | ~500         | ✅ Done |
+| PostgreSQL    | `src/dialect/postgresql.rs` | `dialects/postgresql/postgresql.go` | ~800         | ✅ Done |
+| MySQL         | `src/dialect/mysql.rs`      | `dialects/mysql/mysql.go`           | ~600         | ✅ Done |
+| SQLite        | `src/dialect/sqlite.rs`     | `dialects/sqlite/sqlite.go`         | ~400         | ✅ Done |
+| BigQuery      | `src/dialect/bigquery.rs`   | `dialects/bigquery/bigquery.go`     | ~500         | ✅ Done |
+| Snowflake     | `src/dialect/snowflake.rs`  | `dialects/snowflake/snowflake.go`   | ~700         | ✅ Done |
+| DuckDB        | `src/dialect/duckdb.rs`     | `dialects/duckdb/duckdb.go`         | ~500         | ✅ Done |
+| ClickHouse    | `src/dialect/clickhouse.rs` | `dialects/clickhouse/clickhouse.go` | ~600         | ✅ Done |
+| Hive          | `src/dialect/hive.rs`       | `dialects/hive/hive.go`             | ~400         | ✅ Done |
+| MSSQL         | `src/dialect/mssql.rs`      | `dialects/mssql/mssql.go`           | ~500         | ✅ Done |
+| Redshift      | `src/dialect/redshift.rs`   | `dialects/redshift/redshift.go`     | ~400         | ✅ Done |
+| Databricks    | `src/dialect/databricks.rs` | `dialects/databricks/databricks.go` | ~300         | ✅ Done |
+| Oracle        | `src/dialect/oracle.rs`     | `dialects/oracle/oracle.go`         | ~400         | ✅ Done |
+| ANSI          | `src/dialect/ansi.rs`       | `dialects/ansi/ansi.go`             | ~300         | ✅ Done |
 
 ### Phase 6: Tests 🔄 IN PROGRESS
 
-| Test Suite | Source | Target | Tests | Status |
-|------------|--------|--------|-------|--------|
-| Tokenizer | `src/tokenizer.rs` | `tokenizer/tokenizer_test.go` | 29 | ✅ All Passing |
-| TPC-H | `tests/queries/tpch/*.sql` | `tests/tpch_regression_test.go` | 44 | ✅ 44/44 Passing (100%) |
-| Common | `tests/sqlparser_common.rs` | `tests/common/*_test.go` | 435 | 🔄 166/435 Passing (38%) |
-| PostgreSQL | `tests/sqlparser_postgres.rs` | `tests/postgres/*_test.go` | 132 | 🔄 22/132 Passing (17%) |
-| MySQL | `tests/sqlparser_mysql.rs` | `tests/mysql/*_test.go` | 130 | 🔄 16/130 Passing (12%) |
-| Snowflake | `tests/sqlparser_snowflake.rs` | `tests/snowflake/*_test.go` | 97 | 🔄 11/97 Passing (11%) |
-| MSSQL | `tests/sqlparser_mssql.rs` | `tests/mssql/*_test.go` | 67 | ⏳ Pending |
-| BigQuery | `tests/sqlparser_bigquery.rs` | `tests/bigquery/*_test.go` | 54 | ⏳ Pending |
-| ClickHouse | `tests/sqlparser_clickhouse.rs` | `tests/clickhouse/*_test.go` | 47 | ⏳ Pending |
-| Hive | `tests/sqlparser_hive.rs` | `tests/hive/*_test.go` | 44 | ⏳ Pending |
-| SQLite | `tests/sqlparser_sqlite.rs` | `tests/sqlite/*_test.go` | 33 | ⏳ Pending |
-| DuckDB | `tests/sqlparser_duckdb.rs` | `tests/duckdb/*_test.go` | 26 | ⏳ Pending |
-| Redshift | `tests/sqlparser_redshift.rs` | `tests/redshift/*_test.go` | 22 | ⏳ Pending |
-| Databricks | `tests/sqlparser_databricks.rs` | `tests/databricks/*_test.go` | 12 | ⏳ Pending |
-| Oracle | `tests/sqlparser_oracle.rs` | `tests/oracle/*_test.go` | 13 | ⏳ Pending |
-| Pretty Print | `tests/pretty_print.rs` | `tests/prettyprint/*_test.go` | 22 | ⏳ Pending |
-| Test Utils | `src/test_utils.rs` | `tests/utils/*.go` | N/A | ✅ Complete |
+| Test Suite   | Source                          | Target                          | Tests | Status                   |
+| ------------ | ------------------------------- | ------------------------------- | ----- | ------------------------ |
+| Tokenizer    | `src/tokenizer.rs`              | `tokenizer/tokenizer_test.go`   | 29    | ✅ All Passing            |
+| TPC-H        | `tests/queries/tpch/*.sql`      | `tests/tpch_regression_test.go` | 44    | ✅ 44/44 Passing (100%)   |
+| Common       | `tests/sqlparser_common.rs`     | `tests/common/*_test.go`        | 435   | 🔄 173/435 Passing (40%) |
+| PostgreSQL   | `tests/sqlparser_postgres.rs`   | `tests/postgres/*_test.go`      | 157   | 🔄 35/157 Passing (22%)  |
+| MySQL        | `tests/sqlparser_mysql.rs`      | `tests/mysql/*_test.go`         | 125   | 🔄 58/125 Passing (46%)  |
+| Snowflake    | `tests/sqlparser_snowflake.rs`  | `tests/snowflake/*_test.go`     | 97    | 🔄 14/97 Passing (14%)   |
+| MSSQL        | `tests/sqlparser_mssql.rs`      | `tests/mssql/*_test.go`         | 67    | ⏳ Pending                |
+| BigQuery     | `tests/sqlparser_bigquery.rs`   | `tests/bigquery/*_test.go`      | 54    | ⏳ Pending                |
+| ClickHouse   | `tests/sqlparser_clickhouse.rs` | `tests/clickhouse/*_test.go`    | 47    | ⏳ Pending                |
+| Hive         | `tests/sqlparser_hive.rs`       | `tests/hive/*_test.go`          | 44    | ⏳ Pending                |
+| SQLite       | `tests/sqlparser_sqlite.rs`     | `tests/sqlite/*_test.go`        | 33    | ⏳ Pending                |
+| DuckDB       | `tests/sqlparser_duckdb.rs`     | `tests/duckdb/*_test.go`        | 26    | ⏳ Pending                |
+| Redshift     | `tests/sqlparser_redshift.rs`   | `tests/redshift/*_test.go`      | 22    | ⏳ Pending                |
+| Databricks   | `tests/sqlparser_databricks.rs` | `tests/databricks/*_test.go`    | 12    | ⏳ Pending                |
+| Oracle       | `tests/sqlparser_oracle.rs`     | `tests/oracle/*_test.go`        | 13    | ⏳ Pending                |
+| Pretty Print | `tests/pretty_print.rs`         | `tests/prettyprint/*_test.go`   | 22    | ⏳ Pending                |
+| Test Utils   | `src/test_utils.rs`             | `tests/utils/*.go`              | N/A   | ✅ Complete               |
 
 ### Phase 7: Fuzz & Documentation ✅ COMPLETE
 
-| Component | Source | Target | Status |
-|-----------|--------|--------|--------|
-| Fuzz Tests | `fuzz/fuzz_targets/fuzz_parse_sql.rs` | `fuzz/fuzz_test.go` | ✅ 4 fuzzers |
-| TPC-H Fixtures | `tests/queries/tpch/*.sql` | `tests/fixtures/tpch/*.sql` | ✅ 22 files copied |
-| Examples | N/A | `examples/*.go` | ✅ 4 examples |
-| Documentation | N/A | `README.md`, `STATUS.md` | ✅ Complete |
+| Component      | Source                                | Target                      | Status            |
+| -------------- | ------------------------------------- | --------------------------- | ----------------- |
+| Fuzz Tests     | `fuzz/fuzz_targets/fuzz_parse_sql.rs` | `fuzz/fuzz_test.go`         | ✅ 4 fuzzers       |
+| TPC-H Fixtures | `tests/queries/tpch/*.sql`            | `tests/fixtures/tpch/*.sql` | ✅ 22 files copied |
+| Examples       | N/A                                   | `examples/*.go`             | ✅ 4 examples      |
+| Documentation  | N/A                                   | `README.md`, `STATUS.md`    | ✅ Complete        |
 
 ---
 
@@ -1026,11 +1167,13 @@ type DataType interface {
 ### Recent Achievements
 
 **APRIL 4, 2026: MySQL Casing Fixes (3 tests)**
+
 - ✅ MySQL ALGORITHM/LOCK casing - Now serialize in uppercase per Rust reference
 - ✅ MySQL identifier case preservation - CURRENT_TIMESTAMP now preserves case
 - ✅ MySQL tests: 44/130 passing (34%, up from 31.5%)
 
 **Previously Fixed:**
+
 - ✅ CREATE VIEW: `CREATE VIEW revenue0 (supplier_no, total_revenue) AS SELECT ...` now parsing correctly
 - ✅ DROP VIEW: `DROP VIEW revenue0` now parsing correctly
 - ✅ Date literals: `date '1998-12-01'` now parsing correctly
@@ -1073,11 +1216,13 @@ go test ./...
 ```
 
 **Common Mistakes to Avoid:**
+
 - ❌ Running from project root `/Users/san/Fun/sqlparser-rs/` - Will fail with "directory prefix does not contain modules listed in go.work"
 - ❌ Using `./go/tests/...` path - Use `./tests/...` instead (relative to go/ directory)
 - ❌ Forgetting to `cd go/` first - The go.mod file is in the go/ subdirectory
 
 **Correct Workflow:**
+
 1. Always `cd /Users/san/Fun/sqlparser-rs/go` before running any go commands
 2. Use relative paths like `./tests/mysql/...` (not full module paths)
 3. The module name is `github.com/user/sqlparser` defined in go/go.mod
@@ -1087,6 +1232,7 @@ go test ./...
 ## Remaining Goals
 
 ### Priority 1: Complete Parser Implementation ✅
+
 - [x] Fix operator precedence climbing (CRITICAL BUG FIXED)
 - [x] Implement basic SELECT/FROM/WHERE/GROUP BY/HAVING
 - [x] Implement date/interval literal parsing
@@ -1110,6 +1256,7 @@ go test ./...
 - [x] **PREPARE/EXECUTE/DEALLOCATE** - Prepared statements
 
 ### Priority 2: Complete Test Suite 🔄
+
 - [x] Get TPC-H tests passing (44/44 - 100% - parsing + round-trip)
 - [x] Port common tests (461 tests) - 446 ported, 166 passing
 - [x] Port PostgreSQL tests (132 tests) - 22 passing
@@ -1120,6 +1267,7 @@ go test ./...
 - [ ] Port pretty print tests (22 tests)
 
 ### Priority 3: Quality Assurance ⏳
+
 - [ ] Run full test suite: `go test ./...`
 - [ ] Run fuzz testing for 1 hour without panic
 - [ ] Verify SQL round-trip works (parse → String() → parse)
@@ -1127,6 +1275,7 @@ go test ./...
 - [ ] Run linter: `golangci-lint run ./...`
 
 ### Priority 4: Documentation & CI/CD ⏳
+
 - [ ] Add GitHub Actions workflow
 - [ ] Add godoc comments to all public APIs
 - [ ] Create performance benchmarks
@@ -1142,20 +1291,20 @@ package main
 import (
     "fmt"
     "log"
-    
+
     "github.com/user/sqlparser/parser"
     "github.com/user/sqlparser/dialects/generic"
 )
 
 func main() {
     sql := "SELECT * FROM users WHERE active = true"
-    
+
     dialect := generic.NewGenericDialect()
     statements, err := parser.ParseSQL(dialect, sql)
     if err != nil {
         log.Fatal(err)
     }
-    
+
     for _, stmt := range statements {
         fmt.Println(stmt.String()) // Regenerates SQL
     }
@@ -1166,18 +1315,19 @@ func main() {
 
 ## Migration from Rust
 
-| Rust | Go |
-|------|-----|
-| `sqlparser::parser::Parser` | `github.com/user/sqlparser/parser` |
-| `sqlparser::dialect::*` | `github.com/user/sqlparser/dialects/*` |
-| `sqlparser::ast::*` | `github.com/user/sqlparser/ast` |
-| `sqlparser::tokenizer::*` | `github.com/user/sqlparser/tokenizer` |
+| Rust                        | Go                                     |
+| --------------------------- | -------------------------------------- |
+| `sqlparser::parser::Parser` | `github.com/user/sqlparser/parser`     |
+| `sqlparser::dialect::*`     | `github.com/user/sqlparser/dialects/*` |
+| `sqlparser::ast::*`         | `github.com/user/sqlparser/ast`        |
+| `sqlparser::tokenizer::*`   | `github.com/user/sqlparser/tokenizer`  |
 
 ---
 
 ## Success Criteria
 
 **Completed:**
+
 1. ✅ Tokenizer with 29 passing tests
 2. ✅ All 14 dialects compile
 3. ✅ Complete AST hierarchy (131 statements, 69 expressions, 117 types)
@@ -1192,25 +1342,26 @@ func main() {
 12. ✅ INSERT/UPDATE/DELETE statement parsing (including SET syntax, REPLACE, ON DUPLICATE KEY UPDATE)
 13. ✅ MySQL INSERT extensions - IGNORE, DELAYED, LOW_PRIORITY, HIGH_PRIORITY, empty row VALUES
 14. ✅ Multi-part table names (schema.table)
-14. ✅ EXPLAIN/DESCRIBE statement parsing (6/7 tests)
-15. ✅ JOIN serialization with proper OUTER handling (SEMI/ANTI JOIN support)
-16. ✅ CASE expressions
-17. ✅ ALTER TABLE statement parsing - DROP PRIMARY KEY, DROP FOREIGN KEY, CHANGE COLUMN, MODIFY COLUMN, DROP INDEX (MySQL) + 6 tests now passing
-18. ✅ Window functions - OVER, PARTITION BY, ORDER BY, frame specs (INTERVAL in window frames fixed)
-19. ✅ Named arguments - PostgreSQL `=>` syntax
-20. ✅ CREATE/DROP SEQUENCE - PostgreSQL sequences
-21. ✅ CREATE INDEX - Full PostgreSQL index support
-22. ✅ CREATE/DROP SCHEMA - Schema management
-23. ✅ PREPARE/EXECUTE/DEALLOCATE - Prepared statements
-24. ✅ Typed String Literals - TIMESTAMPTZ, JSON, BIGNUMERIC
-25. ✅ TABLE Function - `SELECT * FROM TABLE(<expr>)` syntax
-26. ✅ Parenthesized JOINs - `FROM (a NATURAL JOIN b)` syntax
-27. ✅ CTE in CREATE VIEW - `CREATE VIEW v AS WITH ... SELECT ...`
-28. ✅ UNNEST Table Factor - BigQuery/PostgreSQL array unnesting
-29. ✅ Pipe Operators - BigQuery/DuckDB `|>` syntax (SELECT, EXTEND, SET, DROP, AS, WHERE, LIMIT, ORDER BY, etc.)
-30. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
+15. ✅ EXPLAIN/DESCRIBE statement parsing (6/7 tests)
+16. ✅ JOIN serialization with proper OUTER handling (SEMI/ANTI JOIN support)
+17. ✅ CASE expressions
+18. ✅ ALTER TABLE statement parsing - DROP PRIMARY KEY, DROP FOREIGN KEY, CHANGE COLUMN, MODIFY COLUMN, DROP INDEX (MySQL) + 6 tests now passing
+19. ✅ Window functions - OVER, PARTITION BY, ORDER BY, frame specs (INTERVAL in window frames fixed)
+20. ✅ Named arguments - PostgreSQL `=>` syntax
+21. ✅ CREATE/DROP SEQUENCE - PostgreSQL sequences
+22. ✅ CREATE INDEX - Full PostgreSQL index support
+23. ✅ CREATE/DROP SCHEMA - Schema management
+24. ✅ PREPARE/EXECUTE/DEALLOCATE - Prepared statements
+25. ✅ Typed String Literals - TIMESTAMPTZ, JSON, BIGNUMERIC
+26. ✅ TABLE Function - `SELECT * FROM TABLE(<expr>)` syntax
+27. ✅ Parenthesized JOINs - `FROM (a NATURAL JOIN b)` syntax
+28. ✅ CTE in CREATE VIEW - `CREATE VIEW v AS WITH ... SELECT ...`
+29. ✅ UNNEST Table Factor - BigQuery/PostgreSQL array unnesting
+30. ✅ Pipe Operators - BigQuery/DuckDB `|>` syntax (SELECT, EXTEND, SET, DROP, AS, WHERE, LIMIT, ORDER BY, etc.)
+31. 🔄 Snowflake COPY INTO - Basic parsing implemented; stage params, transformations in progress
 
 **In Progress:**
+
 1. 🔄 Test suite porting - 323/1,158 tests passing (28%)
 2. ✅ CTE (WITH clause) parsing - IMPLEMENTED for CREATE VIEW and queries
 3. ✅ Array Subscript parsing - IMPLEMENTED for PostgreSQL arrays
@@ -1219,12 +1370,14 @@ func main() {
 6. 🔄 Remaining parser features for ~835 failing tests
 
 **Line Counts:**
+
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
 - Go Source: ~69,963 lines (104% of Rust source)
 - Go Tests: 14,251 lines (29% of Rust tests)
 
 **Remaining:**
+
 1. ⏳ Reach 50% test pass rate (need ~263 more tests passing)
    - Array subquery expressions (~5 tests) - PARTIALLY IMPLEMENTED
    - Parenthesized JOIN serialization (~15 tests) - PARSING IMPLEMENTED
@@ -1239,11 +1392,12 @@ func main() {
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (Pipe Operator Parsing Implemented)
-**Status:** TPC-H 100% (44/44), MySQL 44% (56/126), PostgreSQL 21% (34/158), Common 33% (175/527), Snowflake 4% (14/347), Total 323/1,158 Tests Passing
+**Last Updated:** April 4, 2026 (JOIN USING and parseObjectName Fixed)
+**Status:** TPC-H 100% (44/44), Common 40% (173/435), PostgreSQL 22% (35/157), MySQL 46% (58/125), Snowflake 14% (14/97), Total 324/858 Tests Passing (40%)
 
 **Line Counts:**
+
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: ~69,963 lines (104% of Rust source)
+- Go Source: ~70,254 lines (104% of Rust source)
 - Go Tests: 14,251 lines (29% of Rust tests)

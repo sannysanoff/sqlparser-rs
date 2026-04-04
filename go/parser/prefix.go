@@ -548,23 +548,35 @@ func (ep *ExpressionParser) parseIdentifier() (*expr.Ident, error) {
 	return ep.wordToIdent(&word, tok.Span), nil
 }
 
-// parseObjectName parses an object name (potentially qualified)
+// parseObjectName parses an object name (potentially qualified), e.g.,
+// `foo` or `myschema."table"` or `db.schema.table`
+//
+// Reference: src/parser/mod.rs:12715 - parse_object_name
 func (ep *ExpressionParser) parseObjectName() (*expr.ObjectName, error) {
-	idents, err := ep.parseCommaSeparatedIdents()
-	if err != nil {
-		return nil, err
-	}
+	var parts []*expr.ObjectNamePart
 
-	parts := make([]*expr.ObjectNamePart, len(idents))
-	for i, ident := range idents {
-		parts[i] = &expr.ObjectNamePart{
+	for {
+		ident, err := ep.parseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, &expr.ObjectNamePart{
 			SpanVal: ident.Span(),
 			Ident:   ident,
+		})
+
+		// Check for dot (period) to continue parsing more parts
+		if !ep.parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+			break
 		}
 	}
 
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("expected identifier")
+	}
+
 	return &expr.ObjectName{
-		SpanVal: idents[0].Span(),
+		SpanVal: parts[0].SpanVal,
 		Parts:   parts,
 	}, nil
 }
