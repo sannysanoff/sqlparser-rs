@@ -24,7 +24,9 @@ import (
 	"strings"
 
 	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/tokenizer"
 )
 
 // ============================================================================
@@ -1519,12 +1521,35 @@ func (d *DoUpdate) String() string {
 	return strings.Join(parts, " ")
 }
 
-// OutputClause represents OUTPUT clause.
-type OutputClause struct{}
+// OutputClause represents OUTPUT clause for MERGE, INSERT, UPDATE, or DELETE (MSSQL).
+// Example: OUTPUT $action, deleted.* INTO dbo.temp_products
+type OutputClause struct {
+	OutputToken    *tokenizer.Token
+	ReturningToken *tokenizer.Token // For RETURNING variant
+	SelectItems    []query.SelectItem
+	IntoTable      *query.SelectInto
+}
 
 func (o *OutputClause) exprNode()       {}
 func (o *OutputClause) Span() span.Span { return span.Span{} }
-func (o *OutputClause) String() string  { return "" }
+func (o *OutputClause) String() string {
+	var f strings.Builder
+	if o.OutputToken != nil {
+		f.WriteString("OUTPUT ")
+	} else if o.ReturningToken != nil {
+		f.WriteString("RETURNING ")
+	}
+	items := make([]string, len(o.SelectItems))
+	for i, item := range o.SelectItems {
+		items[i] = item.String()
+	}
+	f.WriteString(strings.Join(items, ", "))
+	if o.IntoTable != nil {
+		f.WriteString(" ")
+		f.WriteString(o.IntoTable.String())
+	}
+	return f.String()
+}
 
 // MysqlInsertPriority represents MySQL INSERT priority.
 type MysqlInsertPriority int
@@ -1616,12 +1641,29 @@ func (m *MultiTableInsertWhenClause) exprNode()       {}
 func (m *MultiTableInsertWhenClause) Span() span.Span { return span.Span{} }
 func (m *MultiTableInsertWhenClause) String() string  { return "" }
 
-// MergeClause represents MERGE clause.
-type MergeClause struct{}
+// MergeClause represents a WHEN clause within a MERGE statement.
+// Example: WHEN NOT MATCHED BY SOURCE AND product LIKE '%washer%' THEN DELETE
+type MergeClause struct {
+	WhenToken  *tokenizer.Token
+	ClauseKind MergeClauseKind
+	Predicate  Expr
+	Action     *MergeAction
+}
 
 func (m *MergeClause) exprNode()       {}
 func (m *MergeClause) Span() span.Span { return span.Span{} }
-func (m *MergeClause) String() string  { return "" }
+func (m *MergeClause) String() string {
+	var f strings.Builder
+	f.WriteString("WHEN ")
+	f.WriteString(m.ClauseKind.String())
+	if m.Predicate != nil {
+		f.WriteString(" AND ")
+		f.WriteString(m.Predicate.String())
+	}
+	f.WriteString(" THEN ")
+	f.WriteString(m.Action.String())
+	return f.String()
+}
 
 // SetScope represents SET scope.
 type SetScope int
@@ -2716,27 +2758,117 @@ func (a *AssignmentTarget) String() string {
 	return ""
 }
 
-// MergeAction represents MERGE action.
-type MergeAction int
+// MergeInsertKind represents the type of expression used to insert rows within a MERGE statement.
+type MergeInsertKind int
 
 const (
-	MergeActionNone MergeAction = iota
-	MergeActionInsert
-	MergeActionUpdate
-	MergeActionDelete
+	MergeInsertKindNone MergeInsertKind = iota
+	MergeInsertKindValues
+	MergeInsertKindRow
 )
 
-func (m MergeAction) String() string {
+func (m MergeInsertKind) String() string {
 	switch m {
-	case MergeActionInsert:
-		return "INSERT"
-	case MergeActionUpdate:
-		return "UPDATE"
-	case MergeActionDelete:
-		return "DELETE"
+	case MergeInsertKindValues:
+		return "VALUES"
+	case MergeInsertKindRow:
+		return "ROW"
 	default:
 		return ""
 	}
+}
+
+// MergeInsertExpr represents the expression used to insert rows within a MERGE statement.
+// Example: INSERT (product, quantity) VALUES(product, quantity)
+type MergeInsertExpr struct {
+	InsertToken     *tokenizer.Token
+	Columns         []*ast.ObjectName
+	KindToken       *tokenizer.Token
+	Kind            MergeInsertKind
+	Values          []Expr // For VALUES kind, stores the value expressions
+	InsertPredicate Expr
+}
+
+func (m *MergeInsertExpr) exprNode()       {}
+func (m *MergeInsertExpr) Span() span.Span { return span.Span{} }
+func (m *MergeInsertExpr) String() string {
+	var f strings.Builder
+	if len(m.Columns) > 0 {
+		cols := make([]string, len(m.Columns))
+		for i, col := range m.Columns {
+			cols[i] = col.String()
+		}
+		f.WriteString("(")
+		f.WriteString(strings.Join(cols, ", "))
+		f.WriteString(") ")
+	}
+	f.WriteString(m.Kind.String())
+	if m.Kind == MergeInsertKindValues && len(m.Values) > 0 {
+		f.WriteString(" (")
+		vals := make([]string, len(m.Values))
+		for i, v := range m.Values {
+			vals[i] = v.String()
+		}
+		f.WriteString(strings.Join(vals, ", "))
+		f.WriteString(")")
+	}
+	if m.InsertPredicate != nil {
+		f.WriteString(" WHERE ")
+		f.WriteString(m.InsertPredicate.String())
+	}
+	return f.String()
+}
+
+// MergeUpdateExpr represents the expression used to update rows within a MERGE statement.
+// Example: UPDATE SET quantity = T.quantity + S.quantity
+type MergeUpdateExpr struct {
+	UpdateToken     *tokenizer.Token
+	Assignments     []*Assignment
+	UpdatePredicate Expr
+	DeletePredicate Expr
+}
+
+func (m *MergeUpdateExpr) exprNode()       {}
+func (m *MergeUpdateExpr) Span() span.Span { return span.Span{} }
+func (m *MergeUpdateExpr) String() string {
+	var f strings.Builder
+	f.WriteString("SET ")
+	assigns := make([]string, len(m.Assignments))
+	for i, a := range m.Assignments {
+		assigns[i] = a.String()
+	}
+	f.WriteString(strings.Join(assigns, ", "))
+	if m.UpdatePredicate != nil {
+		f.WriteString(" WHERE ")
+		f.WriteString(m.UpdatePredicate.String())
+	}
+	if m.DeletePredicate != nil {
+		f.WriteString(" DELETE WHERE ")
+		f.WriteString(m.DeletePredicate.String())
+	}
+	return f.String()
+}
+
+// MergeAction represents MERGE action as a union type.
+type MergeAction struct {
+	Insert *MergeInsertExpr
+	Update *MergeUpdateExpr
+	Delete *tokenizer.Token // non-nil if delete action
+}
+
+func (m *MergeAction) exprNode()       {}
+func (m *MergeAction) Span() span.Span { return span.Span{} }
+func (m *MergeAction) String() string {
+	if m.Insert != nil {
+		return "INSERT " + m.Insert.String()
+	}
+	if m.Update != nil {
+		return "UPDATE " + m.Update.String()
+	}
+	if m.Delete != nil {
+		return "DELETE"
+	}
+	return ""
 }
 
 // MergeClauseKind represents MERGE clause kind.
@@ -2746,6 +2878,8 @@ const (
 	MergeClauseKindNone MergeClauseKind = iota
 	MergeClauseKindMatched
 	MergeClauseKindNotMatched
+	MergeClauseKindNotMatchedByTarget
+	MergeClauseKindNotMatchedBySource
 )
 
 func (m MergeClauseKind) String() string {
@@ -2754,6 +2888,10 @@ func (m MergeClauseKind) String() string {
 		return "MATCHED"
 	case MergeClauseKindNotMatched:
 		return "NOT MATCHED"
+	case MergeClauseKindNotMatchedByTarget:
+		return "NOT MATCHED BY TARGET"
+	case MergeClauseKindNotMatchedBySource:
+		return "NOT MATCHED BY SOURCE"
 	default:
 		return ""
 	}

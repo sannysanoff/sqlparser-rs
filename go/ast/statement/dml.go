@@ -311,9 +311,10 @@ func (d *Delete) String() string {
 // Merge represents a MERGE statement
 type Merge struct {
 	BaseStatement
-	Into       *ast.ObjectName
+	Into       bool
+	Table      query.TableFactor
 	TableAlias *ast.Ident
-	Source     expr.Expr
+	Source     query.TableFactor
 	On         expr.Expr
 	Clauses    []*expr.MergeClause
 	Output     *expr.OutputClause
@@ -323,24 +324,27 @@ func (m *Merge) statementNode() {}
 
 func (m *Merge) String() string {
 	var f strings.Builder
-	f.WriteString("MERGE INTO ")
-	f.WriteString(m.Into.String())
-
-	if m.TableAlias != nil {
-		f.WriteString(" AS ")
-		f.WriteString(m.TableAlias.String())
+	f.WriteString("MERGE")
+	if m.Into {
+		f.WriteString(" INTO")
 	}
-
+	if m.Table != nil {
+		f.WriteString(" ")
+		f.WriteString(m.Table.String())
+	}
 	f.WriteString(" USING ")
-	f.WriteString(m.Source.String())
-
+	if m.Source != nil {
+		f.WriteString(m.Source.String())
+	}
 	f.WriteString(" ON ")
 	f.WriteString(m.On.String())
-
 	for _, clause := range m.Clauses {
 		f.WriteString(" ")
 		f.WriteString(clause.String())
 	}
-
+	if m.Output != nil {
+		f.WriteString(" ")
+		f.WriteString(m.Output.String())
+	}
 	return f.String()
 }

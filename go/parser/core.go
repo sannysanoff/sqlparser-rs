@@ -613,9 +613,13 @@ func (ep *ExpressionParser) maybeParseOuterJoinOperator() bool {
 
 // parseIdentifierFromWord creates an identifier from a word token
 func (ep *ExpressionParser) parseIdentifierFromWord(word tokenizer.TokenWord, spanVal span.Span) expr.Expr {
+	// Preserve the original value - no dialect-specific normalization
+	// This matches the Rust reference implementation behavior
+	value := word.Word.Value
+
 	ident := &expr.Ident{
 		SpanVal:    spanVal,
-		Value:      word.Word.Value,
+		Value:      value,
 		QuoteStyle: nil,
 	}
 	if word.Word.QuoteStyle != nil {

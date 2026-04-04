@@ -133,7 +133,23 @@ parts = append(parts, fmt.Sprintf("FROM %s", n.Name.String()))
 **Root Cause:** `ParseExpr()` calling itself without proper termination conditions
 **Solution:** Use Pratt parser with proper precedence climbing and base case handling
 
-### 10. **CTE (WITH Clause) Parsing**
+### 15. **Identifier Case Normalization Across Dialects**
+**Error:** Test failures showing "expected D, actual d" - case sensitivity differences between dialects
+**Root Cause:** Different SQL dialects handle identifier casing differently:
+- PostgreSQL: traditionally normalizes unquoted identifiers to lowercase
+- MySQL: preserves original case
+- Generic: should preserve for round-trip compatibility
+
+**Solution:** The Rust reference implementation preserves original case for ALL dialects to ensure consistent AST comparison in tests. The parser should NOT do dialect-specific case normalization.
+**Implementation:**
+```go
+// Just preserve the original value for all dialects
+ident := &expr.Ident{
+    SpanVal: spanVal,
+    Value:   word.Word.Value,  // Use original, don't normalize
+}
+```
+**Files Modified:** `parser/prefix.go:wordToIdent()`, `parser/core.go:parseIdentifierFromWord()`, `parser/parser.go:ParseIdentifier()`
 **Error:** Tests fail when CTEs used in CREATE VIEW: `expected SELECT query in CREATE VIEW, got *parser.QueryStatement`
 **Root Cause:** When WITH clause is present, parseQuery returns QueryStatement instead of SelectStatement
 **Solution:** Ensure all statement types that can contain queries (CREATE VIEW, INSERT, etc.) handle both SelectStatement and QueryStatement
@@ -191,9 +207,23 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 
 ## Current Status
 
-**Implementation Phase: 29% TEST PASS RATE** - COPY Statement + Window Function Fixes
+**Implementation Phase: 31% TEST PASS RATE** - MERGE Statement Implementation
 
-### Recent Progress (April 4, 2026) - COPY Statement + Window Function Fixes
+### Recent Progress (April 4, 2026) - MERGE Statement Implementation
+- ✅ **MERGE Statement Parsing** - `MERGE INTO ... USING ... ON ... WHEN MATCHED THEN ... WHEN NOT MATCHED THEN ...` now working
+- ✅ **MERGE Actions** - UPDATE SET, DELETE, INSERT (with VALUES and ROW) fully implemented
+- ✅ **MERGE WHEN Clauses** - MATCHED, NOT MATCHED, NOT MATCHED BY SOURCE/TARGET with AND predicates
+- ✅ **Compound Identifiers in MERGE** - Support for table.column syntax in column lists
+- ✅ **Identifier Case Preservation** - Fixed to match Rust reference (all dialects preserve original case)
+- ✅ **MERGE Values Clause** - VALUES (expr, expr, ...) with proper serialization
+- ✅ **17 MORE TESTS PASSING** - Now 251/816 passing (31%, up from 234)
+  - TestParseMerge: ✅ PASSING
+  - TestMergeIntoUsingTable: ✅ PASSING  
+  - TestMergeWithDelimiter: ✅ PASSING
+  - TestMergeInvalidStatements: ✅ PASSING
+  - Multiple other MERGE-related tests now working
+
+### Previous Progress (April 4, 2026) - COPY Statement + Window Function Fixes
 - ✅ **COPY Statement Parsing** - `COPY table FROM 'file.csv'`, `COPY table TO STDOUT` now working for PostgreSQL
 - ✅ **COPY Options** - FORMAT, DELIMITER, NULL, HEADER, QUOTE, ESCAPE, etc. (PostgreSQL 9.0+ format)
 - ✅ **COPY Legacy Options** - BINARY, CSV, GZIP, BZIP2, ZSTD, etc. (pre-PostgreSQL 9.0/Redshift format)
@@ -279,10 +309,11 @@ if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
 | Test Suite | Status | Passing | Failing | Total | Pass Rate |
 |------------|--------|---------|---------|-------|-----------|
 | **TPC-H** | ✅ PERFECT | 44 | 0 | 44 | **100%** |
-| **Common Tests** | 🔄 IN PROGRESS | 140 | 295 | 435 | **32%** |
-| **PostgreSQL** | 🔄 IN PROGRESS | 24 | 133 | 157 | **15%** |
+| **Common Tests** | 🔄 IN PROGRESS | 157 | 278 | 435 | **36%** |
+| **PostgreSQL** | 🔄 IN PROGRESS | 29 | 128 | 157 | **18%** |
 | **MySQL** | 🔄 IN PROGRESS | 55 | 70 | 125 | **44%** |
-| **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | **9%** |
+| **Snowflake** | 🔄 IN PROGRESS | 10 | 87 | 97 | **10%** |
+| **TOTAL** | **31% COMPLETE** | **251** | **565** | **816** | **31%** |
 | **TOTAL** | **30% COMPLETE** | **232** | **586** | **818** | **28%** |
 | **MySQL** | 🔄 IN PROGRESS | 52 | 73 | 125 | **42%** |
 | **Snowflake** | 🔄 IN PROGRESS | 9 | 88 | 97 | **9%** |
@@ -979,11 +1010,11 @@ func main() {
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026 (COPY Statement + Window Function Fixes)  
-**Status:** TPC-H 100% (44/44), MySQL 44% (55/125), PostgreSQL 15% (24/157), Common 32% (140/435), Snowflake 9% (9/97), Total 234/816 Tests Passing
+**Last Updated:** April 4, 2026 (MERGE Statement Implementation)  
+**Status:** TPC-H 100% (44/44), MySQL 44% (55/125), PostgreSQL 18% (29/157), Common 36% (157/435), Snowflake 10% (10/97), Total 251/816 Tests Passing
 
 **Line Counts:**
 - Rust Source: 67,345 lines
 - Rust Tests: 49,886 lines  
-- Go Source: 53,229 lines (79% of Rust source)
+- Go Source: 53,615 lines (80% of Rust source)
 - Go Tests: 14,489 lines (29% of Rust tests)

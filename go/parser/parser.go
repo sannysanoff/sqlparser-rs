@@ -876,13 +876,9 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 	tok := p.PeekToken()
 	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
 		p.AdvanceToken()
-		value := word.Word.Value
-		// For unquoted identifiers in PostgreSQL, normalize to lowercase
-		// (PostgreSQL folds unquoted identifiers to lowercase)
-		if word.Word.QuoteStyle == nil {
-			value = strings.ToLower(value)
-		}
-		return &ast.Ident{Value: value}, nil
+		// Preserve original case for all dialects
+		// This matches the Rust reference implementation
+		return &ast.Ident{Value: word.Word.Value}, nil
 	}
 	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }
