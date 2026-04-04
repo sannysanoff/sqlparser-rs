@@ -346,8 +346,78 @@ func parseDropFunction(p *Parser) (ast.Statement, error) {
 }
 
 // ParseTruncate parses TRUNCATE statements
+// Reference: src/parser/mod.rs:1091-1139
 func ParseTruncate(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("TRUNCATE statement parsing not yet fully implemented")
+	// Parse optional TABLE keyword
+	_ = p.ParseKeyword("TABLE")
+
+	// Parse optional IF EXISTS
+	_ = p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated table names
+	var tableNames []*ast.ObjectName
+	for {
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected table name in TRUNCATE: %w", err)
+		}
+		tableNames = append(tableNames, name)
+
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	if len(tableNames) == 0 {
+		return nil, fmt.Errorf("expected at least one table name in TRUNCATE")
+	}
+
+	// Parse optional PARTITION clause
+	var partitions []expr.Expr
+	if p.ParseKeyword("PARTITION") {
+		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+			return nil, fmt.Errorf("expected ( after PARTITION: %w", err)
+		}
+		ep := NewExpressionParser(p)
+		for {
+			if _, ok := p.PeekToken().Token.(tokenizer.TokenRParen); ok {
+				break
+			}
+			partExpr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("expected partition expression: %w", err)
+			}
+			partitions = append(partitions, partExpr)
+			if !p.ConsumeToken(tokenizer.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, fmt.Errorf("expected ) after partition expressions: %w", err)
+		}
+	}
+
+	// Parse optional ON CLUSTER (ClickHouse)
+	var onCluster *ast.Ident
+	if p.ParseKeyword("ON") {
+		if !p.ParseKeyword("CLUSTER") {
+			return nil, fmt.Errorf("expected CLUSTER after ON in TRUNCATE")
+		}
+		clusterName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected cluster name after ON CLUSTER: %w", err)
+		}
+		onCluster = clusterName
+	}
+
+	// TODO: Parse RESTART IDENTITY / CONTINUE IDENTITY / CASCADE / RESTRICT
+	// These are dialect-specific (PostgreSQL)
+
+	return &statement.Truncate{
+		TableNames: tableNames,
+		Partitions: partitions,
+		OnCluster:  onCluster,
+	}, nil
 }
 
 // parseDescribe parses DESCRIBE statements

@@ -408,24 +408,89 @@ This affects functions like `tokenizeQuoteDelimitedLiteral`, `tokenizeEscapedStr
 
 ---
 
+### Pattern M: Using Full ObjectName Parser for Simple Qualified Names
+
+**Problem:** Using `ParseObjectName()` for qualified wildcards like `table.*` incorrectly consumes the dot and tries to parse additional identifier parts.
+
+**Example - parseSelectItem (Qualified Wildcards):**
+
+```go
+// INCORRECT - consumes table.* incorrectly
+func parseSelectItem(p *Parser) (query.SelectItem, error) {
+    if isQualifiedWildcard(p) {
+        tableName, err := p.ParseObjectName()  // Wrong! Consumes 'table.' and expects more
+        // ... fails on 'inserted.*' because it tries to parse another identifier after '.'
+    }
+}
+
+// CORRECT - parse single identifier only
+func parseSelectItem(p *Parser) (query.SelectItem, error) {
+    if isQualifiedWildcard(p) {
+        // Don't use ParseObjectName() - it consumes the period and tries to parse more parts
+        tableIdent, err := p.ParseIdentifier()  // Only parse the identifier
+        if err != nil {
+            return nil, err
+        }
+        p.ConsumeToken(tokenizer.TokenPeriod{}) // consume the . explicitly
+        p.ConsumeToken(tokenizer.TokenMul{})    // consume the * explicitly
+        
+        // Build ObjectName from single identifier
+        queryName := query.ObjectName{
+            Parts: []query.Ident{{Value: tableIdent.Value}},
+        }
+        return &query.QualifiedWildcard{
+            Kind: &query.ObjectNameWildcard{Name: queryName},
+        }, nil
+    }
+}
+```
+
+**Key Lesson:** `ParseObjectName()` is designed for multi-part names like `schema.table.column` and will consume periods greedily. For qualified wildcards like `table.*`, use `ParseIdentifier()` directly and handle the period and star tokens explicitly. Reference: `src/parser/mod.rs` for how Rust handles select item parsing.
+
+---
+
 ## Current Status
 
-**Overall Progress: 39% Test Pass Rate** (318/816 tests passing)
+**Overall Progress: 40% Test Pass Rate** (326/816 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
 | **TPC-H**        | ✅ Perfect        | 44      | 44    | **100%**  |
-| **Common Tests** | 🔄 In Progress   | 203     | 435   | **47%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~40     | 157   | **~25%**  |
-| **MySQL**        | 🔄 In Progress   | ~31     | 125   | **~25%**  |
-| **Snowflake**    | 🔄 In Progress   | ~0      | 97    | **~0%**   |
-| **TOTAL**        | **39% Complete** | **318** | 816   | **39%**   |
+| **Common Tests** | 🔄 In Progress   | 211     | 435   | **48%**   |
+| **PostgreSQL**   | 🔄 In Progress   | 40      | 157   | **25%**   |
+| **MySQL**        | 🔄 In Progress   | 57      | 125   | **46%**   |
+| **Snowflake**    | 🔄 In Progress   | 16      | 97    | **16%**   |
+| **TOTAL**        | **40% Complete** | **326** | 816   | **40%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 56,064 lines (83% of Rust)
+- Go Source: 56,889 lines (84% of Rust)
 - Go Tests: 14,492 lines
+
+---
+
+## Recent Progress
+
+### April 5, 2026 - MERGE OUTPUT/RETURNING and TRUNCATE Implementation
+
+Implemented two major missing parser chunks:
+
+1. **MERGE OUTPUT/RETURNING Clause** - Added support for:
+   - SQL Server OUTPUT clause: `MERGE ... OUTPUT inserted.* INTO log_table`
+   - PostgreSQL RETURNING clause: `MERGE ... RETURNING merge_action(), *`
+   - Fixed qualified wildcard parsing (e.g., `inserted.*`, `w.*`) in projection parser
+   - Added `parseOutputClauseInternal()` and `parseSelectIntoInternal()` functions
+   - **+8 tests passing** (MERGE OUTPUT/RETURNING tests)
+
+2. **TRUNCATE Statement** - Implemented full parser:
+   - TRUNCATE [TABLE] name [, ...] syntax
+   - IF EXISTS modifier
+   - PARTITION clause support
+   - ON CLUSTER (ClickHouse) support
+   - **+2 tests passing** (TRUNCATE tests)
+
+**Key Bug Fix:** The qualified wildcard parsing was incorrectly using `ParseObjectName()` which consumed the dot and tried to parse more identifiers. Fixed by parsing just a single identifier for the table name in qualified wildcards.
 
 ---
 
@@ -433,30 +498,33 @@ This affects functions like `tokenizeQuoteDelimitedLiteral`, `tokenizeEscapedStr
 
 Based on test failures analysis, the following major parser chunks need implementation:
 
-1. **SHOW Statement Extensions** (~40+ test failures)
+1. **SET Statement Variants** (~10+ test failures)
+   - SET TRANSACTION READ ONLY/READ WRITE/ISOLATION LEVEL
+   - SET (a, b, c) = (1, 2, 3) parenthesized assignment syntax
+   - SET TIME ZONE TO 'value' syntax
+   - SET SESSION AUTHORIZATION
+   - SET NAMES (MySQL)
+
+2. **SHOW Statement Extensions** (~40+ test failures)
    - SHOW DATABASES, SHOW SCHEMAS
    - SHOW VIEWS, SHOW MATERIALIZED VIEWS
    - SHOW FUNCTIONS
    - TERSE, HISTORY, EXTERNAL modifiers
    - Filter position variations (LIKE/WHERE before IN/FROM)
 
-2. **CREATE TABLE AS/LIKE/CLONE** (~25+ test failures)
-   - CREATE TABLE ... AS (query)
-   - CREATE TABLE ... LIKE (table)
-   - CREATE TABLE ... CLONE (table)
-   - PARTITION OF, ON CLUSTER
-
-3. **Named Arguments with => operator** (~15+ test failures)
-   - PostgreSQL named argument syntax: func(arg => value)
-
-4. **OUTPUT/RETURNING in MERGE** (~10+ test failures)
-   - SQL Server OUTPUT clause in MERGE
-   - PostgreSQL RETURNING clause in MERGE
-
-5. **CREATE/DROP/ALTER Extensions** (~50+ "not yet implemented" errors)
+3. **CREATE Statement Extensions** (~30+ "not yet implemented" errors)
+   - CREATE MATERIALIZED VIEW
+   - CREATE PROCEDURE
+   - CREATE USER
+   - CREATE ASSERT
    - CREATE TRIGGER, CREATE FUNCTION, CREATE DATABASE
    - CREATE POLICY, CREATE CONNECTOR, CREATE OPERATOR
-   - ALTER VIEW, ALTER INDEX, ALTER POLICY, etc.
+
+4. **UPDATE FROM Clause** (~5+ test failures)
+   - UPDATE ... SET ... FROM ... WHERE syntax (MSSQL/PostgreSQL)
+
+5. **FETCH Statement** (~3+ test failures)
+   - FETCH [FIRST|NEXT] n [ROW|ROWS] [ONLY|WITH TIES]
 
 ---
 
@@ -612,5 +680,5 @@ go build ./...                      # Build everything
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 4, 2026  
-**Status:** TPC-H 100%, Common 40%, PostgreSQL 22%, MySQL 46%, Snowflake 14%, **Total 324/858 (40%)**
+**Last Updated:** April 5, 2026  
+**Status:** TPC-H 100%, Common 48%, PostgreSQL 25%, MySQL 46%, Snowflake 16%, **Total 326/816 (40%)**

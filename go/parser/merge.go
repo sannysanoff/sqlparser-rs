@@ -22,6 +22,7 @@ import (
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/tokenizer"
 )
@@ -77,8 +78,32 @@ func parseMergeInternal(p *Parser, mergeToken tokenizer.TokenWithSpan) (*stateme
 
 	// Parse optional OUTPUT/RETURNING clause
 	var output *expr.OutputClause
-	if p.ParseKeyword("OUTPUT") || p.ParseKeyword("RETURNING") {
-		return nil, fmt.Errorf("OUTPUT/RETURNING clause in MERGE not yet implemented")
+	var outputToken tokenizer.Token
+	var returningToken tokenizer.Token
+
+	// Check for OUTPUT or RETURNING without consuming yet
+	tok := p.PeekToken()
+	if isWordToken(tok.Token) {
+		word := getWordValue(tok.Token)
+		if word == "OUTPUT" {
+			p.AdvanceToken() // consume OUTPUT
+			outputToken = tok.Token
+			outputClause, err := parseOutputClauseInternal(p, true) // true = is OUTPUT
+			if err != nil {
+				return nil, err
+			}
+			output = outputClause
+			output.OutputToken = &outputToken
+		} else if word == "RETURNING" {
+			p.AdvanceToken() // consume RETURNING
+			returningToken = tok.Token
+			outputClause, err := parseOutputClauseInternal(p, false) // false = is RETURNING
+			if err != nil {
+				return nil, err
+			}
+			output = outputClause
+			output.ReturningToken = &returningToken
+		}
 	}
 
 	return &statement.Merge{
@@ -382,5 +407,65 @@ func parseAssignment(p *Parser) (*expr.Assignment, error) {
 	return &expr.Assignment{
 		Column: col,
 		Value:  val,
+	}, nil
+}
+
+// parseOutputClauseInternal parses the OUTPUT or RETURNING clause
+// Reference: src/parser/merge.rs:235-260
+func parseOutputClauseInternal(p *Parser, isOutput bool) (*expr.OutputClause, error) {
+	// Parse comma-separated select items (same as projection)
+	selectItems, err := parseProjection(p)
+	if err != nil {
+		return nil, fmt.Errorf("expected select items in OUTPUT/RETURNING clause: %w", err)
+	}
+
+	// For OUTPUT clause, optionally parse INTO table
+	var intoTable *query.SelectInto
+	if isOutput && p.ParseKeyword("INTO") {
+		intoTable, err = parseSelectIntoInternal(p)
+		if err != nil {
+			return nil, fmt.Errorf("expected table name after INTO: %w", err)
+		}
+	}
+
+	return &expr.OutputClause{
+		SelectItems: selectItems,
+		IntoTable:   intoTable,
+	}, nil
+}
+
+// parseSelectIntoInternal parses the INTO clause for OUTPUT
+// Reference: src/parser/mod.rs:19011-19025
+func parseSelectIntoInternal(p *Parser) (*query.SelectInto, error) {
+	temporary := false
+	unlogged := false
+	table := false
+
+	// Check for TEMP/TEMPORARY keywords
+	if p.ParseKeyword("TEMP") || p.ParseKeyword("TEMPORARY") {
+		temporary = true
+	}
+
+	// Check for UNLOGGED
+	if p.ParseKeyword("UNLOGGED") {
+		unlogged = true
+	}
+
+	// Check for TABLE keyword
+	if p.ParseKeyword("TABLE") {
+		table = true
+	}
+
+	// Parse table name
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected table name after INTO: %w", err)
+	}
+
+	return &query.SelectInto{
+		Temporary: temporary,
+		Unlogged:  unlogged,
+		Table:     table,
+		Name:      astObjectNameToQuery(tableName),
 	}, nil
 }

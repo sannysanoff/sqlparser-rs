@@ -440,16 +440,19 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 	// Check for qualified wildcard (table.*)
 	// Look ahead: identifier followed by . *
 	if isQualifiedWildcard(p) {
-		// Parse table name
-		tableName, err := p.ParseObjectName()
+		// Parse just the table name (single identifier, not full object name)
+		// Don't use ParseObjectName() because it would consume the . and try to parse more
+		tableIdent, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, err
 		}
-		p.ConsumeToken(tokenizer.TokenPeriod{})
-		p.ConsumeToken(tokenizer.TokenMul{})
+		p.ConsumeToken(tokenizer.TokenPeriod{}) // consume the .
+		p.ConsumeToken(tokenizer.TokenMul{})    // consume the *
 
-		// Convert ast.ObjectName to query.ObjectName
-		queryName := astObjectNameToQuery(tableName)
+		// Create query.ObjectName from the single identifier
+		queryName := query.ObjectName{
+			Parts: []query.Ident{{Value: tableIdent.Value}},
+		}
 		return &query.QualifiedWildcard{
 			Kind: &query.ObjectNameWildcard{Name: queryName},
 		}, nil
