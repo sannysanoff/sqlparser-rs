@@ -100,10 +100,11 @@ func parseDropTable(p *Parser, temporary bool) (ast.Statement, error) {
 	restrict := p.ParseKeyword("RESTRICT")
 
 	return &statement.DropTable{
-		IfExists: ifExists,
-		Names:    names,
-		Cascade:  cascade,
-		Restrict: restrict,
+		Temporary: temporary,
+		IfExists:  ifExists,
+		Names:     names,
+		Cascade:   cascade,
+		Restrict:  restrict,
 	}, nil
 }
 

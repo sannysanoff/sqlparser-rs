@@ -30,7 +30,31 @@ func ParseInsert(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) 
 	return parseInsertInternal(p, tok)
 }
 
+// ParseReplace parses a REPLACE statement (MySQL-specific)
+// REPLACE works like INSERT but deletes the old row if a duplicate key exists
+func ParseReplace(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+	// REPLACE is only supported by MySQL and Generic dialects
+	dialectName := p.dialect.Dialect()
+	if dialectName != "mysql" && dialectName != "generic" {
+		return nil, p.expected("REPLACE not supported by this dialect", p.PeekToken())
+	}
+
+	// Parse as INSERT but with replace_into flag set
+	stmt, err := parseInsertInternal(p, tok)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set the ReplaceInto flag on the insert statement
+	if insert, ok := stmt.(*statement.Insert); ok {
+		insert.ReplaceInto = true
+	}
+
+	return stmt, nil
+}
+
 // parseInsertInternal parses an INSERT statement
+// Reference: src/parser/mod.rs:17376
 func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present (MySQL style: INSERT /*+ hint */)
 	hintsInterface, err := maybeParseOptimizerHints(p)
@@ -45,6 +69,49 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 			optimizerHints = append(optimizerHints, hint)
 		}
 	}
+
+	// Parse optional OR conflict clause (SQLite style: INSERT OR REPLACE)
+	var orConflict *expr.SqliteOnConflict
+	if p.ParseKeywords([]string{"OR", "REPLACE"}) {
+		orConflictVal := expr.SqliteOnConflictReplace
+		orConflict = &orConflictVal
+	} else if p.ParseKeywords([]string{"OR", "ROLLBACK"}) {
+		orConflictVal := expr.SqliteOnConflictRollback
+		orConflict = &orConflictVal
+	} else if p.ParseKeywords([]string{"OR", "ABORT"}) {
+		orConflictVal := expr.SqliteOnConflictAbort
+		orConflict = &orConflictVal
+	} else if p.ParseKeywords([]string{"OR", "FAIL"}) {
+		orConflictVal := expr.SqliteOnConflictFail
+		orConflict = &orConflictVal
+	} else if p.ParseKeywords([]string{"OR", "IGNORE"}) {
+		orConflictVal := expr.SqliteOnConflictIgnore
+		orConflict = &orConflictVal
+	}
+
+	// Parse MySQL priority keywords (LOW_PRIORITY, DELAYED, HIGH_PRIORITY)
+	var priority *expr.MysqlInsertPriority
+	if p.dialect.SupportsInsertSet() || p.dialect.Dialect() == "mysql" || p.dialect.Dialect() == "generic" {
+		if p.ParseKeyword("LOW_PRIORITY") {
+			pVal := expr.MysqlInsertPriority(1) // LowPriority
+			priority = &pVal
+		} else if p.ParseKeyword("DELAYED") {
+			pVal := expr.MysqlInsertPriority(2) // Delayed
+			priority = &pVal
+		} else if p.ParseKeyword("HIGH_PRIORITY") {
+			pVal := expr.MysqlInsertPriority(3) // HighPriority
+			priority = &pVal
+		}
+	}
+
+	// Parse optional IGNORE keyword (MySQL)
+	ignore := false
+	if p.dialect.SupportsInsertSet() || p.dialect.Dialect() == "mysql" || p.dialect.Dialect() == "generic" {
+		ignore = p.ParseKeyword("IGNORE")
+	}
+
+	// REPLACE INTO is handled by the caller (parseReplace), so replaceInto is always false here
+	replaceInto := false
 
 	// Parse optional OVERWRITE keyword (used in some dialects like Hive)
 	overwrite := p.ParseKeyword("OVERWRITE")
@@ -84,103 +151,11 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 
 	// Check for DEFAULT VALUES
 	if p.ParseKeywords([]string{"DEFAULT", "VALUES"}) {
-		// Parse optional ON CONFLICT clause (PostgreSQL style)
-		var onConflict *expr.OnInsert
-		if p.ParseKeyword("ON") {
-			if p.ParseKeyword("CONFLICT") {
-				// Parse conflict target (optional)
-				var conflictTarget *expr.ConflictTarget
-				if p.ParseKeywords([]string{"ON", "CONSTRAINT"}) {
-					constraintName, err := p.ParseObjectName()
-					if err != nil {
-						return nil, err
-					}
-					conflictTarget = &expr.ConflictTarget{
-						OnConstraint: constraintName,
-					}
-				} else if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-					columns, err := p.ParseParenthesizedColumnList()
-					if err != nil {
-						return nil, err
-					}
-					conflictTarget = &expr.ConflictTarget{
-						Columns: columns,
-					}
-				}
-
-				if !p.ParseKeyword("DO") {
-					return nil, p.Expected("DO", p.PeekToken())
-				}
-
-				var action expr.OnConflictAction
-				if p.ParseKeyword("NOTHING") {
-					action = expr.OnConflictAction{DoNothing: true}
-				} else if p.ParseKeyword("UPDATE") {
-					if !p.ParseKeyword("SET") {
-						return nil, p.Expected("SET", p.PeekToken())
-					}
-					assignments, err := parseAssignments(p)
-					if err != nil {
-						return nil, err
-					}
-					var selection expr.Expr
-					if p.ParseKeyword("WHERE") {
-						ep := NewExpressionParser(p)
-						selection, err = ep.ParseExpr()
-						if err != nil {
-							return nil, err
-						}
-					}
-					action = expr.OnConflictAction{
-						DoUpdate: &expr.DoUpdate{
-							Assignments: assignments,
-							Selection:   selection,
-						},
-					}
-				} else {
-					return nil, p.Expected("NOTHING or UPDATE", p.PeekToken())
-				}
-
-				onConflict = &expr.OnInsert{
-					OnConflict: &expr.OnConflict{
-						ConflictTarget: conflictTarget,
-						Action:         action,
-					},
-				}
-			}
-		}
-
-		// Parse optional RETURNING clause
-		var returning []*query.SelectItem
-		if p.ParseKeyword("RETURNING") {
-			items, err := parseProjection(p)
-			if err != nil {
-				return nil, err
-			}
-			for i := range items {
-				item := items[i]
-				returning = append(returning, &item)
-			}
-		}
-
-		insert := &statement.Insert{
-			OptimizerHints:  optimizerHints,
-			Into:            into,
-			Overwrite:       overwrite,
-			Table:           tableName,
-			TableAlias:      tableAlias,
-			HasTableKeyword: hasTableKeyword,
-			Columns:         []*ast.Ident{},
-			DefaultValues:   true,
-			Assignments:     []*expr.Assignment{},
-			Returning:       returning,
-			On:              onConflict,
-		}
-		insert.SetSpan(insertToken.Span)
-		return insert, nil
+		return finishInsert(p, insertToken, optimizerHints, orConflict, priority, ignore, replaceInto,
+			overwrite, into, hasTableKeyword, tableName, tableAlias, nil, nil, true, nil, nil, nil, nil)
 	}
 
-	// Parse optional column list (col1, col2, ...)
+	// Parse optional column list (col1, col2, ...) - can be empty ()
 	var columns []*ast.Ident
 	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
 		columns, err = p.ParseParenthesizedColumnList()
@@ -189,8 +164,9 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 		}
 	}
 
-	// Parse the source: either VALUES or SELECT
+	// Parse the source: VALUES, SELECT, or SET (MySQL)
 	var source *query.Query
+	var assignments []*expr.Assignment
 
 	if p.PeekKeyword("VALUES") || p.PeekKeyword("VALUE") {
 		// Parse VALUES clause
@@ -210,85 +186,62 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 				Body: selectStmt,
 			}
 		}
+	} else if p.dialect.SupportsInsertSet() && p.ParseKeyword("SET") {
+		// MySQL INSERT ... SET syntax
+		assignments, err = parseAssignments(p)
+		if err != nil {
+			return nil, err
+		}
 	} else {
-		return nil, p.Expected("VALUES or SELECT", p.PeekToken())
+		return nil, p.Expected("VALUES, SELECT, or SET", p.PeekToken())
 	}
 
-	// Parse optional ON CONFLICT clause (PostgreSQL style)
-	var onConflict *expr.OnInsert
+	// Parse optional AS alias (MySQL: INSERT INTO t VALUES (1) AS alias)
+	var insertAlias *expr.InsertAliases
+	if p.dialect.Dialect() == "mysql" || p.dialect.Dialect() == "generic" {
+		if p.ParseKeyword("AS") {
+			rowAlias, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			var colAliases []*ast.Ident
+			if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+				colAliases, err = p.ParseParenthesizedColumnList()
+				if err != nil {
+					return nil, err
+				}
+			}
+			insertAlias = &expr.InsertAliases{
+				RowAlias:   rowAlias,
+				ColAliases: colAliases,
+			}
+		}
+	}
+
+	// Parse optional ON CONFLICT or ON DUPLICATE KEY UPDATE clause
+	var onInsert *expr.OnInsert
 	if p.ParseKeyword("ON") {
 		if p.ParseKeyword("CONFLICT") {
-			// Parse conflict target (optional)
-			var conflictTarget *expr.ConflictTarget
-			if p.ParseKeywords([]string{"ON", "CONSTRAINT"}) {
-				// ON CONSTRAINT constraint_name
-				constraintName, err := p.ParseObjectName()
-				if err != nil {
-					return nil, err
-				}
-				conflictTarget = &expr.ConflictTarget{
-					OnConstraint: constraintName,
-				}
-			} else if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-				// (column1, column2, ...)
-				columns, err := p.ParseParenthesizedColumnList()
-				if err != nil {
-					return nil, err
-				}
-				conflictTarget = &expr.ConflictTarget{
-					Columns: columns,
-				}
+			// Parse ON CONFLICT (PostgreSQL/SQLite style)
+			onInsert, err = parseOnConflict(p)
+			if err != nil {
+				return nil, err
 			}
-
-			// Expect DO
-			if !p.ParseKeyword("DO") {
-				return nil, p.Expected("DO", p.PeekToken())
+		} else if p.ParseKeyword("DUPLICATE") {
+			// Parse ON DUPLICATE KEY UPDATE (MySQL style)
+			if !p.ParseKeyword("KEY") {
+				return nil, p.Expected("KEY", p.PeekToken())
 			}
-
-			// Parse action: NOTHING or UPDATE SET ...
-			var action expr.OnConflictAction
-			if p.ParseKeyword("NOTHING") {
-				action = expr.OnConflictAction{DoNothing: true}
-			} else if p.ParseKeyword("UPDATE") {
-				if !p.ParseKeyword("SET") {
-					return nil, p.Expected("SET", p.PeekToken())
-				}
-
-				// Parse assignments
-				assignments, err := parseAssignments(p)
-				if err != nil {
-					return nil, err
-				}
-
-				// Optional WHERE clause
-				var selection expr.Expr
-				if p.ParseKeyword("WHERE") {
-					ep := NewExpressionParser(p)
-					selection, err = ep.ParseExpr()
-					if err != nil {
-						return nil, err
-					}
-				}
-
-				action = expr.OnConflictAction{
-					DoUpdate: &expr.DoUpdate{
-						Assignments: assignments,
-						Selection:   selection,
-					},
-				}
-			} else {
-				return nil, p.Expected("NOTHING or UPDATE", p.PeekToken())
+			if !p.ParseKeyword("UPDATE") {
+				return nil, p.Expected("UPDATE", p.PeekToken())
 			}
-
-			onConflict = &expr.OnInsert{
-				OnConflict: &expr.OnConflict{
-					ConflictTarget: conflictTarget,
-					Action:         action,
-				},
+			assigns, err := parseAssignments(p)
+			if err != nil {
+				return nil, err
 			}
-		} else {
-			// Not ON CONFLICT, might be something else - skip for now
-			// This should handle ON DUPLICATE KEY UPDATE (MySQL)
+			onInsert = &expr.OnInsert{
+				DuplicateKeyUpdate: assigns,
+			}
 		}
 	}
 
@@ -299,15 +252,92 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 		if err != nil {
 			return nil, err
 		}
-		// Convert []query.SelectItem to []*query.SelectItem
 		for i := range items {
 			item := items[i]
 			returning = append(returning, &item)
 		}
 	}
 
+	return finishInsert(p, insertToken, optimizerHints, orConflict, priority, ignore, replaceInto,
+		overwrite, into, hasTableKeyword, tableName, tableAlias, columns, source, false, assignments, insertAlias, onInsert, returning)
+}
+
+// parseOnConflict parses the ON CONFLICT clause
+func parseOnConflict(p *Parser) (*expr.OnInsert, error) {
+	var conflictTarget *expr.ConflictTarget
+
+	if p.ParseKeywords([]string{"ON", "CONSTRAINT"}) {
+		constraintName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		conflictTarget = &expr.ConflictTarget{
+			OnConstraint: constraintName,
+		}
+	} else if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+		columns, err := p.ParseParenthesizedColumnList()
+		if err != nil {
+			return nil, err
+		}
+		conflictTarget = &expr.ConflictTarget{
+			Columns: columns,
+		}
+	}
+
+	if !p.ParseKeyword("DO") {
+		return nil, p.Expected("DO", p.PeekToken())
+	}
+
+	var action expr.OnConflictAction
+	if p.ParseKeyword("NOTHING") {
+		action = expr.OnConflictAction{DoNothing: true}
+	} else if p.ParseKeyword("UPDATE") {
+		if !p.ParseKeyword("SET") {
+			return nil, p.Expected("SET", p.PeekToken())
+		}
+		assignments, err := parseAssignments(p)
+		if err != nil {
+			return nil, err
+		}
+		var selection expr.Expr
+		if p.ParseKeyword("WHERE") {
+			ep := NewExpressionParser(p)
+			selection, err = ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+		}
+		action = expr.OnConflictAction{
+			DoUpdate: &expr.DoUpdate{
+				Assignments: assignments,
+				Selection:   selection,
+			},
+		}
+	} else {
+		return nil, p.Expected("NOTHING or UPDATE", p.PeekToken())
+	}
+
+	return &expr.OnInsert{
+		OnConflict: &expr.OnConflict{
+			ConflictTarget: conflictTarget,
+			Action:         action,
+		},
+	}, nil
+}
+
+// finishInsert creates the final Insert statement
+func finishInsert(p *Parser, insertToken tokenizer.TokenWithSpan, optimizerHints []*expr.OptimizerHint,
+	orConflict *expr.SqliteOnConflict, priority *expr.MysqlInsertPriority, ignore, replaceInto, overwrite, into,
+	hasTableKeyword bool, tableName *ast.ObjectName, tableAlias *ast.Ident, columns []*ast.Ident,
+	source *query.Query, defaultValues bool, assignments []*expr.Assignment, insertAlias *expr.InsertAliases,
+	onInsert *expr.OnInsert, returning []*query.SelectItem) (*statement.Insert, error) {
+
 	insert := &statement.Insert{
 		OptimizerHints:  optimizerHints,
+		Or:              orConflict,
+		Priority:        priority,
+		Ignore:          ignore,
+		ReplaceInto:     replaceInto,
 		Into:            into,
 		Overwrite:       overwrite,
 		Table:           tableName,
@@ -315,9 +345,11 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 		HasTableKeyword: hasTableKeyword,
 		Columns:         columns,
 		Source:          source,
-		Assignments:     []*expr.Assignment{},
+		DefaultValues:   defaultValues,
+		Assignments:     assignments,
+		InsertAlias:     insertAlias,
+		On:              onInsert,
 		Returning:       returning,
-		On:              onConflict,
 	}
 	insert.SetSpan(insertToken.Span)
 	return insert, nil

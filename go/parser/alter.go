@@ -45,12 +45,19 @@ func parseAlterTable(p *Parser) (ast.Statement, error) {
 	}
 	alterTable.Name = tableName
 
-	// Parse operation
-	op, err := parseAlterTableOperation(p)
-	if err != nil {
-		return nil, err
+	// Parse operations (MySQL supports multiple operations separated by commas)
+	for {
+		op, err := parseAlterTableOperation(p)
+		if err != nil {
+			return nil, err
+		}
+		alterTable.Operations = append(alterTable.Operations, op)
+
+		// Check for comma separator (MySQL allows multiple operations)
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
 	}
-	alterTable.Operations = append(alterTable.Operations, op)
 
 	return alterTable, nil
 }
@@ -87,6 +94,11 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return parseAlterTableSet(p, op)
 	}
 
+	// MySQL table options: AUTO_INCREMENT, ALGORITHM, LOCK
+	if p.PeekKeyword("AUTO_INCREMENT") || p.PeekKeyword("ALGORITHM") || p.PeekKeyword("LOCK") {
+		return parseAlterTableMySqlOptions(p, op)
+	}
+
 	return nil, fmt.Errorf("unknown ALTER TABLE operation")
 }
 
@@ -102,13 +114,50 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 		op.AddIfNotExists = true
 	}
 
-	// Parse column definition
+	// Check for parenthesized column list (MySQL style: ADD COLUMN (c1 INT, c2 INT))
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.AdvanceToken() // consume (
+		op.Op = expr.AlterTableOpAddColumn
+
+		for {
+			colDef, err := parseColumnDef(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected column definition: %w", err)
+			}
+			op.AddColumnDefs = append(op.AddColumnDefs, colDef)
+
+			// Check for comma separator
+			if !p.ConsumeToken(tokenizer.TokenComma{}) {
+				break
+			}
+		}
+
+		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return op, nil
+	}
+
+	// Parse single column definition
 	colDef, err := parseColumnDef(p)
 	if err != nil {
 		return nil, fmt.Errorf("expected column definition: %w", err)
 	}
 	op.Op = expr.AlterTableOpAddColumn
 	op.AddColumnDef = colDef
+
+	// Check for MySQL column position (FIRST or AFTER column)
+	if p.ParseKeyword("FIRST") {
+		op.AddColumnPosition = &expr.MySQLColumnPosition{IsFirst: true}
+	} else if p.ParseKeyword("AFTER") {
+		afterCol, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected column name after AFTER: %w", err)
+		}
+		op.AddColumnPosition = &expr.MySQLColumnPosition{
+			AfterColumn: afterCol,
+		}
+	}
 
 	return op, nil
 }
@@ -612,6 +661,43 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 	// Expect closing parenthesis
 	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
 		return nil, err
+	}
+
+	return op, nil
+}
+
+// parseAlterTableMySqlOptions parses MySQL-specific ALTER TABLE options (AUTO_INCREMENT, ALGORITHM, LOCK)
+func parseAlterTableMySqlOptions(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpSetOptions
+
+	if p.ParseKeyword("AUTO_INCREMENT") {
+		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+			// Allow without equals sign too
+		}
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			op.AutoIncrementValue = num.Value
+		} else {
+			return nil, fmt.Errorf("expected number after AUTO_INCREMENT")
+		}
+	} else if p.ParseKeyword("ALGORITHM") {
+		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+			return nil, err
+		}
+		algo, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected algorithm after ALGORITHM=: %w", err)
+		}
+		op.AlgorithmValue = algo
+	} else if p.ParseKeyword("LOCK") {
+		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+			return nil, err
+		}
+		lock, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected lock type after LOCK=: %w", err)
+		}
+		op.LockValue = lock
 	}
 
 	return op, nil

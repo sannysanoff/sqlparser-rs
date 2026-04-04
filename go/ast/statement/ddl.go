@@ -500,8 +500,9 @@ func (a *AlterTable) String() string {
 	for i, op := range a.Operations {
 		if i > 0 {
 			f.WriteString(", ")
+		} else {
+			f.WriteString(" ")
 		}
-		f.WriteString(" ")
 		f.WriteString(op.String())
 	}
 
@@ -1977,18 +1978,23 @@ func (c *CopyOption) String() string {
 // DropTable represents a DROP TABLE statement
 type DropTable struct {
 	BaseStatement
-	IfExists bool
-	Names    []*ast.ObjectName
-	Cascade  bool
-	Restrict bool
-	Purge    bool
+	Temporary bool
+	IfExists  bool
+	Names     []*ast.ObjectName
+	Cascade   bool
+	Restrict  bool
+	Purge     bool
 }
 
 func (d *DropTable) statementNode() {}
 
 func (d *DropTable) String() string {
 	var f strings.Builder
-	f.WriteString("DROP TABLE ")
+	f.WriteString("DROP ")
+	if d.Temporary {
+		f.WriteString("TEMPORARY ")
+	}
+	f.WriteString("TABLE ")
 	if d.IfExists {
 		f.WriteString("IF EXISTS ")
 	}

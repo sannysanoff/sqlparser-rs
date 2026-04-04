@@ -229,6 +229,8 @@ func (p *Parser) parseStatementByKeyword(keyword string, tok tokenizer.TokenWith
 		return p.parseQuery()
 	case "INSERT":
 		return p.parseInsert(tok)
+	case "REPLACE":
+		return p.parseReplace(tok)
 	case "UPDATE":
 		return p.parseUpdate(tok)
 	case "DELETE":
@@ -479,6 +481,10 @@ func (p *Parser) parseQuery() (ast.Statement, error) {
 
 func (p *Parser) parseInsert(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
 	return ParseInsert(p, tok)
+}
+
+func (p *Parser) parseReplace(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+	return ParseReplace(p, tok)
 }
 
 func (p *Parser) parseUpdate(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
@@ -840,7 +846,7 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 	// Check for empty list
 	if _, ok := p.PeekToken().Token.(tokenizer.TokenRParen); ok {
 		p.AdvanceToken()
-		return []*ast.Ident{}, nil
+		return nil, nil
 	}
 
 	var columns []*ast.Ident
@@ -949,7 +955,9 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 	case "TIME":
 		return &datatype.TimeType{SpanVal: tok.Span}, nil
 	case "TIMESTAMP":
-		return &datatype.TimestampType{SpanVal: tok.Span}, nil
+		return parseTimestampType(p, tok.Span)
+	case "DATETIME":
+		return parseDatetimeType(p, tok.Span)
 	case "FLOAT":
 		return parseFloatType(p, tok.Span)
 	case "DOUBLE":
@@ -1318,4 +1326,58 @@ func parseRealType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 		return &datatype.RealUnsignedType{SpanVal: spanVal}, nil
 	}
 	return &datatype.RealType{SpanVal: spanVal}, nil
+}
+
+// parseTimestampType parses TIMESTAMP [(precision)]
+func parseTimestampType(p *Parser, spanVal span.Span) (*datatype.TimestampType, error) {
+	result := &datatype.TimestampType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional precision specification
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			precision, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid TIMESTAMP precision: %w", err)
+			}
+			result.Precision = &precision
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in TIMESTAMP precision specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseDatetimeType parses DATETIME [(precision)]
+func parseDatetimeType(p *Parser, spanVal span.Span) (*datatype.DatetimeType, error) {
+	result := &datatype.DatetimeType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional precision specification
+	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+			precision, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DATETIME precision: %w", err)
+			}
+			result.Precision = &precision
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in DATETIME precision specification")
+		}
+	}
+
+	return result, nil
 }

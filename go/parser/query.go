@@ -24,6 +24,7 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
+	"github.com/user/sqlparser/dialects/postgresql"
 	"github.com/user/sqlparser/span"
 	"github.com/user/sqlparser/token"
 	"github.com/user/sqlparser/tokenizer"
@@ -33,11 +34,21 @@ import (
 type SelectStatement struct {
 	ast.BaseStatement
 	query.Select
+	LimitClause query.LimitClause
 }
 
 // Span returns the source span
 func (s *SelectStatement) Span() span.Span {
 	return s.Select.Span()
+}
+
+// String returns the SQL representation including LIMIT clause
+func (s *SelectStatement) String() string {
+	str := s.Select.String()
+	if s.LimitClause != nil {
+		str = str + " " + s.LimitClause.String()
+	}
+	return str
 }
 
 // ValuesStatement wraps query.Query (for VALUES) to implement ast.Statement
@@ -62,60 +73,80 @@ func (v *ValuesStatement) String() string {
 	return ""
 }
 
+// QueryStatement wraps query.Query (for SELECT WITH CTE) to implement ast.Statement
+type QueryStatement struct {
+	ast.BaseStatement
+	Query *query.Query
+}
+
+// Span returns the source span
+func (q *QueryStatement) Span() span.Span {
+	if q.Query != nil {
+		return q.Query.Span()
+	}
+	return span.Span{}
+}
+
+// String returns the SQL representation
+func (q *QueryStatement) String() string {
+	if q.Query != nil {
+		return q.Query.String()
+	}
+	return ""
+}
+
 // parseQuery parses a SELECT or other query statement
+// Reference: src/parser/mod.rs:13599 parse_query
 func parseQuery(p *Parser) (ast.Statement, error) {
 	// Check for WITH clause (Common Table Expressions)
+	var withClause *query.With
 	if p.ParseKeyword("WITH") {
-		_ = p.ParseKeyword("RECURSIVE")
+		recursive := p.ParseKeyword("RECURSIVE")
 
-		// For now, we just skip the CTE definitions
-		// A proper implementation would store and use them
-		tok := p.PeekToken()
-		if _, ok := tok.Token.(tokenizer.TokenWord); ok {
-			// Try to parse at least one CTE to skip past it
-			if _, err := p.ParseIdentifier(); err == nil {
-				// Check for column list
-				if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-					p.ParseParenthesizedColumnList()
-				}
+		// Parse comma-separated list of CTEs
+		ctes, err := parseCTEList(p)
+		if err != nil {
+			return nil, err
+		}
 
-				if p.ParseKeyword("AS") {
-					_ = p.ParseKeyword("MATERIALIZED")
-					_ = p.ParseKeyword("NOT")
-					_ = p.ParseKeyword("MATERIALIZED")
-
-					if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-						p.AdvanceToken() // consume (
-						// Recursively skip the inner query
-						parseQuery(p)
-						p.ExpectToken(tokenizer.TokenRParen{})
-					}
-				}
-
-				// Skip additional CTEs separated by comma
-				for p.ConsumeToken(tokenizer.TokenComma{}) {
-					if _, err := p.ParseIdentifier(); err == nil {
-						if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-							p.ParseParenthesizedColumnList()
-						}
-						if p.ParseKeyword("AS") {
-							_ = p.ParseKeyword("MATERIALIZED")
-							_ = p.ParseKeyword("NOT")
-							_ = p.ParseKeyword("MATERIALIZED")
-							if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
-								p.AdvanceToken()
-								parseQuery(p)
-								p.ExpectToken(tokenizer.TokenRParen{})
-							}
-						}
-					}
-				}
-			}
+		withClause = &query.With{
+			Recursive: recursive,
+			CteTables: ctes,
 		}
 	}
 
-	// Parse the actual query body
-	return parseQueryBody(p)
+	// Parse the actual query body (SELECT, INSERT, UPDATE, DELETE, etc.)
+	var body ast.Statement
+	var err error
+
+	if p.PeekKeyword("SELECT") {
+		body, err = parseSelect(p)
+	} else if p.PeekKeyword("VALUES") {
+		body, err = parseValues(p)
+	} else {
+		return nil, p.ExpectedRef("SELECT or VALUES after WITH", p.PeekTokenRef())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach WITH clause to the statement if present
+	if withClause != nil {
+		// Create a Query statement that wraps the body with the WITH clause
+		if selStmt, ok := body.(*SelectStatement); ok {
+			return &QueryStatement{
+				Query: &query.Query{
+					With: withClause,
+					Body: &query.SelectSetExpr{
+						Select: &selStmt.Select,
+					},
+				},
+			}, nil
+		}
+	}
+
+	return body, nil
 }
 
 // parseQueryBody parses the body of a query (SELECT, VALUES, etc.)
@@ -259,25 +290,40 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse LIMIT clause
+	var limitClause query.LimitClause
 	if p.ParseKeyword("LIMIT") {
 		ep := NewExpressionParser(p)
-		limitExpr, err := ep.ParseExpr()
+		firstExpr, err := ep.ParseExpr()
 		if err != nil {
 			return nil, err
 		}
 
-		// Check for OFFSET (PostgreSQL style: LIMIT x OFFSET y)
-		if p.ParseKeyword("OFFSET") {
+		// Check for MySQL LIMIT offset,limit syntax (LIMIT 10, 5)
+		if p.ConsumeToken(tokenizer.TokenComma{}) {
+			// MySQL style: LIMIT offset, limit
+			secondExpr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			limitClause = &query.OffsetCommaLimit{
+				Offset: &queryExprWrapper{expr: firstExpr},
+				Limit:  &queryExprWrapper{expr: secondExpr},
+			}
+		} else if p.ParseKeyword("OFFSET") {
+			// PostgreSQL style: LIMIT x OFFSET y
 			offsetExpr, err := ep.ParseExpr()
 			if err != nil {
 				return nil, err
 			}
-			// Store in the query somehow - for now just ignore
-			_ = limitExpr
-			_ = offsetExpr
+			limitClause = &query.LimitOffset{
+				Limit:  &queryExprWrapper{expr: firstExpr},
+				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}},
+			}
 		} else {
-			// Just LIMIT without OFFSET
-			_ = limitExpr
+			// Standard LIMIT expr
+			limitClause = &query.LimitOffset{
+				Limit: &queryExprWrapper{expr: firstExpr},
+			}
 		}
 	} else if p.ParseKeyword("OFFSET") {
 		// OFFSET without LIMIT (OFFSET first style)
@@ -293,11 +339,15 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			if err != nil {
 				return nil, err
 			}
-			_ = offsetExpr
-			_ = limitExpr
+			limitClause = &query.LimitOffset{
+				Limit:  &queryExprWrapper{expr: limitExpr},
+				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}},
+			}
 		} else {
 			// Just OFFSET without LIMIT
-			_ = offsetExpr
+			limitClause = &query.Offset{
+				Value: &queryExprWrapper{expr: offsetExpr},
+			}
 		}
 	}
 
@@ -313,6 +363,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			WindowBeforeQualify: windowBeforeQualify,
 			Flavor:              query.SelectFlavorStandard,
 		},
+		LimitClause: limitClause,
 	}, nil
 }
 
@@ -899,16 +950,25 @@ func parseValues(p *Parser) (*ValuesStatement, error) {
 			return nil, err
 		}
 
-		row, err := parseCommaSeparatedQueryExprs(p)
-		if err != nil {
-			return nil, err
-		}
+		// Check for empty row () - MySQL allows this
+		// If the dialect supports empty projections and we see RParen immediately, it's an empty row
+		if _, isRParen := p.PeekToken().Token.(tokenizer.TokenRParen); isRParen {
+			// Empty row - consume the RParen
+			p.AdvanceToken()
+			rows = append(rows, []query.Expr{})
+		} else {
+			// Non-empty row - parse expressions
+			row, err := parseCommaSeparatedQueryExprs(p)
+			if err != nil {
+				return nil, err
+			}
 
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
-			return nil, err
-		}
+			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+				return nil, err
+			}
 
-		rows = append(rows, row)
+			rows = append(rows, row)
+		}
 
 		if !p.ConsumeToken(tokenizer.TokenComma{}) {
 			break
@@ -1225,11 +1285,107 @@ func parseMergeInQuery(p *Parser, with interface{}) (ast.Statement, error) {
 }
 
 func parseCTE(p *Parser) (query.CTE, error) {
-	return query.CTE{}, fmt.Errorf("CTE parsing not yet fully implemented")
+	// Parse CTE name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return query.CTE{}, err
+	}
+
+	cte := query.CTE{}
+	alias := query.TableAlias{
+		Name: query.Ident{Value: name.Value},
+	}
+
+	// Check for optional column list: CTE_name (col1, col2, ...) AS ...
+	if p.PeekToken().Token.Equals(tokenizer.TokenLParen{}) {
+		columns, err := p.ParseParenthesizedColumnList()
+		if err != nil {
+			return query.CTE{}, err
+		}
+		// Convert []ast.Ident to []query.TableAliasColumnDef
+		for _, col := range columns {
+			alias.Columns = append(alias.Columns, query.TableAliasColumnDef{
+				Name: query.Ident{Value: col.Value},
+			})
+		}
+	}
+
+	// Expect AS keyword
+	if !p.ParseKeyword("AS") {
+		return query.CTE{}, p.Expected("AS after CTE name", p.PeekToken())
+	}
+
+	// Check for MATERIALIZED / NOT MATERIALIZED (PostgreSQL)
+	var materialized *query.CteAsMaterialized
+	// Check if this is PostgreSQL dialect
+	dialect := p.GetDialect()
+	if _, isPostgres := dialect.(*postgresql.PostgreSqlDialect); isPostgres {
+		if p.ParseKeyword("MATERIALIZED") {
+			m := query.CteMaterializedYes
+			materialized = &m
+		} else if p.ParseKeywords([]string{"NOT", "MATERIALIZED"}) {
+			m := query.CteMaterializedNo
+			materialized = &m
+		}
+	}
+	cte.Materialized = materialized
+
+	// Expect opening parenthesis for subquery
+	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); !ok {
+		return query.CTE{}, p.Expected("( before CTE subquery", p.PeekToken())
+	}
+	p.AdvanceToken() // consume (
+
+	// Parse the inner query
+	innerQuery, err := parseQuery(p)
+	if err != nil {
+		return query.CTE{}, err
+	}
+
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		return query.CTE{}, err
+	}
+
+	// Check for optional FROM keyword (BigQuery/Snowflake extension)
+	if p.ParseKeyword("FROM") {
+		fromName, err := p.ParseIdentifier()
+		if err != nil {
+			return query.CTE{}, err
+		}
+		cte.From = &query.Ident{Value: fromName.Value}
+	}
+
+	// Create the Query wrapper for the inner statement
+	if selStmt, ok := innerQuery.(*SelectStatement); ok {
+		cte.Query = &query.Query{
+			Body: &query.SelectSetExpr{
+				Select: &selStmt.Select,
+			},
+		}
+	}
+	cte.Alias = alias
+
+	return cte, nil
 }
 
 func parseCTEList(p *Parser) ([]query.CTE, error) {
-	return nil, fmt.Errorf("CTE list parsing not yet fully implemented")
+	var ctes []query.CTE
+
+	for {
+		cte, err := parseCTE(p)
+		if err != nil {
+			return nil, err
+		}
+		ctes = append(ctes, cte)
+
+		// Check for comma (more CTEs)
+		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			break
+		}
+	}
+
+	return ctes, nil
 }
 
 func parseOptionalOrderBy(p *Parser) (interface{}, error) {

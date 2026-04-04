@@ -591,10 +591,18 @@ func (ep *ExpressionParser) parseCommaSeparatedIdents() ([]*expr.Ident, error) {
 // wordToIdent converts a TokenWord to an Ident
 func (ep *ExpressionParser) wordToIdent(word *tokenizer.TokenWord, spanVal span.Span) *expr.Ident {
 	value := word.Word.Value
-	// For unquoted identifiers in PostgreSQL, normalize to lowercase
-	// (PostgreSQL folds unquoted identifiers to lowercase)
+	// For unquoted identifiers, normalization depends on the dialect:
+	// - PostgreSQL folds unquoted identifiers to lowercase
+	// - MySQL preserves the original case
+	// - Generic/Standard SQL: normalize to lowercase for compatibility
 	if word.Word.QuoteStyle == nil {
-		value = strings.ToLower(value)
+		dialect := ep.parser.GetDialect()
+		dialectName := dialect.Dialect()
+		// MySQL preserves original case, others normalize to lowercase
+		// This matches the behavior in the Rust reference implementation
+		if dialectName != "mysql" {
+			value = strings.ToLower(value)
+		}
 	}
 	ident := &expr.Ident{
 		SpanVal: spanVal,

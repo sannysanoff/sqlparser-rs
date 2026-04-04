@@ -912,7 +912,7 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 		if p.PeekKeyword("NOT") || p.PeekKeyword("NULL") || p.PeekKeyword("DEFAULT") ||
 			p.PeekKeyword("COLLATE") || p.PeekKeyword("COMMENT") || p.PeekKeyword("GENERATED") ||
 			p.PeekKeyword("CONSTRAINT") || p.PeekKeyword("PRIMARY") || p.PeekKeyword("UNIQUE") ||
-			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") {
+			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") || p.PeekKeyword("ON") {
 
 			constraint, err := parseColumnConstraint(p)
 			if err != nil {
@@ -1005,6 +1005,16 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			return nil, err
 		}
 		return &expr.ColumnOptionDef{Name: "CHECK", Value: checkExpr}, nil
+	}
+
+	// ON UPDATE CURRENT_TIMESTAMP [(fractional_seconds_precision)] - MySQL column option
+	if p.ParseKeywords([]string{"ON", "UPDATE"}) {
+		exprParser := NewExpressionParser(p)
+		onUpdateExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("expected expression after ON UPDATE: %w", err)
+		}
+		return &expr.ColumnOptionDef{Name: "ON UPDATE", Value: onUpdateExpr}, nil
 	}
 
 	// REFERENCES table [(cols)] [ON DELETE action] [ON UPDATE action]

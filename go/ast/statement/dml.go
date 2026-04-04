@@ -146,6 +146,12 @@ func (i *Insert) String() string {
 		}
 	}
 
+	// Add AS alias if present (MySQL)
+	if i.InsertAlias != nil && i.InsertAlias.RowAlias != nil {
+		f.WriteString(" ")
+		f.WriteString(i.InsertAlias.String())
+	}
+
 	// Add ON CONFLICT clause if present
 	if i.On != nil {
 		f.WriteString(" ")

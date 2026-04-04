@@ -671,9 +671,11 @@ type AlterTableOperation struct {
 	Op AlterTableOpType
 
 	// Fields for AddColumn
-	AddColumnKeyword bool
-	AddIfNotExists   bool
-	AddColumnDef     *ColumnDef
+	AddColumnKeyword  bool
+	AddIfNotExists    bool
+	AddColumnDef      *ColumnDef
+	AddColumnDefs     []*ColumnDef         // For multiple columns: ADD COLUMN (c1 INT, c2 INT)
+	AddColumnPosition *MySQLColumnPosition // MySQL: FIRST or AFTER column
 
 	// Fields for DropColumn
 	DropColumnKeyword bool
@@ -705,6 +707,11 @@ type AlterTableOperation struct {
 	// Fields for SetTblProperties
 	TblProperties []*SqlOption
 
+	// Fields for SetOptions (MySQL: AUTO_INCREMENT, ALGORITHM, LOCK)
+	AutoIncrementValue string     // For AUTO_INCREMENT = N
+	AlgorithmValue     *ast.Ident // For ALGORITHM = {COPY|INPLACE|INSTANT}
+	LockValue          *ast.Ident // For LOCK = {DEFAULT|NONE|SHARED|EXCLUSIVE}
+
 	// Fields for ChangeColumn (MySQL)
 	ChangeOldName        *ast.Ident
 	ChangeNewName        *ast.Ident
@@ -735,6 +742,7 @@ const (
 	AlterTableOpAlterColumn
 	AlterTableOpSetTblProperties
 	AlterTableOpSetOptionsParens
+	AlterTableOpSetOptions // MySQL: AUTO_INCREMENT, ALGORITHM, LOCK
 	AlterTableOpChangeColumn
 	AlterTableOpModifyColumn
 	AlterTableOpDropPrimaryKey
@@ -775,8 +783,22 @@ func (a *AlterTableOperation) String() string {
 		if a.AddIfNotExists {
 			buf.WriteString("IF NOT EXISTS ")
 		}
-		if a.AddColumnDef != nil {
+		if len(a.AddColumnDefs) > 0 {
+			// Multiple columns in parentheses
+			buf.WriteString("(")
+			for i, colDef := range a.AddColumnDefs {
+				if i > 0 {
+					buf.WriteString(", ")
+				}
+				buf.WriteString(colDef.String())
+			}
+			buf.WriteString(")")
+		} else if a.AddColumnDef != nil {
 			buf.WriteString(a.AddColumnDef.String())
+		}
+		if a.AddColumnPosition != nil {
+			buf.WriteString(" ")
+			buf.WriteString(a.AddColumnPosition.String())
 		}
 		return buf.String()
 	case AlterTableOpDropColumn:
@@ -879,6 +901,23 @@ func (a *AlterTableOperation) String() string {
 			buf.WriteString(fmt.Sprintf("'%s' = '%s'", opt.Name.String(), opt.Value.String()))
 		}
 		buf.WriteString(")")
+		return buf.String()
+	case AlterTableOpSetOptions:
+		var buf strings.Builder
+		if a.AutoIncrementValue != "" {
+			buf.WriteString("AUTO_INCREMENT = ")
+			buf.WriteString(a.AutoIncrementValue)
+		} else if a.AlgorithmValue != nil {
+			buf.WriteString("ALGORITHM = ")
+			// MySQL algorithm values should be uppercase per Rust reference
+			// src/ast/ddl.rs:606-615 - INPLACE, INSTANT, COPY, DEFAULT
+			buf.WriteString(strings.ToUpper(a.AlgorithmValue.Value))
+		} else if a.LockValue != nil {
+			buf.WriteString("LOCK = ")
+			// MySQL lock values should be uppercase per Rust reference
+			// src/ast/ddl.rs:635-644 - EXCLUSIVE, SHARED, NONE, DEFAULT
+			buf.WriteString(strings.ToUpper(a.LockValue.Value))
+		}
 		return buf.String()
 	case AlterTableOpDropPrimaryKey:
 		var buf strings.Builder
@@ -1342,9 +1381,29 @@ type SqliteOnConflict int
 
 const (
 	SqliteOnConflictNone SqliteOnConflict = iota
+	SqliteOnConflictReplace
+	SqliteOnConflictRollback
+	SqliteOnConflictAbort
+	SqliteOnConflictFail
+	SqliteOnConflictIgnore
 )
 
-func (s SqliteOnConflict) String() string { return "" }
+func (s SqliteOnConflict) String() string {
+	switch s {
+	case SqliteOnConflictReplace:
+		return "OR REPLACE"
+	case SqliteOnConflictRollback:
+		return "OR ROLLBACK"
+	case SqliteOnConflictAbort:
+		return "OR ABORT"
+	case SqliteOnConflictFail:
+		return "OR FAIL"
+	case SqliteOnConflictIgnore:
+		return "OR IGNORE"
+	default:
+		return ""
+	}
+}
 
 // Assignment represents assignment expression.
 type Assignment struct {
@@ -1472,16 +1531,48 @@ type MysqlInsertPriority int
 
 const (
 	MysqlInsertPriorityNone MysqlInsertPriority = iota
+	MysqlInsertPriorityLowPriority
+	MysqlInsertPriorityDelayed
+	MysqlInsertPriorityHighPriority
 )
 
-func (m MysqlInsertPriority) String() string { return "" }
+func (m MysqlInsertPriority) String() string {
+	switch m {
+	case MysqlInsertPriorityLowPriority:
+		return "LOW_PRIORITY"
+	case MysqlInsertPriorityDelayed:
+		return "DELAYED"
+	case MysqlInsertPriorityHighPriority:
+		return "HIGH_PRIORITY"
+	default:
+		return ""
+	}
+}
 
-// InsertAliases represents INSERT aliases.
-type InsertAliases struct{}
+// InsertAliases represents INSERT aliases (MySQL: INSERT ... VALUES (1) AS alias (col1, col2)).
+type InsertAliases struct {
+	RowAlias   *ast.ObjectName
+	ColAliases []*ast.Ident
+}
 
 func (i *InsertAliases) exprNode()       {}
 func (i *InsertAliases) Span() span.Span { return span.Span{} }
-func (i *InsertAliases) String() string  { return "" }
+func (i *InsertAliases) String() string {
+	if i.RowAlias == nil {
+		return ""
+	}
+	var parts []string
+	parts = append(parts, "AS")
+	parts = append(parts, i.RowAlias.String())
+	if len(i.ColAliases) > 0 {
+		cols := make([]string, len(i.ColAliases))
+		for i, col := range i.ColAliases {
+			cols[i] = col.String()
+		}
+		parts = append(parts, "("+strings.Join(cols, ", ")+")")
+	}
+	return strings.Join(parts, " ")
+}
 
 // Setting represents a setting clause.
 type Setting struct {

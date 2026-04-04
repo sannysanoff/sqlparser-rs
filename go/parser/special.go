@@ -252,24 +252,178 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 }
 
 // parseFunctionArg parses a single function argument
+// Handles named arguments (name => value, name = value, etc.) and unnamed expressions
+// Reference: src/parser/mod.rs:17788-17836 parse_function_args
 func (ep *ExpressionParser) parseFunctionArg() (expr.FunctionArg, error) {
-	// Check for named argument syntax
-	// Different dialects support different named argument syntaxes
-	// TODO: Support named arguments with various syntaxes (name => value, name = value, etc.)
-
 	// Check for wildcard * (used in COUNT(*) and similar)
 	if ep.parser.ConsumeToken(tokenizer.TokenMul{}) {
 		return &expr.FunctionArgExpr{Expr: &expr.Wildcard{}}, nil
 	}
 
-	// Try to parse as named argument (name => value or name = value)
-	// For simplicity, just parse as expression for now
+	dialect := ep.parser.GetDialect()
+
+	// Try to parse as named argument if dialect supports it
+	// Check for: name => value, name = value, name := value, name : value
+	if dialect.SupportsNamedFnArgsWithRArrowOperator() ||
+		dialect.SupportsNamedFnArgsWithEqOperator() ||
+		dialect.SupportsNamedFnArgsWithAssignmentOperator() ||
+		dialect.SupportsNamedFnArgsWithColonOperator() {
+
+		// Try to parse named argument using "maybe parse" pattern
+		// First, attempt to parse the name part
+		var arg expr.FunctionArg
+		var err error
+
+		if dialect.SupportsNamedFnArgsWithExprName() {
+			// Name can be an arbitrary expression
+			arg, err = ep.tryParseNamedArgWithExprName()
+		} else {
+			// Name must be a simple identifier
+			arg, err = ep.tryParseNamedArgWithIdentName()
+		}
+
+		if err == nil && arg != nil {
+			return arg, nil
+		}
+		// If named arg parsing failed, fall through to regular expression parsing
+	}
+
+	// Parse as regular (unnamed) argument
 	argExpr, err := ep.ParseExpr()
 	if err != nil {
 		return nil, err
 	}
 
 	return &expr.FunctionArgExpr{Expr: argExpr}, nil
+}
+
+// tryParseNamedArgWithIdentName tries to parse named argument with identifier name
+// Pattern: identifier => value, identifier = value, etc.
+func (ep *ExpressionParser) tryParseNamedArgWithIdentName() (expr.FunctionArg, error) {
+	// Save position for backtracking
+	restore := ep.parser.SavePosition()
+
+	// Try to parse an identifier
+	name, err := ep.parseIdentifier()
+	if err != nil {
+		restore()
+		return nil, err
+	}
+
+	// Check for named argument operator
+	operator := ep.parseNamedArgOperator()
+	if operator == "" {
+		// No operator found, backtrack
+		restore()
+		return nil, fmt.Errorf("not a named argument")
+	}
+
+	// Parse the argument value (supports wildcard expressions)
+	valueExpr, err := ep.parseWildcardExpr()
+	if err != nil {
+		restore()
+		return nil, err
+	}
+
+	return &expr.FunctionArgNamed{
+		Name:  name,
+		Value: valueExpr,
+	}, nil
+}
+
+// tryParseNamedArgWithExprName tries to parse named argument with expression name
+// Pattern: expression => value (used by some dialects like BigQuery)
+func (ep *ExpressionParser) tryParseNamedArgWithExprName() (expr.FunctionArg, error) {
+	// Save position for backtracking
+	restore := ep.parser.SavePosition()
+
+	// Try to parse an expression as the name
+	nameExpr, err := ep.ParseExpr()
+	if err != nil {
+		restore()
+		return nil, err
+	}
+
+	// Check for named argument operator
+	operator := ep.parseNamedArgOperator()
+	if operator == "" {
+		// No operator found, backtrack
+		restore()
+		return nil, fmt.Errorf("not a named argument")
+	}
+
+	// Parse the argument value
+	valueExpr, err := ep.parseWildcardExpr()
+	if err != nil {
+		restore()
+		return nil, err
+	}
+
+	// For expression-named args, we still use FunctionArgNamed but with expression as name
+	// Convert expression to identifier if possible, otherwise use the expression directly
+	return &expr.FunctionArgNamed{
+		Name:  &expr.Ident{Value: nameExpr.String()},
+		Value: valueExpr,
+	}, nil
+}
+
+// parseNamedArgOperator tries to parse a named argument operator (=>, =, :=, :)
+// Returns the operator string if found, empty string otherwise
+func (ep *ExpressionParser) parseNamedArgOperator() string {
+	dialect := ep.parser.GetDialect()
+
+	tok := ep.parser.PeekToken()
+
+	// Check for => operator (RArrow)
+	if _, ok := tok.Token.(tokenizer.TokenRArrow); ok {
+		if dialect.SupportsNamedFnArgsWithRArrowOperator() {
+			ep.parser.NextToken() // consume
+			return "=>"
+		}
+	}
+
+	// Check for = operator (Eq)
+	if _, ok := tok.Token.(tokenizer.TokenEq); ok {
+		if dialect.SupportsNamedFnArgsWithEqOperator() {
+			ep.parser.NextToken() // consume
+			return "="
+		}
+	}
+
+	// Check for := operator (Assignment)
+	// Note: Need to check if Assignment token exists in tokenizer
+	// For now, check for Colon followed by Eq
+	if _, ok := tok.Token.(tokenizer.TokenColon); ok {
+		nextTok := ep.parser.PeekNthToken(1)
+		if _, ok := nextTok.Token.(tokenizer.TokenEq); ok {
+			if dialect.SupportsNamedFnArgsWithAssignmentOperator() {
+				ep.parser.NextToken() // consume :
+				ep.parser.NextToken() // consume =
+				return ":="
+			}
+		}
+	}
+
+	// Check for : operator (Colon) - used by some dialects
+	if _, ok := tok.Token.(tokenizer.TokenColon); ok {
+		if dialect.SupportsNamedFnArgsWithColonOperator() {
+			ep.parser.NextToken() // consume
+			return ":"
+		}
+	}
+
+	return ""
+}
+
+// parseWildcardExpr parses an expression that can include wildcards (like *)
+// Used for function argument values like COUNT(*)
+func (ep *ExpressionParser) parseWildcardExpr() (expr.Expr, error) {
+	// Check for wildcard
+	if ep.parser.ConsumeToken(tokenizer.TokenMul{}) {
+		return &expr.Wildcard{}, nil
+	}
+	// Otherwise parse as regular expression
+	return ep.ParseExpr()
 }
 
 // parseOrderByClause parses ORDER BY clause in function arguments
