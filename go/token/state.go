@@ -15,13 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package tokenizer
+package token
 
-import (
-	"unicode/utf8"
-
-	"github.com/user/sqlparser/span"
-)
+import "unicode/utf8"
 
 // State represents the tokenizer's state during parsing.
 // It tracks the current position in the input string, line and column numbers.
@@ -89,8 +85,8 @@ func (s *State) PeekN(n int) (rune, bool) {
 }
 
 // Location returns the current location (line and column)
-func (s *State) Location() span.Location {
-	return span.Location{
+func (s *State) Location() Location {
+	return Location{
 		Line:   s.line,
 		Column: s.column,
 	}

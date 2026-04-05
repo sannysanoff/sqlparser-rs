@@ -21,13 +21,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Query represents a complete SELECT query expression, optionally
 // including WITH, UNION / other set operations, and ORDER BY.
 type Query struct {
-	span          span.Span
+	span          token.Span
 	With          *With
 	Body          SetExpr
 	OrderBy       *OrderBy
@@ -41,7 +41,7 @@ type Query struct {
 }
 
 // Span returns the source span of this node
-func (q *Query) Span() span.Span { return q.span }
+func (q *Query) Span() token.Span { return q.span }
 
 // String returns the SQL representation
 func (q *Query) String() string {
@@ -84,39 +84,39 @@ func (q *Query) String() string {
 // SetExpr represents a query body expression (SELECT, UNION, EXCEPT, etc.)
 type SetExpr interface {
 	fmt.Stringer
-	Span() span.Span
+	Span() token.Span
 }
 
 // SelectSetExpr represents a SELECT expression
 type SelectSetExpr struct {
-	span   span.Span
+	span   token.Span
 	Select *Select
 }
 
-func (s *SelectSetExpr) Span() span.Span { return s.span }
+func (s *SelectSetExpr) Span() token.Span { return s.span }
 func (s *SelectSetExpr) String() string  { return s.Select.String() }
 
 // QuerySetExpr represents a parenthesized subquery
 type QuerySetExpr struct {
-	span  span.Span
+	span  token.Span
 	Query *Query
 }
 
-func (q *QuerySetExpr) Span() span.Span { return q.span }
+func (q *QuerySetExpr) Span() token.Span { return q.span }
 func (q *QuerySetExpr) String() string {
 	return "(" + q.Query.String() + ")"
 }
 
 // SetOperation represents UNION/EXCEPT/INTERSECT operations
 type SetOperation struct {
-	span          span.Span
+	span          token.Span
 	Left          SetExpr
 	Op            SetOperator
 	SetQuantifier SetQuantifier
 	Right         SetExpr
 }
 
-func (s *SetOperation) Span() span.Span { return s.span }
+func (s *SetOperation) Span() token.Span { return s.span }
 func (s *SetOperation) String() string {
 	parts := []string{s.Left.String()}
 	parts = append(parts, s.Op.String())
@@ -129,40 +129,40 @@ func (s *SetOperation) String() string {
 
 // ValuesSetExpr represents a VALUES expression
 type ValuesSetExpr struct {
-	span   span.Span
+	span   token.Span
 	Values *Values
 }
 
-func (v *ValuesSetExpr) Span() span.Span { return v.span }
+func (v *ValuesSetExpr) Span() token.Span { return v.span }
 func (v *ValuesSetExpr) String() string  { return v.Values.String() }
 
 // StatementSetExpr represents a statement in set expression context
 type StatementSetExpr struct {
-	span      span.Span
+	span      token.Span
 	StmtType  string // "INSERT", "UPDATE", "DELETE", "MERGE"
 	Statement fmt.Stringer
 }
 
-func (s *StatementSetExpr) Span() span.Span { return s.span }
+func (s *StatementSetExpr) Span() token.Span { return s.span }
 func (s *StatementSetExpr) String() string  { return s.Statement.String() }
 
 // TableSetExpr represents a TABLE command
 type TableSetExpr struct {
-	span  span.Span
+	span  token.Span
 	Table *Table
 }
 
-func (t *TableSetExpr) Span() span.Span { return t.span }
+func (t *TableSetExpr) Span() token.Span { return t.span }
 func (t *TableSetExpr) String() string  { return t.Table.String() }
 
 // Table represents a TABLE command
 type Table struct {
-	span       span.Span
+	span       token.Span
 	TableName  *string
 	SchemaName *string
 }
 
-func (t *Table) Span() span.Span { return t.span }
+func (t *Table) Span() token.Span { return t.span }
 func (t *Table) String() string {
 	if t.SchemaName != nil && t.TableName != nil {
 		return fmt.Sprintf("TABLE %s.%s", *t.SchemaName, *t.TableName)
@@ -175,13 +175,13 @@ func (t *Table) String() string {
 
 // ProjectionSelect represents a ClickHouse ADD PROJECTION query.
 type ProjectionSelect struct {
-	span       span.Span
+	span       token.Span
 	Projection []SelectItem
 	OrderBy    *OrderBy
 	GroupBy    GroupByExpr
 }
 
-func (p *ProjectionSelect) Span() span.Span { return p.span }
+func (p *ProjectionSelect) Span() token.Span { return p.span }
 func (p *ProjectionSelect) String() string {
 	parts := []string{"SELECT"}
 	proj := make([]string, len(p.Projection))
@@ -255,7 +255,7 @@ func (s *SelectModifiers) IsAnySet() bool {
 
 // Select represents a restricted SELECT (without CTEs/ORDER BY)
 type Select struct {
-	span                span.Span
+	span                token.Span
 	OptimizerHints      []OptimizerHint
 	Distinct            *Distinct
 	SelectModifiers     *SelectModifiers
@@ -282,7 +282,7 @@ type Select struct {
 }
 
 // Span returns the source span of this node
-func (s *Select) Span() span.Span { return s.span }
+func (s *Select) Span() token.Span { return s.span }
 
 // String returns the SQL representation
 func (s *Select) String() string {
@@ -416,11 +416,11 @@ func (s *Select) String() string {
 
 // OptimizerHint represents query optimizer hints (MySQL, Oracle)
 type OptimizerHint struct {
-	span span.Span
+	span token.Span
 	Hint string
 }
 
-func (o *OptimizerHint) Span() span.Span { return o.span }
+func (o *OptimizerHint) Span() token.Span { return o.span }
 func (o *OptimizerHint) String() string  { return o.Hint }
 
 // SelectItem represents one item of the comma-separated list following SELECT

@@ -28,29 +28,28 @@ import (
 	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/errors"
-	"github.com/user/sqlparser/span"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/parseriface"
+	"github.com/user/sqlparser/token"
 )
 
-// Compile-time interface check: ensure Parser implements dialects.ParserAccessor
-var _ dialects.ParserAccessor = (*Parser)(nil)
+// Compile-time interface check: ensure Parser implements parseriface.Parser
+var _ parseriface.Parser = (*Parser)(nil)
 
 // DefaultRemainingDepth is the default maximum recursion depth
 const DefaultRemainingDepth = 50
 
 // eofToken is a constant EOF token that can be referenced.
-var eofToken = tokenizer.TokenWithSpan{
-	Token: tokenizer.EOF{},
-	Span:  span.Span{},
+var eofToken = token.TokenWithSpan{
+	Token: token.EOF{},
+	Span:  token.Span{},
 }
 
 // Parser is the main SQL parser struct.
 // It maintains state for parsing SQL statements from a token stream.
 type Parser struct {
 	// tokens is the slice of tokens to parse
-	tokens []tokenizer.TokenWithSpan
+	tokens []token.TokenWithSpan
 
 	// index is the index of the first unprocessed token in tokens.
 	// The "current" token is at index - 1
@@ -59,13 +58,13 @@ type Parser struct {
 	index int
 
 	// state is the current state of the parser
-	state ParserState
+	state parseriface.ParserState
 
 	// dialect is the SQL dialect to use for parsing
-	dialect dialects.Dialect
+	dialect parseriface.CompleteDialect
 
 	// options controls parser behavior
-	options ParserOptions
+	options parseriface.ParserOptions
 
 	// recursionCounter prevents stack overflow by limiting recursion depth
 	recursionCounter RecursionCounter
@@ -78,11 +77,11 @@ type Parser struct {
 //	dialect := dialects.NewGenericDialect()
 //	parser := parser.New(dialect)
 //	stmts, err := parser.TryWithSQL("SELECT * FROM foo").ParseStatements()
-func New(dialect dialects.Dialect) *Parser {
+func New(dialect parseriface.CompleteDialect) *Parser {
 	return &Parser{
-		tokens:           make([]tokenizer.TokenWithSpan, 0),
+		tokens:           make([]token.TokenWithSpan, 0),
 		index:            0,
-		state:            StateNormal,
+		state:            parseriface.StateNormal,
 		dialect:          dialect,
 		recursionCounter: NewRecursionCounter(DefaultRemainingDepth),
 		options: NewParserOptions(
@@ -101,13 +100,13 @@ func (p *Parser) WithRecursionLimit(recursionLimit int) *Parser {
 }
 
 // WithOptions sets additional parser options.
-func (p *Parser) WithOptions(options ParserOptions) *Parser {
+func (p *Parser) WithOptions(options parseriface.ParserOptions) *Parser {
 	p.options = options
 	return p
 }
 
 // WithTokens resets this parser to parse the specified token stream.
-func (p *Parser) WithTokens(tokens []tokenizer.TokenWithSpan) *Parser {
+func (p *Parser) WithTokens(tokens []token.TokenWithSpan) *Parser {
 	p.tokens = tokens
 	p.index = 0
 	return p
@@ -116,9 +115,9 @@ func (p *Parser) WithTokens(tokens []tokenizer.TokenWithSpan) *Parser {
 // TryWithSQL tokenizes the SQL string and sets this parser's state to
 // parse the resulting tokens. Returns an error if there was an error tokenizing the SQL string.
 func (p *Parser) TryWithSQL(sql string) (*Parser, error) {
-	// Wrap the dialects.Dialect in an adapter that implements tokenizer.Dialect
+	// Wrap the dialects.Dialect in an adapter that implements token.Dialect
 	tokDialect := newDialectAdapter(p.dialect)
-	tok := tokenizer.NewTokenizer(tokDialect, sql)
+	tok := token.NewTokenizer(tokDialect, sql)
 	tokens, err := tok.TokenizeWithSpan()
 	if err != nil {
 		return nil, err
@@ -136,7 +135,7 @@ func (p *Parser) TryWithSQL(sql string) (*Parser, error) {
 //	dialect := dialects.NewGenericDialect()
 //	statements, err := parser.ParseSQL(dialect, "SELECT * FROM foo")
 //	// statements will contain 1 Statement
-func ParseSQL(dialect dialects.Dialect, sql string) ([]ast.Statement, error) {
+func ParseSQL(dialect parseriface.CompleteDialect, sql string) ([]ast.Statement, error) {
 	p, err := New(dialect).TryWithSQL(sql)
 	if err != nil {
 		return nil, err
@@ -158,7 +157,7 @@ func (p *Parser) ParseStatements() ([]ast.Statement, error) {
 
 	for {
 		// ignore empty statements (between successive statement delimiters)
-		for p.ConsumeToken(tokenizer.TokenSemiColon{}) {
+		for p.ConsumeToken(token.TokenSemiColon{}) {
 			expectingStatementDelimiter = false
 		}
 
@@ -168,7 +167,7 @@ func (p *Parser) ParseStatements() ([]ast.Statement, error) {
 
 		nextTok := p.PeekTokenRef()
 		switch t := nextTok.Token.(type) {
-		case tokenizer.EOF:
+		case token.EOF:
 			return stmts, nil
 		default:
 			_ = t // silence unused variable warning for now
@@ -176,7 +175,7 @@ func (p *Parser) ParseStatements() ([]ast.Statement, error) {
 
 		if expectingStatementDelimiter {
 			// Check for END keyword as a statement terminator
-			if wordTok, ok := nextTok.Token.(tokenizer.TokenWord); ok && wordTok.Word.Keyword == "END" {
+			if wordTok, ok := nextTok.Token.(token.TokenWord); ok && wordTok.Word.Keyword == "END" {
 				return stmts, nil
 			}
 			return nil, p.expectedRef("end of statement", nextTok)
@@ -209,10 +208,10 @@ func (p *Parser) ParseStatement() (ast.Statement, error) {
 	nextToken := p.NextToken()
 
 	switch tok := nextToken.Token.(type) {
-	case tokenizer.TokenWord:
+	case token.TokenWord:
 		// Dispatch based on keyword
 		return p.parseStatementByKeyword(string(tok.Word.Keyword), nextToken)
-	case tokenizer.TokenLParen:
+	case token.TokenLParen:
 		// Parenthesized expression - likely a subquery
 		p.PrevToken()
 		return p.parseQuery()
@@ -222,7 +221,7 @@ func (p *Parser) ParseStatement() (ast.Statement, error) {
 }
 
 // parseStatementByKeyword dispatches to specific statement parsers based on the keyword.
-func (p *Parser) parseStatementByKeyword(keyword string, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseStatementByKeyword(keyword string, tok token.TokenWithSpan) (ast.Statement, error) {
 	switch keyword {
 	case "SELECT", "WITH", "VALUES":
 		p.PrevToken()
@@ -383,37 +382,37 @@ func (p *Parser) parseStatementByKeyword(keyword string, tok tokenizer.TokenWith
 }
 
 // GetDialect returns the dialect used by this parser.
-func (p *Parser) GetDialect() dialects.Dialect {
+func (p *Parser) GetDialect() parseriface.CompleteDialect {
 	return p.dialect
 }
 
-// GetState returns the current parser state (implements dialects.ParserAccessor).
-func (p *Parser) GetState() dialects.ParserState {
+// GetState returns the current parser state (implements parseriface.Parser).
+func (p *Parser) GetState() parseriface.ParserState {
 	switch p.state {
 	case StateConnectBy:
-		return dialects.StateConnectBy
+		return parseriface.StateConnectBy
 	case StateColumnDefinition:
-		return dialects.StateColumnDefinition
+		return parseriface.StateColumnDefinition
 	default:
-		return dialects.StateNormal
+		return parseriface.StateNormal
 	}
 }
 
-// SetState sets the current parser state (implements dialects.ParserAccessor).
-func (p *Parser) SetState(state dialects.ParserState) {
+// SetState sets the current parser state (implements parseriface.Parser).
+func (p *Parser) SetState(state parseriface.ParserState) {
 	switch state {
-	case dialects.StateConnectBy:
+	case parseriface.StateConnectBy:
 		p.state = StateConnectBy
-	case dialects.StateColumnDefinition:
+	case parseriface.StateColumnDefinition:
 		p.state = StateColumnDefinition
 	default:
 		p.state = StateNormal
 	}
 }
 
-// GetOptions returns the parser options (implements dialects.ParserAccessor).
-func (p *Parser) GetOptions() dialects.ParserOptions {
-	return dialects.ParserOptions{
+// GetOptions returns the parser options (implements parseriface.Parser).
+func (p *Parser) GetOptions() parseriface.ParserOptions {
+	return parseriface.ParserOptions{
 		TrailingCommas:   p.options.TrailingCommas,
 		Unescape:         p.options.Unescape,
 		RequireSemicolon: p.options.RequireSemicolon,
@@ -421,7 +420,7 @@ func (p *Parser) GetOptions() dialects.ParserOptions {
 }
 
 // WithState sets the parser state temporarily for the duration of a function call.
-func (p *Parser) WithState(state ParserState, f func() error) error {
+func (p *Parser) WithState(state parseriface.ParserState, f func() error) error {
 	oldState := p.state
 	p.state = state
 	err := f()
@@ -431,11 +430,11 @@ func (p *Parser) WithState(state ParserState, f func() error) error {
 
 // InColumnDefinitionState returns true if the parser is in the ColumnDefinition state.
 func (p *Parser) InColumnDefinitionState() bool {
-	return p.state == StateColumnDefinition
+	return p.state == parseriface.StateColumnDefinition
 }
 
 // expected creates a parser error for an unexpected token.
-func (p *Parser) expected(expected string, found tokenizer.TokenWithSpan) error {
+func (p *Parser) expected(expected string, found token.TokenWithSpan) error {
 	return errors.NewParserError(
 		fmt.Sprintf("Expected: %s, found: %s", expected, found.Token.String()),
 		found.Span,
@@ -443,7 +442,7 @@ func (p *Parser) expected(expected string, found tokenizer.TokenWithSpan) error 
 }
 
 // expectedRef creates a parser error for an unexpected token (by reference).
-func (p *Parser) expectedRef(expected string, found *tokenizer.TokenWithSpan) error {
+func (p *Parser) expectedRef(expected string, found *token.TokenWithSpan) error {
 	return errors.NewParserError(
 		fmt.Sprintf("Expected: %s, found: %s", expected, found.Token.String()),
 		found.Span,
@@ -460,7 +459,7 @@ func (p *Parser) expectedAt(expected string, index int) error {
 }
 
 // tokenAt returns the token at the given location, or EOF if beyond the length.
-func (p *Parser) tokenAt(index int) *tokenizer.TokenWithSpan {
+func (p *Parser) tokenAt(index int) *token.TokenWithSpan {
 	if index < 0 {
 		return &eofToken
 	}
@@ -481,19 +480,19 @@ func (p *Parser) parseQuery() (ast.Statement, error) {
 	return parseQuery(p)
 }
 
-func (p *Parser) parseInsert(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseInsert(tok token.TokenWithSpan) (ast.Statement, error) {
 	return ParseInsert(p, tok)
 }
 
-func (p *Parser) parseReplace(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseReplace(tok token.TokenWithSpan) (ast.Statement, error) {
 	return ParseReplace(p, tok)
 }
 
-func (p *Parser) parseUpdate(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseUpdate(tok token.TokenWithSpan) (ast.Statement, error) {
 	return ParseUpdate(p, tok)
 }
 
-func (p *Parser) parseDelete(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseDelete(tok token.TokenWithSpan) (ast.Statement, error) {
 	return ParseDelete(p, tok)
 }
 
@@ -569,7 +568,7 @@ func (p *Parser) parseCopy() (ast.Statement, error) {
 	return ParseCopy(p)
 }
 
-func (p *Parser) parseMerge(tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func (p *Parser) parseMerge(tok token.TokenWithSpan) (ast.Statement, error) {
 	return ParseMerge(p, tok)
 }
 
@@ -648,7 +647,7 @@ func (p *Parser) parseKill() (ast.Statement, error) {
 
 	// Parse the process ID (uint)
 	tok := p.NextToken()
-	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+	if num, ok := tok.Token.(token.TokenNumber); ok {
 		id, err := strconv.ParseUint(num.Value, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid process ID: %w", err)
@@ -712,12 +711,12 @@ func (p *Parser) parseNotify() (ast.Statement, error) {
 	}
 
 	var payload *string
-	if p.ConsumeToken(tokenizer.TokenComma{}) {
-		tok, err := p.ExpectToken(tokenizer.TokenSingleQuotedString{})
+	if p.ConsumeToken(token.TokenComma{}) {
+		tok, err := p.ExpectToken(token.TokenSingleQuotedString{})
 		if err != nil {
 			return nil, err
 		}
-		if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 			payload = &str.Value
 		}
 	}
@@ -731,7 +730,7 @@ func (p *Parser) parseNotify() (ast.Statement, error) {
 func (p *Parser) parseUnlisten() (ast.Statement, error) {
 	// Check for wildcard (*)
 	tok := p.PeekToken()
-	if _, ok := tok.Token.(tokenizer.TokenMul); ok {
+	if _, ok := tok.Token.(token.TokenMul); ok {
 		p.AdvanceToken()
 		// Create identifier with * as the name
 		return &statement.Unlisten{
@@ -754,13 +753,13 @@ func (p *Parser) parsePragma() (ast.Statement, error) {
 		return nil, err
 	}
 
-	if p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if p.ConsumeToken(token.TokenLParen{}) {
 		// PRAGMA name(value)
 		value, err := p.parsePragmaValue()
 		if err != nil {
 			return nil, err
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		return &statement.Pragma{
@@ -768,7 +767,7 @@ func (p *Parser) parsePragma() (ast.Statement, error) {
 			Value: value,
 			IsEq:  false,
 		}, nil
-	} else if p.ConsumeToken(tokenizer.TokenEq{}) {
+	} else if p.ConsumeToken(token.TokenEq{}) {
 		// PRAGMA name = value
 		value, err := p.parsePragmaValue()
 		if err != nil {
@@ -793,11 +792,11 @@ func (p *Parser) parsePragma() (ast.Statement, error) {
 func (p *Parser) parsePragmaValue() (expr.Expr, error) {
 	tok := p.NextToken()
 	switch t := tok.Token.(type) {
-	case tokenizer.TokenSingleQuotedString:
+	case token.TokenSingleQuotedString:
 		return &expr.ValueExpr{
 			Value: ast.NewSingleQuotedString(t.Value),
 		}, nil
-	case tokenizer.TokenNumber:
+	case token.TokenNumber:
 		val, err := ast.NewNumber(t.Value, false)
 		if err != nil {
 			return nil, err
@@ -805,7 +804,7 @@ func (p *Parser) parsePragmaValue() (expr.Expr, error) {
 		return &expr.ValueExpr{
 			Value: val,
 		}, nil
-	case tokenizer.TokenPlaceholder:
+	case token.TokenPlaceholder:
 		return &expr.ValueExpr{
 			Value: ast.NewPlaceholder(t.Value),
 		}, nil
@@ -908,13 +907,13 @@ func (p *Parser) ParseInsert() (ast.Statement, error) {
 
 // ExpectedRef returns an error with context about what was expected and what was found.
 // This is the exported version of expectedRef.
-func (p *Parser) ExpectedRef(expected string, found *tokenizer.TokenWithSpan) error {
+func (p *Parser) ExpectedRef(expected string, found *token.TokenWithSpan) error {
 	return p.expectedRef(expected, found)
 }
 
 // Expected returns an error with context about what was expected and what was found.
 // This is the exported version of expected.
-func (p *Parser) Expected(expected string, found tokenizer.TokenWithSpan) error {
+func (p *Parser) Expected(expected string, found token.TokenWithSpan) error {
 	return p.expected(expected, found)
 }
 
@@ -932,7 +931,7 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 		parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
 
 		// Check if there's a period - if so, continue to next part
-		if p.ConsumeToken(tokenizer.TokenPeriod{}) {
+		if p.ConsumeToken(token.TokenPeriod{}) {
 			// Continue to parse the next part
 			continue
 		}
@@ -948,12 +947,12 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 // Returns the list of identifiers and consumes the closing parenthesis.
 func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 	// Expect opening parenthesis
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	// Check for empty list
-	if _, ok := p.PeekToken().Token.(tokenizer.TokenRParen); ok {
+	if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
 		p.AdvanceToken()
 		return nil, nil
 	}
@@ -967,10 +966,10 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 		columns = append(columns, ident)
 
 		// Check for comma or closing parenthesis
-		if p.ConsumeToken(tokenizer.TokenComma{}) {
+		if p.ConsumeToken(token.TokenComma{}) {
 			continue
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		break
@@ -983,7 +982,7 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 // TODO: Implement proper identifier parsing
 func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 	tok := p.PeekToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		p.AdvanceToken()
 		// Preserve original case for all dialects
 		// This matches the Rust reference implementation
@@ -996,7 +995,7 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 // Checks if the nth token is the expected keyword.
 func (p *Parser) PeekNthKeyword(n int, expected string) bool {
 	tok := p.PeekNthToken(n)
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		return strings.EqualFold(word.Word.Value, expected)
 	}
 	return false
@@ -1024,7 +1023,7 @@ func (p *Parser) ExpectedAt(expected string, index int) error {
 // like INT, TEXT, VARCHAR, etc.
 func (p *Parser) ParseDataType() (datatype.DataType, error) {
 	tok := p.PeekToken()
-	word, ok := tok.Token.(tokenizer.TokenWord)
+	word, ok := tok.Token.(token.TokenWord)
 	if !ok {
 		return nil, fmt.Errorf("expected data type keyword, found %v", tok.Token)
 	}
@@ -1093,22 +1092,22 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 }
 
 // parseVarcharType parses VARCHAR [(n)]
-func parseVarcharType(p *Parser, spanVal span.Span) (*datatype.VarcharType, error) {
+func parseVarcharType(p *Parser, spanVal token.Span) (*datatype.VarcharType, error) {
 	result := &datatype.VarcharType{
 		SpanVal: spanVal,
 	}
 
 	// Check for optional size specification
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			length, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid VARCHAR length: %w", err)
 			}
 			result.Length = &datatype.CharacterLength{Length: length}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1120,22 +1119,22 @@ func parseVarcharType(p *Parser, spanVal span.Span) (*datatype.VarcharType, erro
 }
 
 // parseCharType parses CHAR [(n)]
-func parseCharType(p *Parser, spanVal span.Span) (*datatype.CharType, error) {
+func parseCharType(p *Parser, spanVal token.Span) (*datatype.CharType, error) {
 	result := &datatype.CharType{
 		SpanVal: spanVal,
 	}
 
 	// Check for optional size specification
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			length, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid CHAR length: %w", err)
 			}
 			result.Length = &datatype.CharacterLength{Length: length}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1148,17 +1147,17 @@ func parseCharType(p *Parser, spanVal span.Span) (*datatype.CharType, error) {
 
 // parseOptionalPrecision parses optional (n) display width for integer types
 func parseOptionalPrecision(p *Parser) *uint64 {
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); !isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); !isLParen {
 		return nil
 	}
 	p.NextToken() // consume (
 	tok := p.NextToken()
-	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+	if num, ok := tok.Token.(token.TokenNumber); ok {
 		precision, err := strconv.ParseUint(num.Value, 10, 64)
 		if err != nil {
 			return nil
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil
 		}
 		return &precision
@@ -1168,7 +1167,7 @@ func parseOptionalPrecision(p *Parser) *uint64 {
 
 // parseIntType parses INT/INTEGER with optional display width and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11996-12006
-func parseIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.IntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1181,7 +1180,7 @@ func parseIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 }
 
 // parseInt4Type parses INT4 with optional display width and UNSIGNED modifier
-func parseInt4Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseInt4Type(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.Int4UnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1190,7 +1189,7 @@ func parseInt4Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 }
 
 // parseInt8Type parses INT8 with optional display width and UNSIGNED modifier
-func parseInt8Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseInt8Type(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.Int8UnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1200,7 +1199,7 @@ func parseInt8Type(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseBigIntType parses BIGINT with optional display width and UNSIGNED modifier
 // Reference: src/parser/mod.rs:12039-12049
-func parseBigIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseBigIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.BigIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1214,7 +1213,7 @@ func parseBigIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseSmallIntType parses SMALLINT with optional display width and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11974-11984
-func parseSmallIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseSmallIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.SmallIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1228,7 +1227,7 @@ func parseSmallIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) 
 
 // parseTinyIntType parses TINYINT with optional display width and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11955-11965
-func parseTinyIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseTinyIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.TinyIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1242,7 +1241,7 @@ func parseTinyIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseMediumIntType parses MEDIUMINT with optional display width and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11985-11995
-func parseMediumIntType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseMediumIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	displayWidth := parseOptionalPrecision(p)
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.MediumIntUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
@@ -1256,22 +1255,22 @@ func parseMediumIntType(p *Parser, spanVal span.Span) (datatype.DataType, error)
 
 // parseFloatType parses FLOAT with optional precision/scale and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11918-11926
-func parseFloatType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseFloatType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	// Parse optional (p) or (p,s)
 	var info datatype.ExactNumberInfo
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			prec, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid FLOAT precision: %w", err)
 			}
 			info.Precision = &prec
 			// Check for optional scale
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				tok = p.NextToken()
-				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+				if num, ok := tok.Token.(token.TokenNumber); ok {
 					s, err := strconv.ParseInt(num.Value, 10, 64)
 					if err != nil {
 						return nil, fmt.Errorf("invalid FLOAT scale: %w", err)
@@ -1281,7 +1280,7 @@ func parseFloatType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 					return nil, fmt.Errorf("expected number for FLOAT scale")
 				}
 			}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1297,7 +1296,7 @@ func parseFloatType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseDoubleType parses DOUBLE with optional precision/scale and UNSIGNED modifier
 // Reference: src/parser/mod.rs:11938-11954
-func parseDoubleType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseDoubleType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	// Check for PRECISION keyword (DOUBLE PRECISION)
 	if p.ParseKeyword("PRECISION") {
 		if p.ParseKeyword("UNSIGNED") {
@@ -1308,19 +1307,19 @@ func parseDoubleType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 	// Parse optional (p) or (p,s)
 	var info datatype.ExactNumberInfo
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			prec, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid DOUBLE precision: %w", err)
 			}
 			info.Precision = &prec
 			// Check for optional scale
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				tok = p.NextToken()
-				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+				if num, ok := tok.Token.(token.TokenNumber); ok {
 					s, err := strconv.ParseInt(num.Value, 10, 64)
 					if err != nil {
 						return nil, fmt.Errorf("invalid DOUBLE scale: %w", err)
@@ -1330,7 +1329,7 @@ func parseDoubleType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 					return nil, fmt.Errorf("expected number for DOUBLE scale")
 				}
 			}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1346,21 +1345,21 @@ func parseDoubleType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseNumericType parses NUMERIC [(p[,s])] with UNSIGNED modifier
 // Reference: src/parser/mod.rs (similar to DECIMAL)
-func parseNumericType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseNumericType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	var info datatype.ExactNumberInfo
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			prec, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid NUMERIC precision: %w", err)
 			}
 			info.Precision = &prec
 			// Check for optional scale
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				tok = p.NextToken()
-				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+				if num, ok := tok.Token.(token.TokenNumber); ok {
 					s, err := strconv.ParseInt(num.Value, 10, 64)
 					if err != nil {
 						return nil, fmt.Errorf("invalid NUMERIC scale: %w", err)
@@ -1370,7 +1369,7 @@ func parseNumericType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 					return nil, fmt.Errorf("expected number for NUMERIC scale")
 				}
 			}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1386,21 +1385,21 @@ func parseNumericType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseDecimalType parses DECIMAL [(p[,s])] or DEC [(p[,s])] with UNSIGNED modifier
 // Reference: src/parser/mod.rs:12181-12198
-func parseDecimalType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseDecimalType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	var info datatype.ExactNumberInfo
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			prec, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid DECIMAL precision: %w", err)
 			}
 			info.Precision = &prec
 			// Check for optional scale
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				tok = p.NextToken()
-				if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+				if num, ok := tok.Token.(token.TokenNumber); ok {
 					s, err := strconv.ParseInt(num.Value, 10, 64)
 					if err != nil {
 						return nil, fmt.Errorf("invalid DECIMAL scale: %w", err)
@@ -1410,7 +1409,7 @@ func parseDecimalType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 					return nil, fmt.Errorf("expected number for DECIMAL scale")
 				}
 			}
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1426,7 +1425,7 @@ func parseDecimalType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 
 // parseRealType parses REAL with UNSIGNED modifier
 // Reference: src/parser/mod.rs:11927-11933
-func parseRealType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
+func parseRealType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	if p.ParseKeyword("UNSIGNED") {
 		return &datatype.RealUnsignedType{SpanVal: spanVal}, nil
 	}
@@ -1434,22 +1433,22 @@ func parseRealType(p *Parser, spanVal span.Span) (datatype.DataType, error) {
 }
 
 // parseTimestampType parses TIMESTAMP [(precision)]
-func parseTimestampType(p *Parser, spanVal span.Span) (*datatype.TimestampType, error) {
+func parseTimestampType(p *Parser, spanVal token.Span) (*datatype.TimestampType, error) {
 	result := &datatype.TimestampType{
 		SpanVal: spanVal,
 	}
 
 	// Check for optional precision specification
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			precision, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid TIMESTAMP precision: %w", err)
 			}
 			result.Precision = &precision
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {
@@ -1461,22 +1460,22 @@ func parseTimestampType(p *Parser, spanVal span.Span) (*datatype.TimestampType, 
 }
 
 // parseDatetimeType parses DATETIME [(precision)]
-func parseDatetimeType(p *Parser, spanVal span.Span) (*datatype.DatetimeType, error) {
+func parseDatetimeType(p *Parser, spanVal token.Span) (*datatype.DatetimeType, error) {
 	result := &datatype.DatetimeType{
 		SpanVal: spanVal,
 	}
 
 	// Check for optional precision specification
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			precision, err := strconv.ParseUint(num.Value, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid DATETIME precision: %w", err)
 			}
 			result.Precision = &precision
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 		} else {

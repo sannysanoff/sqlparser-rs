@@ -21,20 +21,20 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Exists represents an EXISTS expression (e.g., `EXISTS (SELECT ...)`).
 type Exists struct {
 	Subquery *QueryExpr
 	Negated  bool
-	SpanVal  span.Span
+	SpanVal  token.Span
 }
 
 func (e *Exists) exprNode() {}
 
 // Span returns the source span for this expression.
-func (e *Exists) Span() span.Span {
+func (e *Exists) Span() token.Span {
 	return e.SpanVal
 }
 
@@ -49,13 +49,13 @@ func (e *Exists) String() string {
 // Subquery represents a scalar subquery expression.
 type Subquery struct {
 	Query   *QueryExpr
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 func (s *Subquery) exprNode() {}
 
 // Span returns the source span for this expression.
-func (s *Subquery) Span() span.Span {
+func (s *Subquery) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -69,11 +69,11 @@ type QueryExpr struct {
 	// This is a placeholder - the actual query types are in the query package
 	SQL       string
 	Statement interface{} // Can hold an ast.Statement (avoids circular import)
-	SpanVal   span.Span
+	SpanVal   token.Span
 }
 
 // Span returns the source span for this query.
-func (q *QueryExpr) Span() span.Span {
+func (q *QueryExpr) Span() token.Span {
 	return q.SpanVal
 }
 
@@ -91,13 +91,13 @@ func (q *QueryExpr) String() string {
 // GroupingSets represents a GROUPING SETS expression.
 type GroupingSets struct {
 	Sets    [][]Expr
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 func (g *GroupingSets) exprNode() {}
 
 // Span returns the source span for this expression.
-func (g *GroupingSets) Span() span.Span {
+func (g *GroupingSets) Span() token.Span {
 	return g.SpanVal
 }
 
@@ -123,13 +123,13 @@ func (g *GroupingSets) String() string {
 // Cube represents a CUBE expression.
 type Cube struct {
 	Sets    [][]Expr
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 func (c *Cube) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *Cube) Span() span.Span {
+func (c *Cube) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -159,13 +159,13 @@ func (c *Cube) String() string {
 // Rollup represents a ROLLUP expression.
 type Rollup struct {
 	Sets    [][]Expr
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 func (r *Rollup) exprNode() {}
 
 // Span returns the source span for this expression.
-func (r *Rollup) Span() span.Span {
+func (r *Rollup) Span() token.Span {
 	return r.SpanVal
 }
 

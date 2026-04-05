@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Node is the base interface for all AST nodes.
@@ -31,7 +31,7 @@ import (
 type Node interface {
 	node()
 	// Span returns the source location of this node in the original SQL.
-	Span() span.Span
+	Span() token.Span
 	// String returns the SQL representation of this node.
 	String() string
 }
@@ -76,16 +76,16 @@ type Query interface {
 // It should be embedded in concrete node types.
 type BaseNode struct {
 	// span tracks the source location of this node
-	span span.Span
+	span token.Span
 }
 
 // Span returns the source location of this node.
-func (n *BaseNode) Span() span.Span {
+func (n *BaseNode) Span() token.Span {
 	return n.span
 }
 
 // SetSpan sets the source location of this node.
-func (n *BaseNode) SetSpan(s span.Span) {
+func (n *BaseNode) SetSpan(s token.Span) {
 	n.span = s
 }
 

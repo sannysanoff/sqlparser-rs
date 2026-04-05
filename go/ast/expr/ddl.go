@@ -25,8 +25,7 @@ import (
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/query"
-	"github.com/user/sqlparser/span"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ============================================================================
@@ -38,13 +37,13 @@ type ColumnDef struct {
 	Name     *ast.Ident
 	DataType interface{} // datatype.DataType - using interface{} to avoid import cycle
 	Options  []*ColumnOptionDef
-	SpanVal  span.Span
+	SpanVal  token.Span
 }
 
 func (c *ColumnDef) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *ColumnDef) Span() span.Span {
+func (c *ColumnDef) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -73,13 +72,13 @@ func (c *ColumnDef) String() string {
 type TableConstraint struct {
 	Name       *ast.Ident
 	Constraint interface{} // TODO: Define specific constraint types
-	SpanVal    span.Span
+	SpanVal    token.Span
 }
 
 func (t *TableConstraint) exprNode() {}
 
 // Span returns the source span for this expression.
-func (t *TableConstraint) Span() span.Span {
+func (t *TableConstraint) Span() token.Span {
 	return t.SpanVal
 }
 
@@ -151,8 +150,8 @@ const (
 func (h *HiveDistributionStyle) exprNode() {}
 
 // Span returns the source span for this expression.
-func (h *HiveDistributionStyle) Span() span.Span {
-	return span.Span{}
+func (h *HiveDistributionStyle) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -194,8 +193,8 @@ type HiveIOFormat struct {
 func (h *HiveFormat) exprNode() {}
 
 // Span returns the source span for this expression.
-func (h *HiveFormat) Span() span.Span {
-	return span.Span{}
+func (h *HiveFormat) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -227,8 +226,8 @@ const (
 func (c *CreateTableOptions) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CreateTableOptions) Span() span.Span {
-	return span.Span{}
+func (c *CreateTableOptions) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -286,8 +285,8 @@ const (
 func (c *CreateTableLikeKind) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CreateTableLikeKind) Span() span.Span {
-	return span.Span{}
+func (c *CreateTableLikeKind) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -321,8 +320,8 @@ const (
 func (t *TableVersion) exprNode() {}
 
 // Span returns the source span for this expression.
-func (t *TableVersion) Span() span.Span {
-	return span.Span{}
+func (t *TableVersion) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -362,8 +361,8 @@ const (
 func (c *CommentDef) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CommentDef) Span() span.Span {
-	return span.Span{}
+func (c *CommentDef) Span() token.Span {
+	return token.Span{}
 }
 
 // String returns the SQL representation.
@@ -420,54 +419,54 @@ type OneOrManyWithParens struct {
 	Items []Expr
 }
 
-func (o *OneOrManyWithParens) exprNode()       {}
-func (o *OneOrManyWithParens) Span() span.Span { return span.Span{} }
-func (o *OneOrManyWithParens) String() string  { return "(...)" }
+func (o *OneOrManyWithParens) exprNode()        {}
+func (o *OneOrManyWithParens) Span() token.Span { return token.Span{} }
+func (o *OneOrManyWithParens) String() string   { return "(...)" }
 
 // WrappedCollection represents a wrapped collection of items.
 type WrappedCollection struct {
 	Items []Expr
 }
 
-func (w *WrappedCollection) exprNode()       {}
-func (w *WrappedCollection) Span() span.Span { return span.Span{} }
-func (w *WrappedCollection) String() string  { return "(...)" }
+func (w *WrappedCollection) exprNode()        {}
+func (w *WrappedCollection) Span() token.Span { return token.Span{} }
+func (w *WrappedCollection) String() string   { return "(...)" }
 
 // ClusteredBy represents CLUSTER BY clause.
 type ClusteredBy struct {
 	Columns []*ast.Ident
 }
 
-func (c *ClusteredBy) exprNode()       {}
-func (c *ClusteredBy) Span() span.Span { return span.Span{} }
-func (c *ClusteredBy) String() string  { return "CLUSTERED BY" }
+func (c *ClusteredBy) exprNode()        {}
+func (c *ClusteredBy) Span() token.Span { return token.Span{} }
+func (c *ClusteredBy) String() string   { return "CLUSTERED BY" }
 
 // ForValues represents FOR VALUES clause.
 type ForValues struct {
 	Values []Expr
 }
 
-func (f *ForValues) exprNode()       {}
-func (f *ForValues) Span() span.Span { return span.Span{} }
-func (f *ForValues) String() string  { return "FOR VALUES" }
+func (f *ForValues) exprNode()        {}
+func (f *ForValues) Span() token.Span { return token.Span{} }
+func (f *ForValues) String() string   { return "FOR VALUES" }
 
 // RowAccessPolicy represents row access policy.
 type RowAccessPolicy struct {
 	Name *ast.ObjectName
 }
 
-func (r *RowAccessPolicy) exprNode()       {}
-func (r *RowAccessPolicy) Span() span.Span { return span.Span{} }
-func (r *RowAccessPolicy) String() string  { return "ROW ACCESS POLICY" }
+func (r *RowAccessPolicy) exprNode()        {}
+func (r *RowAccessPolicy) Span() token.Span { return token.Span{} }
+func (r *RowAccessPolicy) String() string   { return "ROW ACCESS POLICY" }
 
 // StorageLifecyclePolicy represents storage lifecycle policy.
 type StorageLifecyclePolicy struct {
 	Name string
 }
 
-func (s *StorageLifecyclePolicy) exprNode()       {}
-func (s *StorageLifecyclePolicy) Span() span.Span { return span.Span{} }
-func (s *StorageLifecyclePolicy) String() string  { return "STORAGE LIFECYCLE POLICY" }
+func (s *StorageLifecyclePolicy) exprNode()        {}
+func (s *StorageLifecyclePolicy) Span() token.Span { return token.Span{} }
+func (s *StorageLifecyclePolicy) String() string   { return "STORAGE LIFECYCLE POLICY" }
 
 // Tag represents a tag.
 type Tag struct {
@@ -475,9 +474,9 @@ type Tag struct {
 	Value string
 }
 
-func (t *Tag) exprNode()       {}
-func (t *Tag) Span() span.Span { return span.Span{} }
-func (t *Tag) String() string  { return fmt.Sprintf("%s=%s", t.Name, t.Value) }
+func (t *Tag) exprNode()        {}
+func (t *Tag) Span() token.Span { return token.Span{} }
+func (t *Tag) String() string   { return fmt.Sprintf("%s=%s", t.Name, t.Value) }
 
 // StorageSerializationPolicy represents storage serialization policy.
 type StorageSerializationPolicy int
@@ -509,16 +508,16 @@ func (i InitializeKind) String() string { return "" }
 // ViewEnvelope represents view envelope.
 type ViewEnvelope struct{}
 
-func (v *ViewEnvelope) exprNode()       {}
-func (v *ViewEnvelope) Span() span.Span { return span.Span{} }
-func (v *ViewEnvelope) String() string  { return "" }
+func (v *ViewEnvelope) exprNode()        {}
+func (v *ViewEnvelope) Span() token.Span { return token.Span{} }
+func (v *ViewEnvelope) String() string   { return "" }
 
 // CreateViewParams represents CREATE VIEW parameters.
 type CreateViewParams struct{}
 
-func (c *CreateViewParams) exprNode()       {}
-func (c *CreateViewParams) Span() span.Span { return span.Span{} }
-func (c *CreateViewParams) String() string  { return "" }
+func (c *CreateViewParams) exprNode()        {}
+func (c *CreateViewParams) Span() token.Span { return token.Span{} }
+func (c *CreateViewParams) String() string   { return "" }
 
 // IndexColumn represents an index column.
 type IndexColumn struct {
@@ -528,8 +527,8 @@ type IndexColumn struct {
 	NullsFirst *bool // nil means not specified
 }
 
-func (i *IndexColumn) exprNode()       {}
-func (i *IndexColumn) Span() span.Span { return span.Span{} }
+func (i *IndexColumn) exprNode()        {}
+func (i *IndexColumn) Span() token.Span { return token.Span{} }
 func (i *IndexColumn) String() string {
 	var parts []string
 	if i.Expr != nil {
@@ -558,16 +557,16 @@ func (i *IndexColumn) String() string {
 // OperateFunctionArg represents operate function argument.
 type OperateFunctionArg struct{}
 
-func (o *OperateFunctionArg) exprNode()       {}
-func (o *OperateFunctionArg) Span() span.Span { return span.Span{} }
-func (o *OperateFunctionArg) String() string  { return "" }
+func (o *OperateFunctionArg) exprNode()        {}
+func (o *OperateFunctionArg) Span() token.Span { return token.Span{} }
+func (o *OperateFunctionArg) String() string   { return "" }
 
 // FunctionReturnType represents function return type.
 type FunctionReturnType struct{}
 
-func (f *FunctionReturnType) exprNode()       {}
-func (f *FunctionReturnType) Span() span.Span { return span.Span{} }
-func (f *FunctionReturnType) String() string  { return "" }
+func (f *FunctionReturnType) exprNode()        {}
+func (f *FunctionReturnType) Span() token.Span { return token.Span{} }
+func (f *FunctionReturnType) String() string   { return "" }
 
 // FunctionBehavior represents function behavior.
 type FunctionBehavior int
@@ -617,16 +616,16 @@ func (f FunctionDeterminismSpecifier) String() string { return "" }
 // CreateFunctionBody represents function body.
 type CreateFunctionBody struct{}
 
-func (c *CreateFunctionBody) exprNode()       {}
-func (c *CreateFunctionBody) Span() span.Span { return span.Span{} }
-func (c *CreateFunctionBody) String() string  { return "" }
+func (c *CreateFunctionBody) exprNode()        {}
+func (c *CreateFunctionBody) Span() token.Span { return token.Span{} }
+func (c *CreateFunctionBody) String() string   { return "" }
 
 // FunctionDefinitionSetParam represents function definition set parameter.
 type FunctionDefinitionSetParam struct{}
 
-func (f *FunctionDefinitionSetParam) exprNode()       {}
-func (f *FunctionDefinitionSetParam) Span() span.Span { return span.Span{} }
-func (f *FunctionDefinitionSetParam) String() string  { return "" }
+func (f *FunctionDefinitionSetParam) exprNode()        {}
+func (f *FunctionDefinitionSetParam) Span() token.Span { return token.Span{} }
+func (f *FunctionDefinitionSetParam) String() string   { return "" }
 
 // SqlSecurity represents SQL security.
 type SqlSecurity int
@@ -640,16 +639,16 @@ func (s SqlSecurity) String() string { return "" }
 // RemoteProperty represents remote property.
 type RemoteProperty struct{}
 
-func (r *RemoteProperty) exprNode()       {}
-func (r *RemoteProperty) Span() span.Span { return span.Span{} }
-func (r *RemoteProperty) String() string  { return "" }
+func (r *RemoteProperty) exprNode()        {}
+func (r *RemoteProperty) Span() token.Span { return token.Span{} }
+func (r *RemoteProperty) String() string   { return "" }
 
 // ProcedureParam represents procedure parameter.
 type ProcedureParam struct{}
 
-func (p *ProcedureParam) exprNode()       {}
-func (p *ProcedureParam) Span() span.Span { return span.Span{} }
-func (p *ProcedureParam) String() string  { return "" }
+func (p *ProcedureParam) exprNode()        {}
+func (p *ProcedureParam) Span() token.Span { return token.Span{} }
+func (p *ProcedureParam) String() string   { return "" }
 
 // ExecuteAs represents EXECUTE AS clause.
 type ExecuteAs int
@@ -663,9 +662,9 @@ func (e ExecuteAs) String() string { return "" }
 // RoleOption represents role option.
 type RoleOption struct{}
 
-func (r *RoleOption) exprNode()       {}
-func (r *RoleOption) Span() span.Span { return span.Span{} }
-func (r *RoleOption) String() string  { return "" }
+func (r *RoleOption) exprNode()        {}
+func (r *RoleOption) Span() token.Span { return token.Span{} }
+func (r *RoleOption) String() string   { return "" }
 
 // AlterTableOperation represents ALTER TABLE operation.
 type AlterTableOperation struct {
@@ -728,7 +727,7 @@ type AlterTableOperation struct {
 	ModifyColumnPosition *MySQLColumnPosition
 
 	// Span
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 // AlterTableOpType represents the type of ALTER TABLE operation
@@ -772,8 +771,8 @@ const (
 	AlterColumnOpSetDataType
 )
 
-func (a *AlterTableOperation) exprNode()       {}
-func (a *AlterTableOperation) Span() span.Span { return a.SpanVal }
+func (a *AlterTableOperation) exprNode()        {}
+func (a *AlterTableOperation) Span() token.Span { return a.SpanVal }
 func (a *AlterTableOperation) String() string {
 	switch a.Op {
 	case AlterTableOpAddColumn:
@@ -1031,37 +1030,37 @@ func (m *MySQLColumnPosition) String() string {
 // HiveSetLocation represents Hive SET LOCATION.
 type HiveSetLocation struct{}
 
-func (h *HiveSetLocation) exprNode()       {}
-func (h *HiveSetLocation) Span() span.Span { return span.Span{} }
-func (h *HiveSetLocation) String() string  { return "" }
+func (h *HiveSetLocation) exprNode()        {}
+func (h *HiveSetLocation) Span() token.Span { return token.Span{} }
+func (h *HiveSetLocation) String() string   { return "" }
 
 // AlterIndexOperation represents ALTER INDEX operation.
 type AlterIndexOperation struct{}
 
-func (a *AlterIndexOperation) exprNode()       {}
-func (a *AlterIndexOperation) Span() span.Span { return span.Span{} }
-func (a *AlterIndexOperation) String() string  { return "" }
+func (a *AlterIndexOperation) exprNode()        {}
+func (a *AlterIndexOperation) Span() token.Span { return token.Span{} }
+func (a *AlterIndexOperation) String() string   { return "" }
 
 // AlterSchemaOperation represents ALTER SCHEMA operation.
 type AlterSchemaOperation struct{}
 
-func (a *AlterSchemaOperation) exprNode()       {}
-func (a *AlterSchemaOperation) Span() span.Span { return span.Span{} }
-func (a *AlterSchemaOperation) String() string  { return "" }
+func (a *AlterSchemaOperation) exprNode()        {}
+func (a *AlterSchemaOperation) Span() token.Span { return token.Span{} }
+func (a *AlterSchemaOperation) String() string   { return "" }
 
 // AlterTypeOperation represents ALTER TYPE operation.
 type AlterTypeOperation struct{}
 
-func (a *AlterTypeOperation) exprNode()       {}
-func (a *AlterTypeOperation) Span() span.Span { return span.Span{} }
-func (a *AlterTypeOperation) String() string  { return "" }
+func (a *AlterTypeOperation) exprNode()        {}
+func (a *AlterTypeOperation) Span() token.Span { return token.Span{} }
+func (a *AlterTypeOperation) String() string   { return "" }
 
 // AlterRoleOperation represents ALTER ROLE operation.
 type AlterRoleOperation struct{}
 
-func (a *AlterRoleOperation) exprNode()       {}
-func (a *AlterRoleOperation) Span() span.Span { return span.Span{} }
-func (a *AlterRoleOperation) String() string  { return "" }
+func (a *AlterRoleOperation) exprNode()        {}
+func (a *AlterRoleOperation) Span() token.Span { return token.Span{} }
+func (a *AlterRoleOperation) String() string   { return "" }
 
 // ObjectType represents object type for DROP statements.
 // Reference: src/ast/mod.rs ObjectType
@@ -1125,8 +1124,8 @@ type SchemaName struct {
 	HasAuthorization bool
 }
 
-func (s *SchemaName) exprNode()       {}
-func (s *SchemaName) Span() span.Span { return span.Span{} }
+func (s *SchemaName) exprNode()        {}
+func (s *SchemaName) Span() token.Span { return token.Span{} }
 
 func (s *SchemaName) String() string {
 	if s.Authorization != nil {
@@ -1156,9 +1155,9 @@ func (c CatalogSyncNamespaceMode) String() string { return "" }
 // ContactEntry represents contact entry.
 type ContactEntry struct{}
 
-func (c *ContactEntry) exprNode()       {}
-func (c *ContactEntry) Span() span.Span { return span.Span{} }
-func (c *ContactEntry) String() string  { return "" }
+func (c *ContactEntry) exprNode()        {}
+func (c *ContactEntry) Span() token.Span { return token.Span{} }
+func (c *ContactEntry) String() string   { return "" }
 
 // SequenceOptionsType represents the type of sequence option.
 type SequenceOptionsType int
@@ -1174,7 +1173,7 @@ const (
 
 // SequenceOptions represents sequence options.
 type SequenceOptions struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Type    SequenceOptionsType
 	// For IncrementBy, MinValue, MaxValue, StartWith, Cache: the expression value
 	Expr Expr
@@ -1186,8 +1185,8 @@ type SequenceOptions struct {
 	NoValue bool
 }
 
-func (s *SequenceOptions) exprNode()       {}
-func (s *SequenceOptions) Span() span.Span { return s.SpanVal }
+func (s *SequenceOptions) exprNode()        {}
+func (s *SequenceOptions) Span() token.Span { return s.SpanVal }
 func (s *SequenceOptions) String() string {
 	switch s.Type {
 	case SeqOptIncrementBy:
@@ -1224,16 +1223,16 @@ func (s *SequenceOptions) String() string {
 // DomainConstraint represents domain constraint.
 type DomainConstraint struct{}
 
-func (d *DomainConstraint) exprNode()       {}
-func (d *DomainConstraint) Span() span.Span { return span.Span{} }
-func (d *DomainConstraint) String() string  { return "" }
+func (d *DomainConstraint) exprNode()        {}
+func (d *DomainConstraint) Span() token.Span { return token.Span{} }
+func (d *DomainConstraint) String() string   { return "" }
 
 // UserDefinedTypeRepresentation represents user-defined type representation.
 type UserDefinedTypeRepresentation struct{}
 
-func (u *UserDefinedTypeRepresentation) exprNode()       {}
-func (u *UserDefinedTypeRepresentation) Span() span.Span { return span.Span{} }
-func (u *UserDefinedTypeRepresentation) String() string  { return "" }
+func (u *UserDefinedTypeRepresentation) exprNode()        {}
+func (u *UserDefinedTypeRepresentation) Span() token.Span { return token.Span{} }
+func (u *UserDefinedTypeRepresentation) String() string   { return "" }
 
 // TriggerPeriod represents trigger period.
 type TriggerPeriod int
@@ -1256,37 +1255,37 @@ func (t TriggerEvent) String() string { return "" }
 // TriggerReferencing represents trigger referencing.
 type TriggerReferencing struct{}
 
-func (t *TriggerReferencing) exprNode()       {}
-func (t *TriggerReferencing) Span() span.Span { return span.Span{} }
-func (t *TriggerReferencing) String() string  { return "" }
+func (t *TriggerReferencing) exprNode()        {}
+func (t *TriggerReferencing) Span() token.Span { return token.Span{} }
+func (t *TriggerReferencing) String() string   { return "" }
 
 // TriggerExecBody represents trigger execution body.
 type TriggerExecBody struct{}
 
-func (t *TriggerExecBody) exprNode()       {}
-func (t *TriggerExecBody) Span() span.Span { return span.Span{} }
-func (t *TriggerExecBody) String() string  { return "" }
+func (t *TriggerExecBody) exprNode()        {}
+func (t *TriggerExecBody) Span() token.Span { return token.Span{} }
+func (t *TriggerExecBody) String() string   { return "" }
 
 // ConditionalStatements represents conditional statements.
 type ConditionalStatements struct{}
 
-func (c *ConditionalStatements) exprNode()       {}
-func (c *ConditionalStatements) Span() span.Span { return span.Span{} }
-func (c *ConditionalStatements) String() string  { return "" }
+func (c *ConditionalStatements) exprNode()        {}
+func (c *ConditionalStatements) Span() token.Span { return token.Span{} }
+func (c *ConditionalStatements) String() string   { return "" }
 
 // MacroArg represents macro argument.
 type MacroArg struct{}
 
-func (m *MacroArg) exprNode()       {}
-func (m *MacroArg) Span() span.Span { return span.Span{} }
-func (m *MacroArg) String() string  { return "" }
+func (m *MacroArg) exprNode()        {}
+func (m *MacroArg) Span() token.Span { return token.Span{} }
+func (m *MacroArg) String() string   { return "" }
 
 // MacroDefinition represents macro definition.
 type MacroDefinition struct{}
 
-func (m *MacroDefinition) exprNode()       {}
-func (m *MacroDefinition) Span() span.Span { return span.Span{} }
-func (m *MacroDefinition) String() string  { return "" }
+func (m *MacroDefinition) exprNode()        {}
+func (m *MacroDefinition) Span() token.Span { return token.Span{} }
+func (m *MacroDefinition) String() string   { return "" }
 
 // StageParamsObject represents stage parameters object.
 type StageParamsObject struct {
@@ -1297,8 +1296,8 @@ type StageParamsObject struct {
 	Credentials        *KeyValueOptions
 }
 
-func (s *StageParamsObject) exprNode()       {}
-func (s *StageParamsObject) Span() span.Span { return span.Span{} }
+func (s *StageParamsObject) exprNode()        {}
+func (s *StageParamsObject) Span() token.Span { return token.Span{} }
 func (s *StageParamsObject) String() string {
 	var parts []string
 	if s.Url != nil {
@@ -1370,8 +1369,8 @@ type KeyValueOptions struct {
 	Delimiter KeyValueOptionsDelimiter
 }
 
-func (k *KeyValueOptions) exprNode()       {}
-func (k *KeyValueOptions) Span() span.Span { return span.Span{} }
+func (k *KeyValueOptions) exprNode()        {}
+func (k *KeyValueOptions) Span() token.Span { return token.Span{} }
 func (k *KeyValueOptions) String() string {
 	var parts []string
 	for _, opt := range k.Options {
@@ -1391,9 +1390,9 @@ func escapeSingleQuote(s string) string {
 // SecretOption represents secret option.
 type SecretOption struct{}
 
-func (s *SecretOption) exprNode()       {}
-func (s *SecretOption) Span() span.Span { return span.Span{} }
-func (s *SecretOption) String() string  { return "" }
+func (s *SecretOption) exprNode()        {}
+func (s *SecretOption) Span() token.Span { return token.Span{} }
+func (s *SecretOption) String() string   { return "" }
 
 // CreatePolicyCommand represents CREATE POLICY command.
 type CreatePolicyCommand int
@@ -1409,9 +1408,9 @@ type RoleName struct {
 	Name string
 }
 
-func (r *RoleName) exprNode()       {}
-func (r *RoleName) Span() span.Span { return span.Span{} }
-func (r *RoleName) String() string  { return r.Name }
+func (r *RoleName) exprNode()        {}
+func (r *RoleName) Span() token.Span { return token.Span{} }
+func (r *RoleName) String() string   { return r.Name }
 
 // OperatorPurpose represents operator purpose.
 type OperatorPurpose int
@@ -1425,86 +1424,86 @@ func (o OperatorPurpose) String() string { return "" }
 // OperatorOption represents operator option.
 type OperatorOption struct{}
 
-func (o *OperatorOption) exprNode()       {}
-func (o *OperatorOption) Span() span.Span { return span.Span{} }
-func (o *OperatorOption) String() string  { return "" }
+func (o *OperatorOption) exprNode()        {}
+func (o *OperatorOption) Span() token.Span { return token.Span{} }
+func (o *OperatorOption) String() string   { return "" }
 
 // OperatorClassItem represents operator class item.
 type OperatorClassItem struct{}
 
-func (o *OperatorClassItem) exprNode()       {}
-func (o *OperatorClassItem) Span() span.Span { return span.Span{} }
-func (o *OperatorClassItem) String() string  { return "" }
+func (o *OperatorClassItem) exprNode()        {}
+func (o *OperatorClassItem) Span() token.Span { return token.Span{} }
+func (o *OperatorClassItem) String() string   { return "" }
 
 // AlterPolicyOperation represents ALTER POLICY operation.
 type AlterPolicyOperation struct{}
 
-func (a *AlterPolicyOperation) exprNode()       {}
-func (a *AlterPolicyOperation) Span() span.Span { return span.Span{} }
-func (a *AlterPolicyOperation) String() string  { return "" }
+func (a *AlterPolicyOperation) exprNode()        {}
+func (a *AlterPolicyOperation) Span() token.Span { return token.Span{} }
+func (a *AlterPolicyOperation) String() string   { return "" }
 
 // AlterConnectorOwner represents ALTER CONNECTOR owner.
 type AlterConnectorOwner struct{}
 
-func (a *AlterConnectorOwner) exprNode()       {}
-func (a *AlterConnectorOwner) Span() span.Span { return span.Span{} }
-func (a *AlterConnectorOwner) String() string  { return "" }
+func (a *AlterConnectorOwner) exprNode()        {}
+func (a *AlterConnectorOwner) Span() token.Span { return token.Span{} }
+func (a *AlterConnectorOwner) String() string   { return "" }
 
 // AttachDuckDBDatabaseOption represents ATTACH DuckDB database option.
 type AttachDuckDBDatabaseOption struct{}
 
-func (a *AttachDuckDBDatabaseOption) exprNode()       {}
-func (a *AttachDuckDBDatabaseOption) Span() span.Span { return span.Span{} }
-func (a *AttachDuckDBDatabaseOption) String() string  { return "" }
+func (a *AttachDuckDBDatabaseOption) exprNode()        {}
+func (a *AttachDuckDBDatabaseOption) Span() token.Span { return token.Span{} }
+func (a *AttachDuckDBDatabaseOption) String() string   { return "" }
 
 // FunctionDesc represents function description.
 type FunctionDesc struct{}
 
-func (f *FunctionDesc) exprNode()       {}
-func (f *FunctionDesc) Span() span.Span { return span.Span{} }
-func (f *FunctionDesc) String() string  { return "" }
+func (f *FunctionDesc) exprNode()        {}
+func (f *FunctionDesc) Span() token.Span { return token.Span{} }
+func (f *FunctionDesc) String() string   { return "" }
 
 // DropOperatorSignature represents DROP OPERATOR signature.
 type DropOperatorSignature struct{}
 
-func (d *DropOperatorSignature) exprNode()       {}
-func (d *DropOperatorSignature) Span() span.Span { return span.Span{} }
-func (d *DropOperatorSignature) String() string  { return "" }
+func (d *DropOperatorSignature) exprNode()        {}
+func (d *DropOperatorSignature) Span() token.Span { return token.Span{} }
+func (d *DropOperatorSignature) String() string   { return "" }
 
 // OperatorSignature represents operator signature.
 type OperatorSignature struct{}
 
-func (o *OperatorSignature) exprNode()       {}
-func (o *OperatorSignature) Span() span.Span { return span.Span{} }
-func (o *OperatorSignature) String() string  { return "" }
+func (o *OperatorSignature) exprNode()        {}
+func (o *OperatorSignature) Span() token.Span { return token.Span{} }
+func (o *OperatorSignature) String() string   { return "" }
 
 // AlterOperatorOperation represents ALTER OPERATOR operation.
 type AlterOperatorOperation struct{}
 
-func (a *AlterOperatorOperation) exprNode()       {}
-func (a *AlterOperatorOperation) Span() span.Span { return span.Span{} }
-func (a *AlterOperatorOperation) String() string  { return "" }
+func (a *AlterOperatorOperation) exprNode()        {}
+func (a *AlterOperatorOperation) Span() token.Span { return token.Span{} }
+func (a *AlterOperatorOperation) String() string   { return "" }
 
 // OperatorFamilyOperation represents operator family operation.
 type OperatorFamilyOperation struct{}
 
-func (o *OperatorFamilyOperation) exprNode()       {}
-func (o *OperatorFamilyOperation) Span() span.Span { return span.Span{} }
-func (o *OperatorFamilyOperation) String() string  { return "" }
+func (o *OperatorFamilyOperation) exprNode()        {}
+func (o *OperatorFamilyOperation) Span() token.Span { return token.Span{} }
+func (o *OperatorFamilyOperation) String() string   { return "" }
 
 // OperatorClassOperation represents operator class operation.
 type OperatorClassOperation struct{}
 
-func (o *OperatorClassOperation) exprNode()       {}
-func (o *OperatorClassOperation) Span() span.Span { return span.Span{} }
-func (o *OperatorClassOperation) String() string  { return "" }
+func (o *OperatorClassOperation) exprNode()        {}
+func (o *OperatorClassOperation) Span() token.Span { return token.Span{} }
+func (o *OperatorClassOperation) String() string   { return "" }
 
 // OptimizerHint represents optimizer hint.
 type OptimizerHint struct{}
 
-func (o *OptimizerHint) exprNode()       {}
-func (o *OptimizerHint) Span() span.Span { return span.Span{} }
-func (o *OptimizerHint) String() string  { return "" }
+func (o *OptimizerHint) exprNode()        {}
+func (o *OptimizerHint) Span() token.Span { return token.Span{} }
+func (o *OptimizerHint) String() string   { return "" }
 
 // SqliteOnConflict represents SQLite ON CONFLICT clause.
 type SqliteOnConflict int
@@ -1541,8 +1540,8 @@ type Assignment struct {
 	Value  Expr
 }
 
-func (a *Assignment) exprNode()       {}
-func (a *Assignment) Span() span.Span { return span.Span{} }
+func (a *Assignment) exprNode()        {}
+func (a *Assignment) Span() token.Span { return token.Span{} }
 func (a *Assignment) String() string {
 	if a.Column != nil && a.Value != nil {
 		return fmt.Sprintf("%s = %s", a.Column.String(), a.Value.String())
@@ -1557,8 +1556,8 @@ type OnInsert struct {
 	DuplicateKeyUpdate []*Assignment
 }
 
-func (o *OnInsert) exprNode()       {}
-func (o *OnInsert) Span() span.Span { return span.Span{} }
+func (o *OnInsert) exprNode()        {}
+func (o *OnInsert) Span() token.Span { return token.Span{} }
 func (o *OnInsert) String() string {
 	if o.OnConflict != nil {
 		return o.OnConflict.String()
@@ -1652,14 +1651,14 @@ func (d *DoUpdate) String() string {
 // OutputClause represents OUTPUT clause for MERGE, INSERT, UPDATE, or DELETE (MSSQL).
 // Example: OUTPUT $action, deleted.* INTO dbo.temp_products
 type OutputClause struct {
-	OutputToken    *tokenizer.Token
-	ReturningToken *tokenizer.Token // For RETURNING variant
+	OutputToken    *token.Token
+	ReturningToken *token.Token // For RETURNING variant
 	SelectItems    []query.SelectItem
 	IntoTable      *query.SelectInto
 }
 
-func (o *OutputClause) exprNode()       {}
-func (o *OutputClause) Span() span.Span { return span.Span{} }
+func (o *OutputClause) exprNode()        {}
+func (o *OutputClause) Span() token.Span { return token.Span{} }
 func (o *OutputClause) String() string {
 	var f strings.Builder
 	if o.OutputToken != nil {
@@ -1708,8 +1707,8 @@ type InsertAliases struct {
 	ColAliases []*ast.Ident
 }
 
-func (i *InsertAliases) exprNode()       {}
-func (i *InsertAliases) Span() span.Span { return span.Span{} }
+func (i *InsertAliases) exprNode()        {}
+func (i *InsertAliases) Span() token.Span { return token.Span{} }
 func (i *InsertAliases) String() string {
 	if i.RowAlias == nil {
 		return ""
@@ -1733,8 +1732,8 @@ type Setting struct {
 	Value Expr
 }
 
-func (s *Setting) exprNode()       {}
-func (s *Setting) Span() span.Span { return span.Span{} }
+func (s *Setting) exprNode()        {}
+func (s *Setting) Span() token.Span { return token.Span{} }
 func (s *Setting) String() string {
 	return fmt.Sprintf("%s = %s", s.Name, s.Value.String())
 }
@@ -1742,9 +1741,9 @@ func (s *Setting) String() string {
 // InputFormatClause represents input format clause.
 type InputFormatClause struct{}
 
-func (i *InputFormatClause) exprNode()       {}
-func (i *InputFormatClause) Span() span.Span { return span.Span{} }
-func (i *InputFormatClause) String() string  { return "" }
+func (i *InputFormatClause) exprNode()        {}
+func (i *InputFormatClause) Span() token.Span { return token.Span{} }
+func (i *InputFormatClause) String() string   { return "" }
 
 // MultiTableInsertType represents multi-table insert type.
 type MultiTableInsertType int
@@ -1758,28 +1757,28 @@ func (m MultiTableInsertType) String() string { return "" }
 // MultiTableInsertIntoClause represents multi-table INSERT INTO clause.
 type MultiTableInsertIntoClause struct{}
 
-func (m *MultiTableInsertIntoClause) exprNode()       {}
-func (m *MultiTableInsertIntoClause) Span() span.Span { return span.Span{} }
-func (m *MultiTableInsertIntoClause) String() string  { return "" }
+func (m *MultiTableInsertIntoClause) exprNode()        {}
+func (m *MultiTableInsertIntoClause) Span() token.Span { return token.Span{} }
+func (m *MultiTableInsertIntoClause) String() string   { return "" }
 
 // MultiTableInsertWhenClause represents multi-table INSERT WHEN clause.
 type MultiTableInsertWhenClause struct{}
 
-func (m *MultiTableInsertWhenClause) exprNode()       {}
-func (m *MultiTableInsertWhenClause) Span() span.Span { return span.Span{} }
-func (m *MultiTableInsertWhenClause) String() string  { return "" }
+func (m *MultiTableInsertWhenClause) exprNode()        {}
+func (m *MultiTableInsertWhenClause) Span() token.Span { return token.Span{} }
+func (m *MultiTableInsertWhenClause) String() string   { return "" }
 
 // MergeClause represents a WHEN clause within a MERGE statement.
 // Example: WHEN NOT MATCHED BY SOURCE AND product LIKE '%washer%' THEN DELETE
 type MergeClause struct {
-	WhenToken  *tokenizer.Token
+	WhenToken  *token.Token
 	ClauseKind MergeClauseKind
 	Predicate  Expr
 	Action     *MergeAction
 }
 
-func (m *MergeClause) exprNode()       {}
-func (m *MergeClause) Span() span.Span { return span.Span{} }
+func (m *MergeClause) exprNode()        {}
+func (m *MergeClause) Span() token.Span { return token.Span{} }
 func (m *MergeClause) String() string {
 	var f strings.Builder
 	f.WriteString("WHEN ")
@@ -1805,30 +1804,30 @@ func (s SetScope) String() string { return "" }
 // CaseStatementWhen represents CASE statement WHEN clause.
 type CaseStatementWhen struct{}
 
-func (c *CaseStatementWhen) exprNode()       {}
-func (c *CaseStatementWhen) Span() span.Span { return span.Span{} }
-func (c *CaseStatementWhen) String() string  { return "" }
+func (c *CaseStatementWhen) exprNode()        {}
+func (c *CaseStatementWhen) Span() token.Span { return token.Span{} }
+func (c *CaseStatementWhen) String() string   { return "" }
 
 // CaseStatementElse represents CASE statement ELSE clause.
 type CaseStatementElse struct{}
 
-func (c *CaseStatementElse) exprNode()       {}
-func (c *CaseStatementElse) Span() span.Span { return span.Span{} }
-func (c *CaseStatementElse) String() string  { return "" }
+func (c *CaseStatementElse) exprNode()        {}
+func (c *CaseStatementElse) Span() token.Span { return token.Span{} }
+func (c *CaseStatementElse) String() string   { return "" }
 
 // IfStatementCondition represents IF statement condition.
 type IfStatementCondition struct{}
 
-func (i *IfStatementCondition) exprNode()       {}
-func (i *IfStatementCondition) Span() span.Span { return span.Span{} }
-func (i *IfStatementCondition) String() string  { return "" }
+func (i *IfStatementCondition) exprNode()        {}
+func (i *IfStatementCondition) Span() token.Span { return token.Span{} }
+func (i *IfStatementCondition) String() string   { return "" }
 
 // IfStatementElse represents IF statement ELSE clause.
 type IfStatementElse struct{}
 
-func (i *IfStatementElse) exprNode()       {}
-func (i *IfStatementElse) Span() span.Span { return span.Span{} }
-func (i *IfStatementElse) String() string  { return "" }
+func (i *IfStatementElse) exprNode()        {}
+func (i *IfStatementElse) Span() token.Span { return token.Span{} }
+func (i *IfStatementElse) String() string   { return "" }
 
 // RaiseLevel represents RAISE level.
 type RaiseLevel int
@@ -1842,22 +1841,22 @@ func (r RaiseLevel) String() string { return "" }
 // RaiseUsing represents RAISE USING clause.
 type RaiseUsing struct{}
 
-func (r *RaiseUsing) exprNode()       {}
-func (r *RaiseUsing) Span() span.Span { return span.Span{} }
-func (r *RaiseUsing) String() string  { return "" }
+func (r *RaiseUsing) exprNode()        {}
+func (r *RaiseUsing) Span() token.Span { return token.Span{} }
+func (r *RaiseUsing) String() string   { return "" }
 
 // CopySource represents the source for a COPY command: a table or a query.
 type CopySource struct {
 	TableName *ast.ObjectName
 	Columns   []*ast.Ident
 	Query     interface{} // *query.Query - using interface{} to avoid import cycle
-	SpanVal   span.Span
+	SpanVal   token.Span
 }
 
 func (c *CopySource) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CopySource) Span() span.Span { return c.SpanVal }
+func (c *CopySource) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
 func (c *CopySource) String() string {
@@ -1895,13 +1894,13 @@ type CopyTarget struct {
 	Kind     CopyTargetKind
 	Filename string // For File kind
 	Command  string // For Program kind
-	SpanVal  span.Span
+	SpanVal  token.Span
 }
 
 func (c *CopyTarget) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CopyTarget) Span() span.Span { return c.SpanVal }
+func (c *CopyTarget) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
 func (c *CopyTarget) String() string {
@@ -1944,7 +1943,7 @@ const (
 func (c *CopyOption) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CopyOption) Span() span.Span { return span.Span{} }
+func (c *CopyOption) Span() token.Span { return token.Span{} }
 
 // String returns the SQL representation.
 func (c *CopyOption) String() string {
@@ -2062,7 +2061,7 @@ type CopyLegacyOption struct {
 func (c *CopyLegacyOption) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CopyLegacyOption) Span() span.Span { return span.Span{} }
+func (c *CopyLegacyOption) Span() token.Span { return token.Span{} }
 
 // String returns the SQL representation.
 func (c *CopyLegacyOption) String() string {
@@ -2226,8 +2225,8 @@ type StageLoadSelectItem struct {
 	ItemAs     *ast.Ident
 }
 
-func (s *StageLoadSelectItem) exprNode()       {}
-func (s *StageLoadSelectItem) Span() span.Span { return span.Span{} }
+func (s *StageLoadSelectItem) exprNode()        {}
+func (s *StageLoadSelectItem) Span() token.Span { return token.Span{} }
 func (s *StageLoadSelectItem) String() string {
 	var parts []string
 	if s.Alias != nil {
@@ -2260,8 +2259,8 @@ type StageLoadSelectItemWrapper struct {
 	Item interface{} // Can be *StageLoadSelectItem or ast.SelectItem
 }
 
-func (s *StageLoadSelectItemWrapper) exprNode()       {}
-func (s *StageLoadSelectItemWrapper) Span() span.Span { return span.Span{} }
+func (s *StageLoadSelectItemWrapper) exprNode()        {}
+func (s *StageLoadSelectItemWrapper) Span() token.Span { return token.Span{} }
 func (s *StageLoadSelectItemWrapper) String() string {
 	if s.Item != nil {
 		if str, ok := s.Item.(fmt.Stringer); ok {
@@ -2274,16 +2273,16 @@ func (s *StageLoadSelectItemWrapper) String() string {
 // CloseCursor represents CLOSE CURSOR.
 type CloseCursor struct{}
 
-func (c *CloseCursor) exprNode()       {}
-func (c *CloseCursor) Span() span.Span { return span.Span{} }
-func (c *CloseCursor) String() string  { return "" }
+func (c *CloseCursor) exprNode()        {}
+func (c *CloseCursor) Span() token.Span { return token.Span{} }
+func (c *CloseCursor) String() string   { return "" }
 
 // Declare represents DECLARE statement.
 type Declare struct{}
 
-func (d *Declare) exprNode()       {}
-func (d *Declare) Span() span.Span { return span.Span{} }
-func (d *Declare) String() string  { return "" }
+func (d *Declare) exprNode()        {}
+func (d *Declare) Span() token.Span { return token.Span{} }
+func (d *Declare) String() string   { return "" }
 
 // FetchDirection represents FETCH direction.
 type FetchDirection int
@@ -2409,8 +2408,8 @@ type ShowStatementIn struct {
 	ParentName *ast.ObjectName
 }
 
-func (s *ShowStatementIn) exprNode()       {}
-func (s *ShowStatementIn) Span() span.Span { return span.Span{} }
+func (s *ShowStatementIn) exprNode()        {}
+func (s *ShowStatementIn) Span() token.Span { return token.Span{} }
 func (s *ShowStatementIn) String() string {
 	clause := "IN"
 	if s.Clause == ShowStatementInClauseFrom {
@@ -2451,8 +2450,8 @@ type ShowStatementFilter struct {
 	SuffixString *string // For Snowflake-style suffix string literal (e.g., SHOW TABLES IN db1 'abc')
 }
 
-func (s *ShowStatementFilter) exprNode()       {}
-func (s *ShowStatementFilter) Span() span.Span { return span.Span{} }
+func (s *ShowStatementFilter) exprNode()        {}
+func (s *ShowStatementFilter) Span() token.Span { return token.Span{} }
 func (s *ShowStatementFilter) String() string {
 	if s.Like != nil {
 		return fmt.Sprintf("LIKE '%s'", *s.Like)
@@ -2500,7 +2499,7 @@ func (s ShowCreateObject) String() string {
 
 // ShowStatementOptions represents SHOW statement options.
 type ShowStatementOptions struct {
-	SpanVal        span.Span
+	SpanVal        token.Span
 	ShowIn         *ShowStatementIn
 	Filter         *ShowStatementFilter
 	FilterPosition ShowStatementFilterPosition
@@ -2509,8 +2508,8 @@ type ShowStatementOptions struct {
 	StartsWith     *string
 }
 
-func (s *ShowStatementOptions) exprNode()       {}
-func (s *ShowStatementOptions) Span() span.Span { return s.SpanVal }
+func (s *ShowStatementOptions) exprNode()        {}
+func (s *ShowStatementOptions) Span() token.Span { return s.SpanVal }
 func (s *ShowStatementOptions) String() string {
 	var parts []string
 
@@ -2633,9 +2632,9 @@ func (t TransactionModifier) String() string {
 // ExceptionWhen represents EXCEPTION WHEN clause.
 type ExceptionWhen struct{}
 
-func (e *ExceptionWhen) exprNode()       {}
-func (e *ExceptionWhen) Span() span.Span { return span.Span{} }
-func (e *ExceptionWhen) String() string  { return "" }
+func (e *ExceptionWhen) exprNode()        {}
+func (e *ExceptionWhen) Span() token.Span { return token.Span{} }
+func (e *ExceptionWhen) String() string   { return "" }
 
 // CommentObject represents COMMENT object.
 type CommentObject int
@@ -2652,8 +2651,8 @@ type ExprWithAlias struct {
 	Alias *ast.Ident
 }
 
-func (e *ExprWithAlias) exprNode()       {}
-func (e *ExprWithAlias) Span() span.Span { return span.Span{} }
+func (e *ExprWithAlias) exprNode()        {}
+func (e *ExprWithAlias) Span() token.Span { return token.Span{} }
 func (e *ExprWithAlias) String() string {
 	if e.Alias != nil {
 		return fmt.Sprintf("%s AS %s", e.Expr.String(), e.Alias.String())
@@ -2742,18 +2741,18 @@ func (a AnalyzeFormatKind) String() string { return "" }
 // UtilityOption represents utility option.
 type UtilityOption struct{}
 
-func (u *UtilityOption) exprNode()       {}
-func (u *UtilityOption) Span() span.Span { return span.Span{} }
-func (u *UtilityOption) String() string  { return "" }
+func (u *UtilityOption) exprNode()        {}
+func (u *UtilityOption) Span() token.Span { return token.Span{} }
+func (u *UtilityOption) String() string   { return "" }
 
 // ValueWithSpan represents value with span.
 type ValueWithSpan struct {
 	Value string
 }
 
-func (v *ValueWithSpan) exprNode()       {}
-func (v *ValueWithSpan) Span() span.Span { return span.Span{} }
-func (v *ValueWithSpan) String() string  { return v.Value }
+func (v *ValueWithSpan) exprNode()        {}
+func (v *ValueWithSpan) Span() token.Span { return token.Span{} }
+func (v *ValueWithSpan) String() string   { return v.Value }
 
 // LockTable represents a table to lock.
 type LockTable struct {
@@ -2787,8 +2786,8 @@ func (l LockTableType) String() string {
 	}
 }
 
-func (l *LockTable) exprNode()       {}
-func (l *LockTable) Span() span.Span { return span.Span{} }
+func (l *LockTable) exprNode()        {}
+func (l *LockTable) Span() token.Span { return token.Span{} }
 func (l *LockTable) String() string {
 	return fmt.Sprintf("%s", l.Table.String())
 }
@@ -2814,39 +2813,39 @@ func (i IamRoleKind) String() string { return "" }
 // Partition represents partition.
 type Partition struct{}
 
-func (p *Partition) exprNode()       {}
-func (p *Partition) Span() span.Span { return span.Span{} }
-func (p *Partition) String() string  { return "" }
+func (p *Partition) exprNode()        {}
+func (p *Partition) Span() token.Span { return token.Span{} }
+func (p *Partition) String() string   { return "" }
 
 // Deduplicate represents deduplicate clause.
 type Deduplicate struct{}
 
-func (d *Deduplicate) exprNode()       {}
-func (d *Deduplicate) Span() span.Span { return span.Span{} }
-func (d *Deduplicate) String() string  { return "" }
+func (d *Deduplicate) exprNode()        {}
+func (d *Deduplicate) Span() token.Span { return token.Span{} }
+func (d *Deduplicate) String() string   { return "" }
 
 // HiveLoadDataFormat represents Hive LOAD DATA format.
 type HiveLoadDataFormat struct{}
 
-func (h *HiveLoadDataFormat) exprNode()       {}
-func (h *HiveLoadDataFormat) Span() span.Span { return span.Span{} }
-func (h *HiveLoadDataFormat) String() string  { return "" }
+func (h *HiveLoadDataFormat) exprNode()        {}
+func (h *HiveLoadDataFormat) Span() token.Span { return token.Span{} }
+func (h *HiveLoadDataFormat) String() string   { return "" }
 
 // FileStagingCommand represents file staging command.
 type FileStagingCommand struct{}
 
-func (f *FileStagingCommand) exprNode()       {}
-func (f *FileStagingCommand) Span() span.Span { return span.Span{} }
-func (f *FileStagingCommand) String() string  { return "" }
+func (f *FileStagingCommand) exprNode()        {}
+func (f *FileStagingCommand) Span() token.Span { return token.Span{} }
+func (f *FileStagingCommand) String() string   { return "" }
 
 // PrintStatement represents PRINT statement.
 type PrintStatement struct {
 	Message string
 }
 
-func (p *PrintStatement) exprNode()       {}
-func (p *PrintStatement) Span() span.Span { return span.Span{} }
-func (p *PrintStatement) String() string  { return p.Message }
+func (p *PrintStatement) exprNode()        {}
+func (p *PrintStatement) Span() token.Span { return token.Span{} }
+func (p *PrintStatement) String() string   { return p.Message }
 
 // RaisErrorOption represents RAISERROR option.
 type RaisErrorOption int
@@ -2877,8 +2876,8 @@ type RenameTable struct {
 	NewName *ast.ObjectName
 }
 
-func (r *RenameTable) exprNode()       {}
-func (r *RenameTable) Span() span.Span { return span.Span{} }
+func (r *RenameTable) exprNode()        {}
+func (r *RenameTable) Span() token.Span { return token.Span{} }
 func (r *RenameTable) String() string {
 	if r.OldName != nil && r.NewName != nil {
 		return fmt.Sprintf("%s TO %s", r.OldName.String(), r.NewName.String())
@@ -2891,17 +2890,17 @@ type ResetStatement struct {
 	ConfigName string
 }
 
-func (r *ResetStatement) exprNode()       {}
-func (r *ResetStatement) Span() span.Span { return span.Span{} }
-func (r *ResetStatement) String() string  { return r.ConfigName }
+func (r *ResetStatement) exprNode()        {}
+func (r *ResetStatement) Span() token.Span { return token.Span{} }
+func (r *ResetStatement) String() string   { return r.ConfigName }
 
 // ReturnStatement represents RETURN statement.
 type ReturnStatement struct {
 	Value Expr
 }
 
-func (r *ReturnStatement) exprNode()       {}
-func (r *ReturnStatement) Span() span.Span { return span.Span{} }
+func (r *ReturnStatement) exprNode()        {}
+func (r *ReturnStatement) Span() token.Span { return token.Span{} }
 func (r *ReturnStatement) String() string {
 	if r.Value != nil {
 		return r.Value.String()
@@ -2916,8 +2915,8 @@ type ThrowStatement struct {
 	State       int64
 }
 
-func (t *ThrowStatement) exprNode()       {}
-func (t *ThrowStatement) Span() span.Span { return span.Span{} }
+func (t *ThrowStatement) exprNode()        {}
+func (t *ThrowStatement) Span() token.Span { return token.Span{} }
 func (t *ThrowStatement) String() string {
 	return fmt.Sprintf("%d, '%s', %d", t.ErrorNumber, t.Message, t.State)
 }
@@ -2927,8 +2926,8 @@ type VacuumStatement struct {
 	TableName *ast.ObjectName
 }
 
-func (v *VacuumStatement) exprNode()       {}
-func (v *VacuumStatement) Span() span.Span { return span.Span{} }
+func (v *VacuumStatement) exprNode()        {}
+func (v *VacuumStatement) Span() token.Span { return token.Span{} }
 func (v *VacuumStatement) String() string {
 	if v.TableName != nil {
 		return v.TableName.String()
@@ -2943,9 +2942,9 @@ type WaitForStatement struct {
 	Statement ast.Statement
 }
 
-func (w *WaitForStatement) exprNode()       {}
-func (w *WaitForStatement) Span() span.Span { return span.Span{} }
-func (w *WaitForStatement) String() string  { return "WAITFOR" }
+func (w *WaitForStatement) exprNode()        {}
+func (w *WaitForStatement) Span() token.Span { return token.Span{} }
+func (w *WaitForStatement) String() string   { return "WAITFOR" }
 
 // ReferentialAction represents referential action (e.g., CASCADE, RESTRICT).
 type ReferentialAction int
@@ -2981,8 +2980,8 @@ type AssignmentTarget struct {
 	Column *ast.Ident
 }
 
-func (a *AssignmentTarget) exprNode()       {}
-func (a *AssignmentTarget) Span() span.Span { return span.Span{} }
+func (a *AssignmentTarget) exprNode()        {}
+func (a *AssignmentTarget) Span() token.Span { return token.Span{} }
 func (a *AssignmentTarget) String() string {
 	if a.Column != nil {
 		return a.Column.String()
@@ -3013,16 +3012,16 @@ func (m MergeInsertKind) String() string {
 // MergeInsertExpr represents the expression used to insert rows within a MERGE statement.
 // Example: INSERT (product, quantity) VALUES(product, quantity)
 type MergeInsertExpr struct {
-	InsertToken     *tokenizer.Token
+	InsertToken     *token.Token
 	Columns         []*ast.ObjectName
-	KindToken       *tokenizer.Token
+	KindToken       *token.Token
 	Kind            MergeInsertKind
 	Values          []Expr // For VALUES kind, stores the value expressions
 	InsertPredicate Expr
 }
 
-func (m *MergeInsertExpr) exprNode()       {}
-func (m *MergeInsertExpr) Span() span.Span { return span.Span{} }
+func (m *MergeInsertExpr) exprNode()        {}
+func (m *MergeInsertExpr) Span() token.Span { return token.Span{} }
 func (m *MergeInsertExpr) String() string {
 	var f strings.Builder
 	if len(m.Columns) > 0 {
@@ -3054,14 +3053,14 @@ func (m *MergeInsertExpr) String() string {
 // MergeUpdateExpr represents the expression used to update rows within a MERGE statement.
 // Example: UPDATE SET quantity = T.quantity + S.quantity
 type MergeUpdateExpr struct {
-	UpdateToken     *tokenizer.Token
+	UpdateToken     *token.Token
 	Assignments     []*Assignment
 	UpdatePredicate Expr
 	DeletePredicate Expr
 }
 
-func (m *MergeUpdateExpr) exprNode()       {}
-func (m *MergeUpdateExpr) Span() span.Span { return span.Span{} }
+func (m *MergeUpdateExpr) exprNode()        {}
+func (m *MergeUpdateExpr) Span() token.Span { return token.Span{} }
 func (m *MergeUpdateExpr) String() string {
 	var f strings.Builder
 	f.WriteString("SET ")
@@ -3085,11 +3084,11 @@ func (m *MergeUpdateExpr) String() string {
 type MergeAction struct {
 	Insert *MergeInsertExpr
 	Update *MergeUpdateExpr
-	Delete *tokenizer.Token // non-nil if delete action
+	Delete *token.Token // non-nil if delete action
 }
 
-func (m *MergeAction) exprNode()       {}
-func (m *MergeAction) Span() span.Span { return span.Span{} }
+func (m *MergeAction) exprNode()        {}
+func (m *MergeAction) Span() token.Span { return token.Span{} }
 func (m *MergeAction) String() string {
 	if m.Insert != nil {
 		return "INSERT " + m.Insert.String()
@@ -3154,6 +3153,6 @@ type Privilege struct {
 	Name string
 }
 
-func (p *Privilege) exprNode()       {}
-func (p *Privilege) Span() span.Span { return span.Span{} }
-func (p *Privilege) String() string  { return p.Name }
+func (p *Privilege) exprNode()        {}
+func (p *Privilege) Span() token.Span { return token.Span{} }
+func (p *Privilege) String() string   { return p.Name }

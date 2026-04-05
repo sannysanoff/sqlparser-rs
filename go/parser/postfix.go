@@ -19,7 +19,7 @@ package parser
 
 import (
 	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // parseArraySubscript parses an array subscript expression like expr[index]
@@ -36,7 +36,7 @@ func (ep *ExpressionParser) parseArraySubscript(base expr.Expr) (expr.Expr, erro
 	// Continue parsing any additional subscripts
 	for {
 		nextTok := ep.parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(tokenizer.TokenLBracket); !ok {
+		if _, ok := nextTok.Token.(token.TokenLBracket); !ok {
 			break
 		}
 		ep.parser.AdvanceToken() // consume [

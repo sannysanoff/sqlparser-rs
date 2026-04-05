@@ -40,7 +40,6 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // Reserved keyword for CONNECT_BY_ROOT
@@ -872,7 +871,7 @@ func (d *OracleDialect) GetNextPrecedence(parser dialects.ParserAccessor) (uint8
 	tok := parser.PeekTokenRef()
 
 	switch tok.Token.(type) {
-	case tokenizer.TokenStringConcat:
+	case token.TokenStringConcat:
 		// String concatenation operator || has same precedence as PlusMinus
 		return plusMinusPrec, nil
 	}

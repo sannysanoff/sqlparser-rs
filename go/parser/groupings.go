@@ -19,29 +19,29 @@ package parser
 
 import (
 	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ParseGroupingSets parses a GROUPING SETS expression
 func (ep *ExpressionParser) ParseGroupingSets() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	var sets [][]expr.Expr
 	for {
-		_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+		_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 		if isRParen {
 			break
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		var set []expr.Expr
 		for {
-			_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+			_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 			if isRParen {
 				break
 			}
@@ -50,20 +50,20 @@ func (ep *ExpressionParser) ParseGroupingSets() (expr.Expr, error) {
 				return nil, err
 			}
 			set = append(set, e)
-			if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+			if !ep.parser.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		sets = append(sets, set)
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -77,24 +77,24 @@ func (ep *ExpressionParser) ParseGroupingSets() (expr.Expr, error) {
 func (ep *ExpressionParser) ParseCube() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	var sets [][]expr.Expr
 	for {
-		_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+		_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 		if isRParen {
 			break
 		}
 		// Each element can be a simple expression or a parenthesized list
-		if _, ok := ep.parser.PeekTokenRef().Token.(tokenizer.TokenLParen); ok {
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, ok := ep.parser.PeekTokenRef().Token.(token.TokenLParen); ok {
+			if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 				return nil, err
 			}
 			var set []expr.Expr
 			for {
-				_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+				_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 				if isRParen {
 					break
 				}
@@ -103,11 +103,11 @@ func (ep *ExpressionParser) ParseCube() (expr.Expr, error) {
 					return nil, err
 				}
 				set = append(set, e)
-				if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+				if !ep.parser.ConsumeToken(token.TokenComma{}) {
 					break
 				}
 			}
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 			sets = append(sets, set)
@@ -118,12 +118,12 @@ func (ep *ExpressionParser) ParseCube() (expr.Expr, error) {
 			}
 			sets = append(sets, []expr.Expr{e})
 		}
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -137,24 +137,24 @@ func (ep *ExpressionParser) ParseCube() (expr.Expr, error) {
 func (ep *ExpressionParser) ParseRollup() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	var sets [][]expr.Expr
 	for {
-		_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+		_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 		if isRParen {
 			break
 		}
 		// Each element can be a simple expression or a parenthesized list
-		if _, ok := ep.parser.PeekTokenRef().Token.(tokenizer.TokenLParen); ok {
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, ok := ep.parser.PeekTokenRef().Token.(token.TokenLParen); ok {
+			if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 				return nil, err
 			}
 			var set []expr.Expr
 			for {
-				_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+				_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 				if isRParen {
 					break
 				}
@@ -163,11 +163,11 @@ func (ep *ExpressionParser) ParseRollup() (expr.Expr, error) {
 					return nil, err
 				}
 				set = append(set, e)
-				if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+				if !ep.parser.ConsumeToken(token.TokenComma{}) {
 					break
 				}
 			}
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 			sets = append(sets, set)
@@ -178,12 +178,12 @@ func (ep *ExpressionParser) ParseRollup() (expr.Expr, error) {
 			}
 			sets = append(sets, []expr.Expr{e})
 		}
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 

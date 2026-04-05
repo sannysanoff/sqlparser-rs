@@ -25,9 +25,7 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/dialects/postgresql"
-	"github.com/user/sqlparser/span"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // SelectStatement wraps query.Select to implement ast.Statement
@@ -39,7 +37,7 @@ type SelectStatement struct {
 }
 
 // Span returns the source span
-func (s *SelectStatement) Span() span.Span {
+func (s *SelectStatement) Span() token.Span {
 	return s.Select.Span()
 }
 
@@ -59,11 +57,11 @@ type ValuesStatement struct {
 }
 
 // Span returns the source span
-func (v *ValuesStatement) Span() span.Span {
+func (v *ValuesStatement) Span() token.Span {
 	if v.Query != nil {
 		return v.Query.Span()
 	}
-	return span.Span{}
+	return token.Span{}
 }
 
 // String returns the SQL representation
@@ -81,11 +79,11 @@ type QueryStatement struct {
 }
 
 // Span returns the source span
-func (q *QueryStatement) Span() span.Span {
+func (q *QueryStatement) Span() token.Span {
 	if q.Query != nil {
 		return q.Query.Span()
 	}
-	return span.Span{}
+	return token.Span{}
 }
 
 // String returns the SQL representation
@@ -165,14 +163,14 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 // parseQueryBody parses the body of a query (SELECT, VALUES, etc.)
 func parseQueryBody(p *Parser) (ast.Statement, error) {
 	// Check for parenthesized subquery: (SELECT ...) or (VALUES ...)
-	if p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if p.ConsumeToken(token.TokenLParen{}) {
 		// Parse the inner query
 		innerQuery, err := parseQuery(p)
 		if err != nil {
 			return nil, err
 		}
 		// Expect closing parenthesis
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		return innerQuery, nil
@@ -312,7 +310,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 
 		// Check for MySQL LIMIT offset,limit syntax (LIMIT 10, 5)
-		if p.ConsumeToken(tokenizer.TokenComma{}) {
+		if p.ConsumeToken(token.TokenComma{}) {
 			// MySQL style: LIMIT offset, limit
 			secondExpr, err := ep.ParseExpr()
 			if err != nil {
@@ -410,7 +408,7 @@ func parseProjection(p *Parser) ([]query.SelectItem, error) {
 		}
 		items = append(items, item)
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 
@@ -433,7 +431,7 @@ func parseProjection(p *Parser) ([]query.SelectItem, error) {
 // parseSelectItem parses a single SELECT item
 func parseSelectItem(p *Parser) (query.SelectItem, error) {
 	// Check for wildcard *
-	if p.ConsumeToken(tokenizer.TokenMul{}) {
+	if p.ConsumeToken(token.TokenMul{}) {
 		return &query.Wildcard{}, nil
 	}
 
@@ -446,8 +444,8 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		p.ConsumeToken(tokenizer.TokenPeriod{}) // consume the .
-		p.ConsumeToken(tokenizer.TokenMul{})    // consume the *
+		p.ConsumeToken(token.TokenPeriod{}) // consume the .
+		p.ConsumeToken(token.TokenMul{})    // consume the *
 
 		// Create query.ObjectName from the single identifier
 		queryName := query.ObjectName{
@@ -503,12 +501,12 @@ func isQualifiedWildcard(p *Parser) bool {
 	}
 
 	tok1 := p.PeekNthToken(1)
-	if _, ok := tok1.Token.(tokenizer.TokenPeriod); !ok {
+	if _, ok := tok1.Token.(token.TokenPeriod); !ok {
 		return false
 	}
 
 	tok2 := p.PeekNthToken(2)
-	if _, ok := tok2.Token.(tokenizer.TokenMul); !ok {
+	if _, ok := tok2.Token.(token.TokenMul); !ok {
 		return false
 	}
 
@@ -516,14 +514,14 @@ func isQualifiedWildcard(p *Parser) bool {
 }
 
 // isWordToken checks if token is a word/identifier
-func isWordToken(tok tokenizer.Token) bool {
-	_, ok := tok.(tokenizer.TokenWord)
+func isWordToken(tok token.Token) bool {
+	_, ok := tok.(token.TokenWord)
 	return ok
 }
 
 // getWordValue extracts the keyword value from a word token
-func getWordValue(tok tokenizer.Token) string {
-	if word, ok := tok.(tokenizer.TokenWord); ok {
+func getWordValue(tok token.Token) string {
+	if word, ok := tok.(token.TokenWord); ok {
 		return word.Word.Value
 	}
 	return ""
@@ -599,7 +597,7 @@ func parseTableWithJoinsList(p *Parser) ([]query.TableWithJoins, error) {
 		tables = append(tables, table)
 
 		// Check for comma (cross join) or JOIN keywords
-		if p.ConsumeToken(tokenizer.TokenComma{}) {
+		if p.ConsumeToken(token.TokenComma{}) {
 			continue
 		}
 
@@ -616,8 +614,8 @@ func parseTableWithJoinsList(p *Parser) ([]query.TableWithJoins, error) {
 }
 
 // isJoinKeyword checks if the next token starts a join clause
-func isJoinKeyword(tok tokenizer.TokenWithSpan) bool {
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+func isJoinKeyword(tok token.TokenWithSpan) bool {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		kw := strings.ToUpper(string(word.Word.Keyword))
 		return kw == "JOIN" || kw == "CROSS" || kw == "INNER" ||
 			kw == "LEFT" || kw == "RIGHT" || kw == "FULL" ||
@@ -717,7 +715,7 @@ func parseJoin(p *Parser) (query.Join, error) {
 			Expr: &queryExprWrapper{expr: cond},
 		}
 	} else if p.ParseKeyword("USING") {
-		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return query.Join{}, err
 		}
 		// Parse qualified column names like (col1, t2.col1, schema.table.col)
@@ -726,7 +724,7 @@ func parseJoin(p *Parser) (query.Join, error) {
 		if err != nil {
 			return query.Join{}, err
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return query.Join{}, err
 		}
 		// Convert []*ast.ObjectName to []query.ObjectName
@@ -802,7 +800,7 @@ func parseTableFactor(p *Parser) (query.TableFactor, error) {
 // isParenthesizedStart checks if next token is a left paren
 func isParenthesizedStart(p *Parser) bool {
 	tok := p.PeekToken()
-	_, ok := tok.Token.(tokenizer.TokenLParen)
+	_, ok := tok.Token.(token.TokenLParen)
 	return ok
 }
 
@@ -810,7 +808,7 @@ func isParenthesizedStart(p *Parser) bool {
 // Reference: src/parser/mod.rs:15497-15609
 func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 	// Consume the opening paren
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -829,7 +827,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 	}
 
 	// Expect closing paren
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -875,7 +873,7 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 func isSubqueryStartAfterParen(p *Parser) bool {
 	// Check if it's SELECT or WITH after the paren
 	nextTok := p.PeekToken()
-	if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := nextTok.Token.(token.TokenWord); ok {
 		kw := strings.ToUpper(string(word.Word.Keyword))
 		return kw == "SELECT" || kw == "WITH"
 	}
@@ -890,7 +888,7 @@ func parseDerivedTableAfterParen(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -973,12 +971,12 @@ func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
 	var rows [][]query.Expr
 
 	for {
-		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 
 		// Check for empty row () - some dialects allow this
-		if _, isRParen := p.PeekToken().Token.(tokenizer.TokenRParen); isRParen {
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
 			p.AdvanceToken()
 			rows = append(rows, []query.Expr{})
 		} else {
@@ -987,14 +985,14 @@ func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
 				return nil, err
 			}
 
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 
 			rows = append(rows, row)
 		}
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1025,7 +1023,7 @@ func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
 // parseUnnestTableFactor parses UNNEST(array_expr) [WITH OFFSET]
 // Reference: src/parser/mod.rs:15647-15681
 func parseUnnestTableFactor(p *Parser) (query.TableFactor, error) {
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1035,7 +1033,7 @@ func parseUnnestTableFactor(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1083,7 +1081,7 @@ func parseCommaSeparatedExprs(ep *ExpressionParser) ([]expr.Expr, error) {
 		}
 		exprs = append(exprs, e)
 
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1103,7 +1101,7 @@ func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
 		}
 		exprs = append(exprs, &queryExprWrapper{expr: e})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1114,13 +1112,13 @@ func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
 // isSubqueryStart checks if next token starts a subquery
 func isSubqueryStart(p *Parser) bool {
 	tok := p.PeekToken()
-	if _, ok := tok.Token.(tokenizer.TokenLParen); !ok {
+	if _, ok := tok.Token.(token.TokenLParen); !ok {
 		return false
 	}
 
 	// Check if it's SELECT or WITH after the paren
 	nextTok := p.PeekNthToken(1)
-	if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := nextTok.Token.(token.TokenWord); ok {
 		kw := strings.ToUpper(string(word.Word.Keyword))
 		return kw == "SELECT" || kw == "WITH"
 	}
@@ -1145,7 +1143,7 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 
 // parseDerivedTable parses a subquery in parentheses
 func parseDerivedTable(p *Parser) (query.TableFactor, error) {
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1155,7 +1153,7 @@ func parseDerivedTable(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1185,7 +1183,7 @@ func wrapQueryAsQuery(stmt ast.Statement) *query.Query {
 
 // parseLateralTable parses LATERAL (subquery)
 func parseLateralTable(p *Parser) (query.TableFactor, error) {
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1194,7 +1192,7 @@ func parseLateralTable(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1212,7 +1210,7 @@ func parseLateralTable(p *Parser) (query.TableFactor, error) {
 // parseTableFunction parses TABLE(<expr>) [AS <alias>]
 // Reference: src/parser/mod.rs:15490-15496
 func parseTableFunction(p *Parser) (query.TableFactor, error) {
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1223,7 +1221,7 @@ func parseTableFunction(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1253,7 +1251,7 @@ func parseTableAlias(p *Parser) (*query.TableAlias, error) {
 	} else {
 		// Try implicit alias
 		tok := p.PeekToken()
-		if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+		if word, ok := tok.Token.(token.TokenWord); ok {
 			if !isReservedForTableAlias(strings.ToUpper(string(word.Word.Keyword))) {
 				p.AdvanceToken()
 				name = &query.Ident{Value: word.Word.Value}
@@ -1280,7 +1278,7 @@ func parseTableAlias(p *Parser) (*query.TableAlias, error) {
 
 // parseTableAliasColumnDefs parses an optional (col1, col2, ...) after table alias
 func parseTableAliasColumnDefs(p *Parser) ([]query.TableAliasColumnDef, error) {
-	if !p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if !p.ConsumeToken(token.TokenLParen{}) {
 		return nil, nil
 	}
 
@@ -1295,12 +1293,12 @@ func parseTableAliasColumnDefs(p *Parser) ([]query.TableAliasColumnDef, error) {
 			Name: query.Ident{Value: ident.Value},
 		})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1336,13 +1334,13 @@ func parseValues(p *Parser) (*ValuesStatement, error) {
 	var rows [][]query.Expr
 
 	for {
-		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 
 		// Check for empty row () - MySQL allows this
 		// If the dialect supports empty projections and we see RParen immediately, it's an empty row
-		if _, isRParen := p.PeekToken().Token.(tokenizer.TokenRParen); isRParen {
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
 			// Empty row - consume the RParen
 			p.AdvanceToken()
 			rows = append(rows, []query.Expr{})
@@ -1353,14 +1351,14 @@ func parseValues(p *Parser) (*ValuesStatement, error) {
 				return nil, err
 			}
 
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 
 			rows = append(rows, row)
 		}
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1423,7 +1421,7 @@ func parseOrderByExpressions(p *Parser) ([]query.OrderByExpr, error) {
 			},
 		})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1442,7 +1440,7 @@ func parseCommaSeparatedQueryIdents(p *Parser) ([]query.Ident, error) {
 		}
 		idents = append(idents, query.Ident{Value: ident.Value})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1470,7 +1468,7 @@ func parseNamedWindows(p *Parser) ([]query.NamedWindowDefinition, error) {
 		// Parse window expression
 		var windowExpr query.NamedWindowExpr
 
-		if p.ConsumeToken(tokenizer.TokenLParen{}) {
+		if p.ConsumeToken(token.TokenLParen{}) {
 			// Window specification in parentheses
 			spec, err := parseWindowSpec(p)
 			if err != nil {
@@ -1494,7 +1492,7 @@ func parseNamedWindows(p *Parser) ([]query.NamedWindowDefinition, error) {
 		})
 
 		// Check for comma (more windows)
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1513,7 +1511,7 @@ func parseWindowSpec(p *Parser) (*query.WindowSpec, error) {
 		!p.PeekKeyword("GROUPS") && !p.PeekKeyword("UNBOUNDED") {
 		// Might be a named window reference
 		tok := p.PeekToken()
-		if word, ok := tok.Token.(tokenizer.TokenWord); ok && word.Word.Keyword == token.NoKeyword {
+		if word, ok := tok.Token.(token.TokenWord); ok && word.Word.Keyword == token.NoKeyword {
 			name, err := p.ParseIdentifier()
 			if err == nil {
 				spec.WindowName = &query.Ident{Value: name.Value}
@@ -1554,7 +1552,7 @@ func parseWindowSpec(p *Parser) (*query.WindowSpec, error) {
 	}
 
 	// Expect closing parenthesis
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1671,7 +1669,7 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	}
 
 	// Check for optional column list: CTE_name (col1, col2, ...) AS ...
-	if p.PeekToken().Token.Equals(tokenizer.TokenLParen{}) {
+	if p.PeekToken().Token.Equals(token.TokenLParen{}) {
 		columns, err := p.ParseParenthesizedColumnList()
 		if err != nil {
 			return query.CTE{}, err
@@ -1705,7 +1703,7 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	cte.Materialized = materialized
 
 	// Expect opening parenthesis for subquery
-	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); !ok {
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); !ok {
 		return query.CTE{}, p.Expected("( before CTE subquery", p.PeekToken())
 	}
 	p.AdvanceToken() // consume (
@@ -1717,7 +1715,7 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	}
 
 	// Expect closing parenthesis
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return query.CTE{}, err
 	}
 
@@ -1757,7 +1755,7 @@ func parseCTEList(p *Parser) ([]query.CTE, error) {
 		ctes = append(ctes, cte)
 
 		// Check for comma (more CTEs)
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1809,7 +1807,7 @@ func parseSubquery(p *Parser) (interface{}, error) {
 	return nil, fmt.Errorf("subquery parsing not yet fully implemented")
 }
 
-func parseOutputClause(p *Parser, tok tokenizer.TokenWithSpan) (interface{}, error) {
+func parseOutputClause(p *Parser, tok token.TokenWithSpan) (interface{}, error) {
 	return nil, nil
 }
 
@@ -1818,10 +1816,10 @@ func parseOutputClause(p *Parser, tok tokenizer.TokenWithSpan) (interface{}, err
 func parsePipeOperators(p *Parser) ([]query.PipeOperator, error) {
 	var pipeOperators []query.PipeOperator
 
-	for p.ConsumeToken(tokenizer.TokenVerticalBarRightAngleBracket{}) {
+	for p.ConsumeToken(token.TokenVerticalBarRightAngleBracket{}) {
 		// Parse the keyword after |>
 		tok := p.PeekToken()
-		word, ok := tok.Token.(tokenizer.TokenWord)
+		word, ok := tok.Token.(token.TokenWord)
 		if !ok {
 			return nil, fmt.Errorf("expected keyword after |>, found %v", tok.Token)
 		}
@@ -1988,7 +1986,7 @@ func parseQueryAssignments(p *Parser) ([]query.Assignment, error) {
 			return nil, err
 		}
 
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			return nil, err
 		}
 
@@ -2003,7 +2001,7 @@ func parseQueryAssignments(p *Parser) ([]query.Assignment, error) {
 			Value:  &queryExprWrapper{expr: val},
 		})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -2022,7 +2020,7 @@ func parseQueryIdents(p *Parser) ([]query.Ident, error) {
 		}
 		ids = append(ids, query.Ident{Value: id.Value})
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -2055,7 +2053,7 @@ func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
 
 		mappings = append(mappings, mapping)
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}

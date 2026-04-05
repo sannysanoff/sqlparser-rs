@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // NamedWindowDefinition represents a named window: <name> AS <window specification>
 type NamedWindowDefinition struct {
-	span span.Span
+	span token.Span
 	Name Ident
 	Expr NamedWindowExpr
 }
@@ -60,7 +60,7 @@ func (w *WindowSpecExpr) String() string {
 
 // WindowSpec represents a window specification
 type WindowSpec struct {
-	span        span.Span
+	span        token.Span
 	WindowName  *Ident
 	PartitionBy []Expr
 	OrderBy     []OrderByExpr

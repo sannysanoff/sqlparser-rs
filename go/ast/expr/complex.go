@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // ArrayExpr represents an array expression (Expr::Array in Rust).
 type ArrayExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Elems   []Expr
 	Named   bool // true for `ARRAY[...]`, false for `[...]`
 }
@@ -34,7 +34,7 @@ type ArrayExpr struct {
 func (a *ArrayExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (a *ArrayExpr) Span() span.Span {
+func (a *ArrayExpr) Span() token.Span {
 	return a.SpanVal
 }
 
@@ -52,7 +52,7 @@ func (a *ArrayExpr) String() string {
 
 // IntervalExpr represents an INTERVAL expression (Expr::Interval in Rust).
 type IntervalExpr struct {
-	SpanVal                    span.Span
+	SpanVal                    token.Span
 	Value                      Expr
 	LeadingField               *string // e.g., YEAR, MONTH, DAY
 	LeadingPrecision           *uint64
@@ -63,7 +63,7 @@ type IntervalExpr struct {
 func (i *IntervalExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *IntervalExpr) Span() span.Span {
+func (i *IntervalExpr) Span() token.Span {
 	return i.SpanVal
 }
 
@@ -94,14 +94,14 @@ func (i *IntervalExpr) String() string {
 
 // TupleExpr represents a tuple/row expression (Expr::Tuple in Rust).
 type TupleExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Exprs   []Expr
 }
 
 func (t *TupleExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (t *TupleExpr) Span() span.Span {
+func (t *TupleExpr) Span() token.Span {
 	return t.SpanVal
 }
 
@@ -116,14 +116,14 @@ func (t *TupleExpr) String() string {
 
 // StructField represents a field definition within a struct.
 type StructField struct {
-	SpanVal   span.Span
+	SpanVal   token.Span
 	FieldName *Ident
 	FieldType string
 	Options   []Expr // SqlOption
 }
 
 // Span returns the source span for this struct field.
-func (s *StructField) Span() span.Span {
+func (s *StructField) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -137,7 +137,7 @@ func (s *StructField) String() string {
 
 // StructExpr represents a struct literal expression (Expr::Struct in Rust).
 type StructExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Values  []Expr
 	Fields  []StructField
 }
@@ -145,7 +145,7 @@ type StructExpr struct {
 func (s *StructExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (s *StructExpr) Span() span.Span {
+func (s *StructExpr) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -169,13 +169,13 @@ func (s *StructExpr) String() string {
 
 // MapEntry represents a key-value pair in a map.
 type MapEntry struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Key     Expr
 	Value   Expr
 }
 
 // Span returns the source span for this map entry.
-func (m *MapEntry) Span() span.Span {
+func (m *MapEntry) Span() token.Span {
 	return m.SpanVal
 }
 
@@ -186,14 +186,14 @@ func (m *MapEntry) String() string {
 
 // MapExpr represents a map literal expression (Expr::Map in Rust).
 type MapExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Entries []MapEntry
 }
 
 func (m *MapExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (m *MapExpr) Span() span.Span {
+func (m *MapExpr) Span() token.Span {
 	return m.SpanVal
 }
 
@@ -208,13 +208,13 @@ func (m *MapExpr) String() string {
 
 // DictionaryField represents a field in a dictionary struct.
 type DictionaryField struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Key     *Ident
 	Value   Expr
 }
 
 // Span returns the source span for this dictionary field.
-func (d *DictionaryField) Span() span.Span {
+func (d *DictionaryField) Span() token.Span {
 	return d.SpanVal
 }
 
@@ -225,14 +225,14 @@ func (d *DictionaryField) String() string {
 
 // DictionaryExpr represents a DuckDB-style dictionary/struct literal (Expr::Dictionary in Rust).
 type DictionaryExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Fields  []DictionaryField
 }
 
 func (d *DictionaryExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (d *DictionaryExpr) Span() span.Span {
+func (d *DictionaryExpr) Span() token.Span {
 	return d.SpanVal
 }
 
@@ -247,7 +247,7 @@ func (d *DictionaryExpr) String() string {
 
 // NamedExpr represents a named expression in a typeless struct (Expr::Named in Rust).
 type NamedExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr    Expr
 	Name    *Ident
 }
@@ -255,7 +255,7 @@ type NamedExpr struct {
 func (n *NamedExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (n *NamedExpr) Span() span.Span {
+func (n *NamedExpr) Span() token.Span {
 	return n.SpanVal
 }
 
@@ -266,18 +266,18 @@ func (n *NamedExpr) String() string {
 
 // AccessExpr represents an element in a compound field access chain.
 type AccessExpr interface {
-	Span() span.Span
+	Span() token.Span
 	String() string
 }
 
 // DotAccess represents dot notation access (e.g., `foo.bar`).
 type DotAccess struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr    Expr
 }
 
 // Span returns the source span for this access.
-func (d *DotAccess) Span() span.Span {
+func (d *DotAccess) Span() token.Span {
 	return d.SpanVal
 }
 
@@ -288,12 +288,12 @@ func (d *DotAccess) String() string {
 
 // SubscriptAccess represents bracket notation access (e.g., `foo[0]`).
 type SubscriptAccess struct {
-	SpanVal   span.Span
+	SpanVal   token.Span
 	Subscript *Subscript
 }
 
 // Span returns the source span for this access.
-func (s *SubscriptAccess) Span() span.Span {
+func (s *SubscriptAccess) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -304,7 +304,7 @@ func (s *SubscriptAccess) String() string {
 
 // Subscript represents a subscript expression within brackets.
 type Subscript struct {
-	SpanVal    span.Span
+	SpanVal    token.Span
 	Index      Expr
 	LowerBound *Expr
 	UpperBound *Expr
@@ -312,7 +312,7 @@ type Subscript struct {
 }
 
 // Span returns the source span for this subscript.
-func (s *Subscript) Span() span.Span {
+func (s *Subscript) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -339,7 +339,7 @@ func (s *Subscript) String() string {
 
 // CompoundFieldAccess represents accessing nested fields (Expr::CompoundFieldAccess in Rust).
 type CompoundFieldAccess struct {
-	SpanVal     span.Span
+	SpanVal     token.Span
 	Root        Expr
 	AccessChain []AccessExpr
 }
@@ -347,7 +347,7 @@ type CompoundFieldAccess struct {
 func (c *CompoundFieldAccess) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CompoundFieldAccess) Span() span.Span {
+func (c *CompoundFieldAccess) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -421,7 +421,7 @@ func (j *JsonPath) String() string {
 
 // JsonAccess represents accessing semi-structured data (Expr::JsonAccess in Rust).
 type JsonAccess struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Value   Expr
 	Path    *JsonPath
 }
@@ -429,7 +429,7 @@ type JsonAccess struct {
 func (j *JsonAccess) exprNode() {}
 
 // Span returns the source span for this expression.
-func (j *JsonAccess) Span() span.Span {
+func (j *JsonAccess) Span() token.Span {
 	return j.SpanVal
 }
 
@@ -440,14 +440,14 @@ func (j *JsonAccess) String() string {
 
 // OuterJoin represents the Oracle-style outer join operator `(+)` (Expr::OuterJoin in Rust).
 type OuterJoin struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr    Expr
 }
 
 func (o *OuterJoin) exprNode() {}
 
 // Span returns the source span for this expression.
-func (o *OuterJoin) Span() span.Span {
+func (o *OuterJoin) Span() token.Span {
 	return o.SpanVal
 }
 
@@ -458,14 +458,14 @@ func (o *OuterJoin) String() string {
 
 // PriorExpr represents a reference to the prior level in a CONNECT BY clause (Expr::Prior in Rust).
 type PriorExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr    Expr
 }
 
 func (p *PriorExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (p *PriorExpr) Span() span.Span {
+func (p *PriorExpr) Span() token.Span {
 	return p.SpanVal
 }
 
@@ -476,13 +476,13 @@ func (p *PriorExpr) String() string {
 
 // LambdaFunctionParameter represents a parameter to a lambda function.
 type LambdaFunctionParameter struct {
-	SpanVal  span.Span
+	SpanVal  token.Span
 	Name     *Ident
 	DataType string // optional
 }
 
 // Span returns the source span for this parameter.
-func (l *LambdaFunctionParameter) Span() span.Span {
+func (l *LambdaFunctionParameter) Span() token.Span {
 	return l.SpanVal
 }
 
@@ -504,7 +504,7 @@ const (
 
 // LambdaExpr represents a lambda function expression (Expr::Lambda in Rust).
 type LambdaExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Params  []LambdaFunctionParameter
 	Body    Expr
 	Syntax  LambdaSyntax
@@ -513,7 +513,7 @@ type LambdaExpr struct {
 func (l *LambdaExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (l *LambdaExpr) Span() span.Span {
+func (l *LambdaExpr) Span() token.Span {
 	return l.SpanVal
 }
 
@@ -536,7 +536,7 @@ func (l *LambdaExpr) String() string {
 
 // MemberOfExpr represents a MEMBER OF expression (Expr::MemberOf in Rust).
 type MemberOfExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Value   Expr
 	Array   Expr
 }
@@ -544,7 +544,7 @@ type MemberOfExpr struct {
 func (m *MemberOfExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (m *MemberOfExpr) Span() span.Span {
+func (m *MemberOfExpr) Span() token.Span {
 	return m.SpanVal
 }
 
@@ -580,7 +580,7 @@ func (s SearchModifier) String() string {
 
 // MatchAgainstExpr represents a MySQL MATCH AGAINST full-text search (Expr::MatchAgainst in Rust).
 type MatchAgainstExpr struct {
-	SpanVal           span.Span
+	SpanVal           token.Span
 	Columns           []*ObjectName
 	MatchValue        interface{} // ValueWithSpan
 	OptSearchModifier *SearchModifier
@@ -589,7 +589,7 @@ type MatchAgainstExpr struct {
 func (m *MatchAgainstExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (m *MatchAgainstExpr) Span() span.Span {
+func (m *MatchAgainstExpr) Span() token.Span {
 	return m.SpanVal
 }
 

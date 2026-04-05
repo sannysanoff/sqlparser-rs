@@ -24,7 +24,6 @@ import (
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // Reserved keywords for table alias in MySQL
@@ -1039,7 +1038,7 @@ func parseCommaSeparatedLockTables(parser dialects.ParserAccessor) ([]*statement
 		}
 		tables = append(tables, table)
 
-		if !parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1075,7 +1074,7 @@ func parseLockTable(parser dialects.ParserAccessor) (*statement.LockTable, error
 // parseIdentifier parses an identifier from the parser.
 func parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
 	tok := parser.PeekToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		parser.AdvanceToken()
 		return &ast.Ident{Value: word.Word.Value}, nil
 	}
@@ -1091,7 +1090,7 @@ func parseOptionalAlias(parser dialects.ParserAccessor, reservedKeywords []token
 
 	// Check if next token is an identifier and not a reserved keyword
 	tok := parser.PeekToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		// Check if it's not a reserved keyword
 		kw := token.Keyword(word.Word.Value)
 		for _, reserved := range reservedKeywords {

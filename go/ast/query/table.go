@@ -21,17 +21,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // TableWithJoins represents a left table followed by zero or more joins
 type TableWithJoins struct {
-	span     span.Span
+	span     token.Span
 	Relation TableFactor
 	Joins    []Join
 }
 
-func (t *TableWithJoins) Span() span.Span { return t.span }
+func (t *TableWithJoins) Span() token.Span { return t.span }
 func (t *TableWithJoins) String() string {
 	parts := []string{t.Relation.String()}
 	for _, join := range t.Joins {
@@ -43,12 +43,12 @@ func (t *TableWithJoins) String() string {
 // TableFactor represents a table name or parenthesized subquery with optional alias
 type TableFactor interface {
 	fmt.Stringer
-	Span() span.Span
+	Span() token.Span
 }
 
 // TableTableFactor represents a named table or relation
 type TableTableFactor struct {
-	span           span.Span
+	span           token.Span
 	Name           ObjectName
 	Alias          *TableAlias
 	Args           *TableFunctionArgs
@@ -61,7 +61,7 @@ type TableTableFactor struct {
 	IndexHints     []TableIndexHints
 }
 
-func (t *TableTableFactor) Span() span.Span { return t.span }
+func (t *TableTableFactor) Span() token.Span { return t.span }
 func (t *TableTableFactor) String() string {
 	var parts []string
 	parts = append(parts, t.Name.String())
@@ -124,14 +124,14 @@ func (t *TableTableFactor) String() string {
 
 // DerivedTableFactor represents a derived table (parenthesized subquery)
 type DerivedTableFactor struct {
-	span     span.Span
+	span     token.Span
 	Lateral  bool
 	Subquery *Query
 	Alias    *TableAlias
 	Sample   *TableSampleKind
 }
 
-func (d *DerivedTableFactor) Span() span.Span { return d.span }
+func (d *DerivedTableFactor) Span() token.Span { return d.span }
 func (d *DerivedTableFactor) String() string {
 	var parts []string
 	if d.Lateral {
@@ -149,12 +149,12 @@ func (d *DerivedTableFactor) String() string {
 
 // TableFunctionTableFactor represents TABLE(<expr>)[ AS <alias> ]
 type TableFunctionTableFactor struct {
-	span  span.Span
+	span  token.Span
 	Expr  Expr
 	Alias *TableAlias
 }
 
-func (t *TableFunctionTableFactor) Span() span.Span { return t.span }
+func (t *TableFunctionTableFactor) Span() token.Span { return t.span }
 func (t *TableFunctionTableFactor) String() string {
 	if t.Alias != nil {
 		return fmt.Sprintf("TABLE(%s) %s", t.Expr.String(), t.Alias.String())
@@ -164,14 +164,14 @@ func (t *TableFunctionTableFactor) String() string {
 
 // FunctionTableFactor represents LATERAL FLATTEN or similar table functions
 type FunctionTableFactor struct {
-	span    span.Span
+	span    token.Span
 	Lateral bool
 	Name    ObjectName
 	Args    []FunctionArg
 	Alias   *TableAlias
 }
 
-func (f *FunctionTableFactor) Span() span.Span { return f.span }
+func (f *FunctionTableFactor) Span() token.Span { return f.span }
 func (f *FunctionTableFactor) String() string {
 	var parts []string
 	if f.Lateral {
@@ -199,7 +199,7 @@ func (f *FunctionArg) String() string {
 
 // UnnestTableFactor represents UNNEST table operator
 type UnnestTableFactor struct {
-	span            span.Span
+	span            token.Span
 	Alias           *TableAlias
 	ArrayExprs      []Expr
 	WithOffset      bool
@@ -207,7 +207,7 @@ type UnnestTableFactor struct {
 	WithOrdinality  bool
 }
 
-func (u *UnnestTableFactor) Span() span.Span { return u.span }
+func (u *UnnestTableFactor) Span() token.Span { return u.span }
 func (u *UnnestTableFactor) String() string {
 	exprs := make([]string, len(u.ArrayExprs))
 	for i, e := range u.ArrayExprs {
@@ -232,14 +232,14 @@ func (u *UnnestTableFactor) String() string {
 
 // JsonTableTableFactor represents JSON_TABLE table-valued function
 type JsonTableTableFactor struct {
-	span     span.Span
+	span     token.Span
 	JsonExpr Expr
 	JsonPath ValueWithSpan
 	Columns  []JsonTableColumn
 	Alias    *TableAlias
 }
 
-func (j *JsonTableTableFactor) Span() span.Span { return j.span }
+func (j *JsonTableTableFactor) Span() token.Span { return j.span }
 func (j *JsonTableTableFactor) String() string {
 	cols := make([]string, len(j.Columns))
 	for i, c := range j.Columns {
@@ -255,14 +255,14 @@ func (j *JsonTableTableFactor) String() string {
 
 // OpenJsonTableFactor represents MSSQL's OPENJSON table-valued function
 type OpenJsonTableFactor struct {
-	span     span.Span
+	span     token.Span
 	JsonExpr Expr
 	JsonPath *ValueWithSpan
 	Columns  []OpenJsonTableColumn
 	Alias    *TableAlias
 }
 
-func (o *OpenJsonTableFactor) Span() span.Span { return o.span }
+func (o *OpenJsonTableFactor) Span() token.Span { return o.span }
 func (o *OpenJsonTableFactor) String() string {
 	var parts []string
 	if o.JsonPath != nil {
@@ -285,12 +285,12 @@ func (o *OpenJsonTableFactor) String() string {
 
 // NestedJoinTableFactor represents a parenthesized join expression
 type NestedJoinTableFactor struct {
-	span           span.Span
+	span           token.Span
 	TableWithJoins *TableWithJoins
 	Alias          *TableAlias
 }
 
-func (n *NestedJoinTableFactor) Span() span.Span { return n.span }
+func (n *NestedJoinTableFactor) Span() token.Span { return n.span }
 func (n *NestedJoinTableFactor) String() string {
 	result := fmt.Sprintf("(%s)", n.TableWithJoins.String())
 	if n.Alias != nil {
@@ -301,7 +301,7 @@ func (n *NestedJoinTableFactor) String() string {
 
 // PivotTableFactor represents a PIVOT operation
 type PivotTableFactor struct {
-	span               span.Span
+	span               token.Span
 	Table              TableFactor
 	AggregateFunctions []ExprWithAlias
 	ValueColumn        []Expr
@@ -310,7 +310,7 @@ type PivotTableFactor struct {
 	Alias              *TableAlias
 }
 
-func (p *PivotTableFactor) Span() span.Span { return p.span }
+func (p *PivotTableFactor) Span() token.Span { return p.span }
 func (p *PivotTableFactor) String() string {
 	aggs := make([]string, len(p.AggregateFunctions))
 	for i, a := range p.AggregateFunctions {
@@ -339,7 +339,7 @@ func (p *PivotTableFactor) String() string {
 
 // UnpivotTableFactor represents an UNPIVOT operation
 type UnpivotTableFactor struct {
-	span          span.Span
+	span          token.Span
 	Table         TableFactor
 	Value         Expr
 	Name          Ident
@@ -348,7 +348,7 @@ type UnpivotTableFactor struct {
 	Alias         *TableAlias
 }
 
-func (u *UnpivotTableFactor) Span() span.Span { return u.span }
+func (u *UnpivotTableFactor) Span() token.Span { return u.span }
 func (u *UnpivotTableFactor) String() string {
 	cols := make([]string, len(u.Columns))
 	for i, c := range u.Columns {
@@ -385,7 +385,7 @@ func (n NullInclusion) String() string {
 
 // MatchRecognizeTableFactor represents MATCH_RECOGNIZE operation
 type MatchRecognizeTableFactor struct {
-	span           span.Span
+	span           token.Span
 	Table          TableFactor
 	PartitionBy    []Expr
 	OrderBy        []OrderByExpr
@@ -397,7 +397,7 @@ type MatchRecognizeTableFactor struct {
 	Alias          *TableAlias
 }
 
-func (m *MatchRecognizeTableFactor) Span() span.Span { return m.span }
+func (m *MatchRecognizeTableFactor) Span() token.Span { return m.span }
 func (m *MatchRecognizeTableFactor) String() string {
 	var parts []string
 	parts = append(parts, m.Table.String())
@@ -443,7 +443,7 @@ func (m *MatchRecognizeTableFactor) String() string {
 
 // XmlTableFactor represents XMLTABLE table-valued function
 type XmlTableFactor struct {
-	span          span.Span
+	span          token.Span
 	Namespaces    []XmlNamespaceDefinition
 	RowExpression Expr
 	Passing       XmlPassingClause
@@ -451,7 +451,7 @@ type XmlTableFactor struct {
 	Alias         *TableAlias
 }
 
-func (x *XmlTableFactor) Span() span.Span { return x.span }
+func (x *XmlTableFactor) Span() token.Span { return x.span }
 func (x *XmlTableFactor) String() string {
 	var parts []string
 	parts = append(parts, "XMLTABLE(")
@@ -476,7 +476,7 @@ func (x *XmlTableFactor) String() string {
 
 // SemanticViewTableFactor represents Snowflake SEMANTIC_VIEW function
 type SemanticViewTableFactor struct {
-	span        span.Span
+	span        token.Span
 	Name        ObjectName
 	Dimensions  []Expr
 	Metrics     []Expr
@@ -485,7 +485,7 @@ type SemanticViewTableFactor struct {
 	Alias       *TableAlias
 }
 
-func (s *SemanticViewTableFactor) Span() span.Span { return s.span }
+func (s *SemanticViewTableFactor) Span() token.Span { return s.span }
 func (s *SemanticViewTableFactor) String() string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("SEMANTIC_VIEW(%s", s.Name.String()))
@@ -522,13 +522,13 @@ func (s *SemanticViewTableFactor) String() string {
 
 // Join represents a JOIN clause
 type Join struct {
-	span         span.Span
+	span         token.Span
 	Relation     TableFactor
 	Global       bool
 	JoinOperator JoinOperatorType
 }
 
-func (j *Join) Span() span.Span { return j.span }
+func (j *Join) Span() token.Span { return j.span }
 func (j *Join) String() string {
 	var parts []string
 	if j.Global {

@@ -21,7 +21,6 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // MsSqlDialect is a dialect for Microsoft SQL Server SQL implementation.
@@ -911,7 +910,7 @@ func (d *MsSqlDialect) PrecUnknown() uint8 {
 // Returns precedence for colon operator used in JSON/variant access.
 func (d *MsSqlDialect) GetNextPrecedence(parser dialects.ParserAccessor) (uint8, error) {
 	tokenWithSpan := parser.PeekTokenRef()
-	if _, ok := tokenWithSpan.Token.(tokenizer.TokenColon); ok {
+	if _, ok := tokenWithSpan.Token.(token.TokenColon); ok {
 		return uint8(dialects.PrecedenceColon), nil
 	}
 	return 0, nil

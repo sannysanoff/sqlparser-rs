@@ -15,17 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package tokenizer provides SQL tokenization functionality.
+// Package token provides SQL tokenization functionality and token types.
 // It converts SQL text into a sequence of tokens that can be
 // used by the parser to build an Abstract Syntax Tree (AST).
-package tokenizer
+package token
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/user/sqlparser/span"
-	"github.com/user/sqlparser/token"
 )
 
 // Whitespace represents whitespace in the input: spaces, newlines, tabs and comments.
@@ -91,7 +88,7 @@ func (q QuoteDelimitedString) String() string {
 type Word struct {
 	Value      string
 	QuoteStyle *byte // nil for unquoted, otherwise the quote character used
-	Keyword    token.Keyword
+	Keyword    Keyword
 }
 
 func (w Word) String() string {
@@ -922,7 +919,7 @@ func (t TokenCustomBinaryOperator) Equals(other Token) bool {
 // TokenWithSpan represents a token with its source location
 type TokenWithSpan struct {
 	Token Token
-	Span  span.Span
+	Span  Span
 }
 
 // MakeKeyword creates a Word token from a keyword string
@@ -941,20 +938,20 @@ func MakeWord(word string, quoteStyle *byte) Token {
 }
 
 // KeywordLookup performs case-insensitive keyword lookup
-func KeywordLookup(word string, quoteStyle *byte) token.Keyword {
+func KeywordLookup(word string, quoteStyle *byte) Keyword {
 	if quoteStyle != nil {
-		return token.NoKeyword
+		return NoKeyword
 	}
 
 	// Linear search through AllKeywords
 	// Note: In production, you might want to create a map for O(1) lookup
 	upperWord := strings.ToUpper(word)
-	for _, kw := range token.AllKeywords {
+	for _, kw := range AllKeywords {
 		if string(kw) == upperWord {
 			return kw
 		}
 	}
-	return token.NoKeyword
+	return NoKeyword
 }
 
 // IsEOF returns true if the token is an EOF token
@@ -1048,13 +1045,13 @@ func (tws TokenWithSpan) Format() string {
 }
 
 // NewTokenWithSpan creates a TokenWithSpan from a token and span
-func NewTokenWithSpan(tok Token, sp span.Span) TokenWithSpan {
+func NewTokenWithSpan(tok Token, sp Span) TokenWithSpan {
 	return TokenWithSpan{Token: tok, Span: sp}
 }
 
 // WrapToken creates a TokenWithSpan with an empty span
 func WrapToken(tok Token) TokenWithSpan {
-	return TokenWithSpan{Token: tok, Span: span.Span{}}
+	return TokenWithSpan{Token: tok, Span: Span{}}
 }
 
 // NewEOFToken creates an EOF token with empty span
@@ -1065,10 +1062,18 @@ func NewEOFToken() TokenWithSpan {
 // TokenizerError represents an error during tokenization
 type TokenizerError struct {
 	Message  string
-	Location span.Location
+	Location Location
 }
 
 // Error implements the error interface
 func (e *TokenizerError) Error() string {
 	return fmt.Sprintf("%s at Line: %d, Column: %d", e.Message, e.Location.Line, e.Location.Column)
+}
+
+// NewTokenizerError creates a new tokenizer error
+func NewTokenizerError(msg string, loc Location) error {
+	return &TokenizerError{
+		Message:  msg,
+		Location: loc,
+	}
 }

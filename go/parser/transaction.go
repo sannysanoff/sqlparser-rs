@@ -23,7 +23,7 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ParseStartTransaction parses START TRANSACTION statements
@@ -164,7 +164,7 @@ func parseTransactionModes(p *Parser) ([]*expr.TransactionMode, error) {
 		modes = append(modes, mode)
 
 		// Optional comma between modes (PostgreSQL doesn't require it, but ANSI does)
-		required = p.ConsumeToken(tokenizer.TokenComma{})
+		required = p.ConsumeToken(token.TokenComma{})
 	}
 
 	return modes, nil

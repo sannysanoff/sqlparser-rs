@@ -18,17 +18,16 @@
 package parser
 
 import (
-	"github.com/user/sqlparser/dialects"
-	
+	"github.com/user/sqlparser/parseriface"
 )
 
-// dialectAdapter wraps a dialects.Dialect to implement tokenizer.Dialect
+// dialectAdapter wraps a parseriface.CompleteDialect to implement tokenizer.Dialect
 type dialectAdapter struct {
-	dialect dialects.Dialect
+	dialect parseriface.CompleteDialect
 }
 
 // newDialectAdapter creates a new adapter wrapping the given dialect
-func newDialectAdapter(d dialects.Dialect) *dialectAdapter {
+func newDialectAdapter(d parseriface.CompleteDialect) *dialectAdapter {
 	return &dialectAdapter{dialect: d}
 }
 

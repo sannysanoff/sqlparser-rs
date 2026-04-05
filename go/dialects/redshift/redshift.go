@@ -36,7 +36,6 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // RedshiftSqlDialect is a dialect for Amazon Redshift.
@@ -910,21 +909,21 @@ func (d *RedshiftSqlDialect) GetNextPrecedence(parser dialects.ParserAccessor) (
 	tok := parser.PeekTokenRef()
 
 	switch tok.Token.(type) {
-	case tokenizer.TokenWord:
-		if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	case token.TokenWord:
+		if word, ok := tok.Token.(token.TokenWord); ok {
 			if word.Keyword == token.COLLATE && !parser.InColumnDefinitionState() {
 				return collatePrec, nil
 			}
 		}
-	case tokenizer.TokenLBracket:
+	case token.TokenLBracket:
 		return bracketPrec, nil
-	case tokenizer.TokenArrow, tokenizer.TokenLongArrow, tokenizer.TokenHashArrow, tokenizer.TokenHashLongArrow,
-		tokenizer.TokenAtArrow, tokenizer.TokenArrowAt, tokenizer.TokenHashMinus, tokenizer.TokenAtQuestion,
-		tokenizer.TokenAtAt, tokenizer.TokenQuestion, tokenizer.TokenQuestionAnd, tokenizer.TokenQuestionPipe,
-		tokenizer.TokenExclamationMark, tokenizer.TokenOverlap, tokenizer.TokenCaretAt, tokenizer.TokenStringConcat,
-		tokenizer.TokenSharp, tokenizer.TokenShiftRight, tokenizer.TokenShiftLeft, tokenizer.TokenCustomBinaryOperator:
+	case token.TokenArrow, token.TokenLongArrow, token.TokenHashArrow, token.TokenHashLongArrow,
+		token.TokenAtArrow, token.TokenArrowAt, token.TokenHashMinus, token.TokenAtQuestion,
+		token.TokenAtAt, token.TokenQuestion, token.TokenQuestionAnd, token.TokenQuestionPipe,
+		token.TokenExclamationMark, token.TokenOverlap, token.TokenCaretAt, token.TokenStringConcat,
+		token.TokenSharp, token.TokenShiftRight, token.TokenShiftLeft, token.TokenCustomBinaryOperator:
 		return pgOtherPrec, nil
-	case tokenizer.TokenColon:
+	case token.TokenColon:
 		return d.PrecUnknown(), nil
 	}
 

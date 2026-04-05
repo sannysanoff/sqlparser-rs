@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Ident represents an SQL identifier (e.g., table name, column name).
@@ -38,7 +38,7 @@ type Ident struct {
 // NewIdent creates a new unquoted identifier with the given value and an empty span.
 func NewIdent(value string) *Ident {
 	return &Ident{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Value:    value,
 	}
 }
@@ -50,14 +50,14 @@ func NewIdentWithQuote(quote rune, value string) *Ident {
 		panic(fmt.Sprintf("invalid quote character: %c", quote))
 	}
 	return &Ident{
-		BaseNode:   BaseNode{span: span.Span{}},
+		BaseNode:   BaseNode{span: token.Span{}},
 		Value:      value,
 		QuoteStyle: &quote,
 	}
 }
 
 // NewIdentWithSpan creates an unquoted identifier with the given span.
-func NewIdentWithSpan(s span.Span, value string) *Ident {
+func NewIdentWithSpan(s token.Span, value string) *Ident {
 	return &Ident{
 		BaseNode: BaseNode{span: s},
 		Value:    value,
@@ -66,7 +66,7 @@ func NewIdentWithSpan(s span.Span, value string) *Ident {
 
 // NewIdentWithQuoteAndSpan creates a quoted identifier with the given span.
 // Panics if the quote character is not valid.
-func NewIdentWithQuoteAndSpan(quote rune, s span.Span, value string) *Ident {
+func NewIdentWithQuoteAndSpan(quote rune, s token.Span, value string) *Ident {
 	if quote != '\'' && quote != '"' && quote != '`' && quote != '[' {
 		panic(fmt.Sprintf("invalid quote character: %c", quote))
 	}
@@ -192,7 +192,7 @@ func NewObjectName(parts ...string) *ObjectName {
 		objParts[i] = &ObjectNamePartIdentifier{Ident: NewIdent(part)}
 	}
 	return &ObjectName{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Parts:    objParts,
 	}
 }
@@ -204,13 +204,13 @@ func NewObjectNameFromIdents(idents ...*Ident) *ObjectName {
 		parts[i] = &ObjectNamePartIdentifier{Ident: ident}
 	}
 	return &ObjectName{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Parts:    parts,
 	}
 }
 
 // NewObjectNameWithSpan creates a new ObjectName with the given span.
-func NewObjectNameWithSpan(s span.Span, parts ...ObjectNamePart) *ObjectName {
+func NewObjectNameWithSpan(s token.Span, parts ...ObjectNamePart) *ObjectName {
 	return &ObjectName{
 		BaseNode: BaseNode{span: s},
 		Parts:    parts,

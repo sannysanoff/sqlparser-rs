@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Distinct represents ALL, DISTINCT, or DISTINCT ON modifiers
@@ -68,7 +68,7 @@ func (d *DistinctWithExprs) String() string {
 
 // Top represents MSSQL TOP clause
 type Top struct {
-	span     span.Span
+	span     token.Span
 	WithTies bool
 	Percent  bool
 	Quantity *TopQuantity
@@ -107,7 +107,7 @@ func (t *TopQuantity) String() string {
 
 // Values represents an explicit VALUES clause
 type Values struct {
-	span         span.Span
+	span         token.Span
 	ExplicitRow  bool
 	ValueKeyword bool
 	Rows         [][]Expr
@@ -139,7 +139,7 @@ func (v *Values) String() string {
 
 // SelectInto represents SELECT INTO clause
 type SelectInto struct {
-	span      span.Span
+	span      token.Span
 	Temporary bool
 	Unlogged  bool
 	Table     bool
@@ -164,7 +164,7 @@ func (s *SelectInto) String() string {
 
 // TableAlias represents a table reference alias
 type TableAlias struct {
-	span     span.Span
+	span     token.Span
 	Explicit bool
 	Name     Ident
 	Columns  []TableAliasColumnDef
@@ -280,7 +280,7 @@ type TableSampleKind struct {
 
 // TableSample represents a TABLESAMPLE clause
 type TableSample struct {
-	span     span.Span
+	span     token.Span
 	Modifier TableSampleModifier
 	Name     *TableSampleMethod
 	Quantity *TableSampleQuantity
@@ -444,7 +444,7 @@ func (t *TableSampleBucket) String() string {
 // ValueWithSpan represents a value with its span
 type ValueWithSpan struct {
 	Value string
-	span  span.Span
+	span  token.Span
 }
 
 func (v *ValueWithSpan) String() string {
@@ -637,7 +637,7 @@ func (a *Assignment) String() string {
 
 // PipeOperator represents BigQuery pipe syntax operators
 type PipeOperator struct {
-	span span.Span
+	span token.Span
 	Type PipeOperatorType
 }
 
@@ -931,7 +931,7 @@ type JsonTableColumn interface {
 
 // JsonTableNamedColumn represents a named column in JSON_TABLE
 type JsonTableNamedColumn struct {
-	span    span.Span
+	span    token.Span
 	Name    Ident
 	Type    Expr
 	Path    ValueWithSpan
@@ -960,7 +960,7 @@ func (j *JsonTableNamedColumn) String() string {
 
 // JsonTableForOrdinality represents FOR ORDINALITY column in JSON_TABLE
 type JsonTableForOrdinality struct {
-	span span.Span
+	span token.Span
 	Name Ident
 }
 
@@ -970,7 +970,7 @@ func (j *JsonTableForOrdinality) String() string {
 
 // JsonTableNestedColumn represents a nested column in JSON_TABLE
 type JsonTableNestedColumn struct {
-	span    span.Span
+	span    token.Span
 	Path    ValueWithSpan
 	Columns []JsonTableColumn
 }
@@ -1028,7 +1028,7 @@ func (j *JsonTableColumnErrorHandlingWithValue) String() string {
 
 // OpenJsonTableColumn represents a column in OPENJSON
 type OpenJsonTableColumn struct {
-	span   span.Span
+	span   token.Span
 	Name   Ident
 	Type   Expr
 	Path   *string
@@ -1048,7 +1048,7 @@ func (o *OpenJsonTableColumn) String() string {
 
 // XmlTableColumn represents a column in XMLTABLE
 type XmlTableColumn struct {
-	span   span.Span
+	span   token.Span
 	Name   Ident
 	Option XmlTableColumnOption
 }
@@ -1130,7 +1130,7 @@ func (x *XmlPassingArgument) String() string {
 
 // XmlNamespaceDefinition represents a namespace definition in XMLNAMESPACES
 type XmlNamespaceDefinition struct {
-	span span.Span
+	span token.Span
 	URI  Expr
 	Name Ident
 }

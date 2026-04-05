@@ -24,17 +24,17 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ParseMerge parses a MERGE statement
 // Reference: src/parser/merge.rs
-func ParseMerge(p *Parser, tok tokenizer.TokenWithSpan) (*statement.Merge, error) {
+func ParseMerge(p *Parser, tok token.TokenWithSpan) (*statement.Merge, error) {
 	return parseMergeInternal(p, tok)
 }
 
 // parseMergeInternal parses a MERGE statement
-func parseMergeInternal(p *Parser, mergeToken tokenizer.TokenWithSpan) (*statement.Merge, error) {
+func parseMergeInternal(p *Parser, mergeToken token.TokenWithSpan) (*statement.Merge, error) {
 	// Parse optimizer hints if present
 	// TODO: optimizerHints := p.maybeParseOptimizerHints()
 
@@ -78,8 +78,8 @@ func parseMergeInternal(p *Parser, mergeToken tokenizer.TokenWithSpan) (*stateme
 
 	// Parse optional OUTPUT/RETURNING clause
 	var output *expr.OutputClause
-	var outputToken tokenizer.Token
-	var returningToken tokenizer.Token
+	var outputToken token.Token
+	var returningToken token.Token
 
 	// Check for OUTPUT or RETURNING without consuming yet
 	tok := p.PeekToken()
@@ -250,17 +250,17 @@ func parseMergeAction(p *Parser, clauseKind expr.MergeClauseKind) (*expr.MergeAc
 
 		// Parse optional column list
 		var columns []*ast.ObjectName
-		if p.ConsumeToken(tokenizer.TokenLParen{}) {
+		if p.ConsumeToken(token.TokenLParen{}) {
 			// Parse parenthesized column list - each column can be a simple or compound identifier
 			for {
 				// Check for closing paren first
-				if p.ConsumeToken(tokenizer.TokenRParen{}) {
+				if p.ConsumeToken(token.TokenRParen{}) {
 					break
 				}
 
 				// Expect comma before subsequent columns
 				if len(columns) > 0 {
-					if !p.ConsumeToken(tokenizer.TokenComma{}) {
+					if !p.ConsumeToken(token.TokenComma{}) {
 						return nil, fmt.Errorf("expected comma or ) in column list")
 					}
 				}
@@ -273,7 +273,7 @@ func parseMergeAction(p *Parser, clauseKind expr.MergeClauseKind) (*expr.MergeAc
 
 				// Check for compound identifier (table.column)
 				parts := []*ast.Ident{col}
-				for p.ConsumeToken(tokenizer.TokenPeriod{}) {
+				for p.ConsumeToken(token.TokenPeriod{}) {
 					nextIdent, err := p.ParseIdentifier()
 					if err != nil {
 						return nil, fmt.Errorf("expected identifier after '.': %w", err)
@@ -305,12 +305,12 @@ func parseMergeAction(p *Parser, clauseKind expr.MergeClauseKind) (*expr.MergeAc
 			kindToken = p.PeekToken()
 
 			// Parse parenthesized values list
-			if p.ConsumeToken(tokenizer.TokenLParen{}) {
+			if p.ConsumeToken(token.TokenLParen{}) {
 				for {
-					if p.ConsumeToken(tokenizer.TokenRParen{}) {
+					if p.ConsumeToken(token.TokenRParen{}) {
 						break
 					}
-					if len(values) > 0 && !p.ConsumeToken(tokenizer.TokenComma{}) {
+					if len(values) > 0 && !p.ConsumeToken(token.TokenComma{}) {
 						return nil, fmt.Errorf("expected comma or ) in VALUES list")
 					}
 					val, err := ep.ParseExpr()
@@ -360,7 +360,7 @@ func parseCommaSeparatedAssignments(p *Parser) ([]*expr.Assignment, error) {
 		}
 		assignments = append(assignments, assign)
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -379,7 +379,7 @@ func parseAssignment(p *Parser) (*expr.Assignment, error) {
 
 	// Check for compound identifier (table.column)
 	for {
-		if !p.ConsumeToken(tokenizer.TokenPeriod{}) {
+		if !p.ConsumeToken(token.TokenPeriod{}) {
 			break
 		}
 		nextIdent, err := p.ParseIdentifier()
@@ -393,7 +393,7 @@ func parseAssignment(p *Parser) (*expr.Assignment, error) {
 	}
 
 	// Expect =
-	if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 		return nil, fmt.Errorf("expected = after column name in assignment")
 	}
 

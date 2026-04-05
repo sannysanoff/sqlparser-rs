@@ -20,7 +20,7 @@ package ast
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // ExpressionBase provides common functionality for expression implementations.
@@ -208,7 +208,7 @@ func (o *OrderByExpr) String() string {
 func NewOrderByExpr(expr Expr) *OrderByExpr {
 	asc := true
 	return &OrderByExpr{
-		ExpressionBase: ExpressionBase{BaseNode: BaseNode{span: span.Span{}}},
+		ExpressionBase: ExpressionBase{BaseNode: BaseNode{span: token.Span{}}},
 		Expr:           expr,
 		Asc:            &asc,
 	}
@@ -218,7 +218,7 @@ func NewOrderByExpr(expr Expr) *OrderByExpr {
 func NewOrderByExprDesc(expr Expr) *OrderByExpr {
 	asc := false
 	return &OrderByExpr{
-		ExpressionBase: ExpressionBase{BaseNode: BaseNode{span: span.Span{}}},
+		ExpressionBase: ExpressionBase{BaseNode: BaseNode{span: token.Span{}}},
 		Expr:           expr,
 		Asc:            &asc,
 	}

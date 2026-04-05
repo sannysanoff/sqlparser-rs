@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // FunctionArg represents an argument to a function.
@@ -396,7 +396,7 @@ type OrderByExpr struct {
 func (o *OrderByExpr) exprNode() {}
 
 // Span returns the source span.
-func (o *OrderByExpr) Span() span.Span { return span.Span{} }
+func (o *OrderByExpr) Span() token.Span { return token.Span{} }
 
 // String returns the SQL representation.
 func (o *OrderByExpr) String() string {
@@ -489,13 +489,13 @@ type FunctionExpr struct {
 	NullTreatment  NullTreatment
 	Over           *WindowType
 	WithinGroup    []Expr // OrderByExpr
-	SpanVal        span.Span
+	SpanVal        token.Span
 }
 
 func (f *FunctionExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (f *FunctionExpr) Span() span.Span {
+func (f *FunctionExpr) Span() token.Span {
 	return f.SpanVal
 }
 

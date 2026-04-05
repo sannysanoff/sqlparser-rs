@@ -24,7 +24,7 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // parseAlter parses ALTER statements
@@ -97,7 +97,7 @@ func parseAlterTable(p *Parser) (ast.Statement, error) {
 		alterTable.Operations = append(alterTable.Operations, op)
 
 		// Check for comma separator (MySQL allows multiple operations)
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -158,7 +158,7 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 	}
 
 	// Check for parenthesized column list (MySQL style: ADD COLUMN (c1 INT, c2 INT))
-	if _, isLParen := p.PeekToken().Token.(tokenizer.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.AdvanceToken() // consume (
 		op.Op = expr.AlterTableOpAddColumn
 
@@ -170,12 +170,12 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 			op.AddColumnDefs = append(op.AddColumnDefs, colDef)
 
 			// Check for comma separator
-			if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			if !p.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
 
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		return op, nil
@@ -280,7 +280,7 @@ func parseAlterTableDrop(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTa
 
 	// Check for more column names (comma-separated) - some dialects support this
 	for {
-		if _, isComma := p.PeekToken().Token.(tokenizer.TokenComma); !isComma {
+		if _, isComma := p.PeekToken().Token.(token.TokenComma); !isComma {
 			break
 		}
 		p.NextToken()
@@ -580,12 +580,12 @@ func parseOptionalColumnOption(p *Parser) (*expr.ColumnOption, error) {
 		// Parse comment string
 		tok := p.NextToken()
 		switch t := tok.Token.(type) {
-		case tokenizer.TokenSingleQuotedString:
+		case token.TokenSingleQuotedString:
 			return &expr.ColumnOption{
 				Name:  "COMMENT",
 				Value: &expr.ValueExpr{Value: t.Value},
 			}, nil
-		case tokenizer.TokenDoubleQuotedString:
+		case token.TokenDoubleQuotedString:
 			return &expr.ColumnOption{
 				Name:  "COMMENT",
 				Value: &expr.ValueExpr{Value: t.Value},
@@ -608,18 +608,18 @@ func parseAlterTableSet(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 	}
 
 	// SET (...) - parenthesized options - just skip for now
-	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		op.Op = expr.AlterTableOpSetOptionsParens
 		// Consume until matching RParen
 		depth := 1
 		for depth > 0 {
 			tok := p.NextToken()
 			switch tok.Token.(type) {
-			case tokenizer.TokenLParen:
+			case token.TokenLParen:
 				depth++
-			case tokenizer.TokenRParen:
+			case token.TokenRParen:
 				depth--
-			case tokenizer.EOF:
+			case token.EOF:
 				return nil, fmt.Errorf("unexpected end of input in SET options")
 			}
 		}
@@ -634,7 +634,7 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 	op.Op = expr.AlterTableOpSetTblProperties
 
 	// Expect opening parenthesis
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -644,11 +644,11 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 		tok := p.NextToken()
 		var key string
 		switch t := tok.Token.(type) {
-		case tokenizer.TokenSingleQuotedString:
+		case token.TokenSingleQuotedString:
 			key = t.Value
-		case tokenizer.TokenDoubleQuotedString:
+		case token.TokenDoubleQuotedString:
 			key = t.Value
-		case tokenizer.TokenWord:
+		case token.TokenWord:
 			key = t.Value
 		default:
 			return nil, fmt.Errorf("expected property key")
@@ -656,7 +656,7 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 
 		// Expect =
 		nextTok := p.NextToken()
-		if _, ok := nextTok.Token.(tokenizer.TokenEq); !ok {
+		if _, ok := nextTok.Token.(token.TokenEq); !ok {
 			// Put back the token if it's not =
 			p.PrevToken()
 			// Some dialects allow key without = value, defaulting to true
@@ -670,13 +670,13 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 			tok = p.NextToken()
 			var value expr.Expr
 			switch t := tok.Token.(type) {
-			case tokenizer.TokenSingleQuotedString:
+			case token.TokenSingleQuotedString:
 				value = &expr.ValueExpr{Value: t.Value}
-			case tokenizer.TokenDoubleQuotedString:
+			case token.TokenDoubleQuotedString:
 				value = &expr.ValueExpr{Value: t.Value}
-			case tokenizer.TokenNumber:
+			case token.TokenNumber:
 				value = &expr.ValueExpr{Value: t.Value}
-			case tokenizer.TokenWord:
+			case token.TokenWord:
 				if t.Value == "TRUE" || t.Value == "true" {
 					value = &expr.ValueExpr{Value: true}
 				} else if t.Value == "FALSE" || t.Value == "false" {
@@ -695,14 +695,14 @@ func parseAlterTableSetTblProperties(p *Parser, op *expr.AlterTableOperation) (*
 		}
 
 		// Check for more properties
-		if _, isComma := p.PeekToken().Token.(tokenizer.TokenComma); !isComma {
+		if _, isComma := p.PeekToken().Token.(token.TokenComma); !isComma {
 			break
 		}
 		p.NextToken()
 	}
 
 	// Expect closing parenthesis
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -714,17 +714,17 @@ func parseAlterTableMySqlOptions(p *Parser, op *expr.AlterTableOperation) (*expr
 	op.Op = expr.AlterTableOpSetOptions
 
 	if p.ParseKeyword("AUTO_INCREMENT") {
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			// Allow without equals sign too
 		}
 		tok := p.NextToken()
-		if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+		if num, ok := tok.Token.(token.TokenNumber); ok {
 			op.AutoIncrementValue = num.Value
 		} else {
 			return nil, fmt.Errorf("expected number after AUTO_INCREMENT")
 		}
 	} else if p.ParseKeyword("ALGORITHM") {
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			return nil, err
 		}
 		algo, err := p.ParseIdentifier()
@@ -733,7 +733,7 @@ func parseAlterTableMySqlOptions(p *Parser, op *expr.AlterTableOperation) (*expr
 		}
 		op.AlgorithmValue = algo
 	} else if p.ParseKeyword("LOCK") {
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			return nil, err
 		}
 		lock, err := p.ParseIdentifier()
@@ -758,11 +758,11 @@ func parseAlterView(p *Parser) (ast.Statement, error) {
 	// Parse optional column list
 	var columns []*ast.Ident
 	tok := p.PeekToken()
-	if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
+	if _, ok := tok.Token.(token.TokenLParen); ok {
 		p.AdvanceToken() // consume (
 		for {
 			nextTok := p.PeekToken()
-			if _, isRParen := nextTok.Token.(tokenizer.TokenRParen); isRParen {
+			if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
 				break
 			}
 			col, err := p.ParseIdentifier()
@@ -770,11 +770,11 @@ func parseAlterView(p *Parser) (ast.Statement, error) {
 				return nil, fmt.Errorf("expected column name: %w", err)
 			}
 			columns = append(columns, col)
-			if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			if !p.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 	}
@@ -935,7 +935,7 @@ func parseAlterUser(p *Parser) (ast.Statement, error) {
 		if !p.ParseKeyword("NULL") {
 			// Parse password string
 			tok := p.NextToken()
-			if _, ok := tok.Token.(tokenizer.TokenSingleQuotedString); !ok {
+			if _, ok := tok.Token.(token.TokenSingleQuotedString); !ok {
 				p.PrevToken()
 			}
 		}
@@ -1083,18 +1083,18 @@ func parseAlterConnector(p *Parser) (ast.Statement, error) {
 	// Parse DCPROPERTIES or other options
 	if p.ParseKeyword("DCPROPERTIES") {
 		// Expect parenthesized properties
-		if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		// Skip properties for now
 		for {
 			tok := p.PeekToken()
-			if _, isRParen := tok.Token.(tokenizer.TokenRParen); isRParen {
+			if _, isRParen := tok.Token.(token.TokenRParen); isRParen {
 				break
 			}
 			p.NextToken()
 		}
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 	}

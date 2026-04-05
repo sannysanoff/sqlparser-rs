@@ -22,7 +22,7 @@ import (
 	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ParseDeallocate parses DEALLOCATE statements
@@ -60,7 +60,7 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 	}
 
 	// Track whether the name was wrapped in parentheses
-	hasParentheses := p.ConsumeToken(tokenizer.TokenLParen{})
+	hasParentheses := p.ConsumeToken(token.TokenLParen{})
 
 	// Parse the name (object name for procedure/function)
 	name, err := p.ParseObjectName()
@@ -71,7 +71,7 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 
 	if hasParentheses {
 		// Expect closing parenthesis
-		if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		executeStmt.HasParentheses = true
@@ -80,14 +80,14 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 	}
 
 	// Check for parameter list in parentheses
-	if p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if p.ConsumeToken(token.TokenLParen{}) {
 		executeStmt.HasParentheses = true
 
 		// Parse comma-separated parameters
 		exprParser := NewExpressionParser(p)
 		for {
 			// Check for empty list or end
-			if p.ConsumeToken(tokenizer.TokenRParen{}) {
+			if p.ConsumeToken(token.TokenRParen{}) {
 				break
 			}
 
@@ -99,11 +99,11 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 			executeStmt.Parameters = append(executeStmt.Parameters, param)
 
 			// Check for comma or closing parenthesis
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				continue
 			}
 
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 			break
@@ -122,7 +122,7 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 			executeStmt.Using = append(executeStmt.Using, &expr.ExprWithAlias{Expr: exprVal})
 
 			// Check for comma or end
-			if !p.ConsumeToken(tokenizer.TokenComma{}) {
+			if !p.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
@@ -147,11 +147,11 @@ func ParsePrepare(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse optional data types list
-	if p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if p.ConsumeToken(token.TokenLParen{}) {
 		// Parse comma-separated data types
 		for {
 			// Check for empty list or end
-			if p.ConsumeToken(tokenizer.TokenRParen{}) {
+			if p.ConsumeToken(token.TokenRParen{}) {
 				break
 			}
 
@@ -163,11 +163,11 @@ func ParsePrepare(p *Parser) (ast.Statement, error) {
 			prepareStmt.DataTypes = append(prepareStmt.DataTypes, dataType)
 
 			// Check for comma or closing parenthesis
-			if p.ConsumeToken(tokenizer.TokenComma{}) {
+			if p.ConsumeToken(token.TokenComma{}) {
 				continue
 			}
 
-			if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 			break

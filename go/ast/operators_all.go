@@ -15,262 +15,235 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package expr
+// This file consolidates operator expression types from ast/expr/operators.go
+// into the main ast package.
+//
+// Key changes:
+// - Expression types use "E" prefix
+// - Uses existing UnaryOperator and BinaryOperator types from expr.go
+// - Moved from expr/ subpackage into ast package
+//
+// TODO: After full migration, remove the old ast/expr/ directory
+
+package ast
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/ast/operator"
 	"github.com/user/sqlparser/token"
 )
 
-// UnaryOp represents a unary operation (e.g., NOT, -, +).
-type UnaryOp struct {
-	Op   operator.UnaryOperator
-	Expr Expr
+// ============================================================================
+// Operator Expressions (from ast/expr/operators.go)
+// ============================================================================
+
+// EUnaryOp represents a unary operation (was expr.UnaryOp).
+type EUnaryOp struct {
+	ExpressionBase
+	Op      UnaryOperator
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (u *UnaryOp) exprNode() {}
-
 // Span returns the source span for this expression.
-func (u *UnaryOp) Span() token.Span {
-	return u.SpanVal
-}
+func (u *EUnaryOp) Span() token.Span { return u.SpanVal }
 
 // String returns the SQL representation.
-func (u *UnaryOp) String() string {
+func (u *EUnaryOp) String() string {
 	switch u.Op {
-	case operator.UOpPGPostfixFactorial:
+	case UnaryOperatorFactorial:
 		return fmt.Sprintf("%s%s", u.Expr.String(), u.Op.String())
-	case operator.UOpNot, operator.UOpHash, operator.UOpAtDashAt,
-		operator.UOpDoubleAt, operator.UOpQuestionDash, operator.UOpQuestionPipe:
+	case UnaryOperatorNot, UnaryOperatorBitwiseNot:
 		return fmt.Sprintf("%s %s", u.Op.String(), u.Expr.String())
 	default:
 		return fmt.Sprintf("%s%s", u.Op.String(), u.Expr.String())
 	}
 }
 
-// BinaryOp represents a binary operation (e.g., +, -, *, /, AND, OR).
-type BinaryOp struct {
-	Left  Expr
-	Op    operator.BinaryOperator
-	Right Expr
+// EBinaryOp represents a binary operation (was expr.BinaryOp).
+type EBinaryOp struct {
+	ExpressionBase
+	Left    Expr
+	Op      BinaryOperator
+	Right   Expr
 	SpanVal token.Span
 }
 
-func (b *BinaryOp) exprNode() {}
-
 // Span returns the source span for this expression.
-func (b *BinaryOp) Span() token.Span {
-	return b.SpanVal
-}
+func (b *EBinaryOp) Span() token.Span { return b.SpanVal }
 
 // String returns the SQL representation.
-func (b *BinaryOp) String() string {
+func (b *EBinaryOp) String() string {
 	return fmt.Sprintf("%s %s %s", b.Left.String(), b.Op.String(), b.Right.String())
 }
 
-// IsNull represents an IS NULL expression.
-type IsNull struct {
-	Expr Expr
+// EIsNull represents an IS NULL expression (was expr.IsNull).
+type EIsNull struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsNull) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNull) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNull) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNull) String() string {
+func (i *EIsNull) String() string {
 	return fmt.Sprintf("%s IS NULL", i.Expr.String())
 }
 
-// IsNotNull represents an IS NOT NULL expression.
-type IsNotNull struct {
-	Expr Expr
+// EIsNotNull represents an IS NOT NULL expression (was expr.IsNotNull).
+type EIsNotNull struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsNotNull) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNotNull) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNotNull) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNotNull) String() string {
+func (i *EIsNotNull) String() string {
 	return fmt.Sprintf("%s IS NOT NULL", i.Expr.String())
 }
 
-// IsTrue represents an IS TRUE expression.
-type IsTrue struct {
-	Expr Expr
+// EIsTrue represents an IS TRUE expression (was expr.IsTrue).
+type EIsTrue struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsTrue) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsTrue) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsTrue) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsTrue) String() string {
+func (i *EIsTrue) String() string {
 	return fmt.Sprintf("%s IS TRUE", i.Expr.String())
 }
 
-// IsNotTrue represents an IS NOT TRUE expression.
-type IsNotTrue struct {
-	Expr Expr
+// EIsNotTrue represents an IS NOT TRUE expression (was expr.IsNotTrue).
+type EIsNotTrue struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsNotTrue) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNotTrue) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNotTrue) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNotTrue) String() string {
+func (i *EIsNotTrue) String() string {
 	return fmt.Sprintf("%s IS NOT TRUE", i.Expr.String())
 }
 
-// IsFalse represents an IS FALSE expression.
-type IsFalse struct {
-	Expr Expr
+// EIsFalse represents an IS FALSE expression (was expr.IsFalse).
+type EIsFalse struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsFalse) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsFalse) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsFalse) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsFalse) String() string {
+func (i *EIsFalse) String() string {
 	return fmt.Sprintf("%s IS FALSE", i.Expr.String())
 }
 
-// IsNotFalse represents an IS NOT FALSE expression.
-type IsNotFalse struct {
-	Expr Expr
+// EIsNotFalse represents an IS NOT FALSE expression (was expr.IsNotFalse).
+type EIsNotFalse struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsNotFalse) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNotFalse) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNotFalse) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNotFalse) String() string {
+func (i *EIsNotFalse) String() string {
 	return fmt.Sprintf("%s IS NOT FALSE", i.Expr.String())
 }
 
-// IsUnknown represents an IS UNKNOWN expression.
-type IsUnknown struct {
-	Expr Expr
+// EIsUnknown represents an IS UNKNOWN expression (was expr.IsUnknown).
+type EIsUnknown struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsUnknown) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsUnknown) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsUnknown) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsUnknown) String() string {
+func (i *EIsUnknown) String() string {
 	return fmt.Sprintf("%s IS UNKNOWN", i.Expr.String())
 }
 
-// IsNotUnknown represents an IS NOT UNKNOWN expression.
-type IsNotUnknown struct {
-	Expr Expr
+// EIsNotUnknown represents an IS NOT UNKNOWN expression (was expr.IsNotUnknown).
+type EIsNotUnknown struct {
+	ExpressionBase
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (i *IsNotUnknown) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNotUnknown) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNotUnknown) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNotUnknown) String() string {
+func (i *EIsNotUnknown) String() string {
 	return fmt.Sprintf("%s IS NOT UNKNOWN", i.Expr.String())
 }
 
-// IsDistinctFrom represents an IS DISTINCT FROM expression.
-type IsDistinctFrom struct {
-	Left  Expr
-	Right Expr
+// EIsDistinctFrom represents an IS DISTINCT FROM expression (was expr.IsDistinctFrom).
+type EIsDistinctFrom struct {
+	ExpressionBase
+	Left    Expr
+	Right   Expr
 	SpanVal token.Span
 }
 
-func (i *IsDistinctFrom) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsDistinctFrom) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsDistinctFrom) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsDistinctFrom) String() string {
+func (i *EIsDistinctFrom) String() string {
 	return fmt.Sprintf("%s IS DISTINCT FROM %s", i.Left.String(), i.Right.String())
 }
 
-// IsNotDistinctFrom represents an IS NOT DISTINCT FROM expression.
-type IsNotDistinctFrom struct {
-	Left  Expr
-	Right Expr
+// EIsNotDistinctFrom represents an IS NOT DISTINCT FROM expression (was expr.IsNotDistinctFrom).
+type EIsNotDistinctFrom struct {
+	ExpressionBase
+	Left    Expr
+	Right   Expr
 	SpanVal token.Span
 }
 
-func (i *IsNotDistinctFrom) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNotDistinctFrom) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNotDistinctFrom) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNotDistinctFrom) String() string {
+func (i *EIsNotDistinctFrom) String() string {
 	return fmt.Sprintf("%s IS NOT DISTINCT FROM %s", i.Left.String(), i.Right.String())
 }
 
-// InList represents an IN list expression (e.g., `expr IN (val1, val2, ...)`).
-type InList struct {
+// EInList represents an IN list expression (was expr.InList).
+type EInList struct {
+	ExpressionBase
 	Expr    Expr
 	List    []Expr
 	Negated bool
 	SpanVal token.Span
 }
 
-func (i *InList) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *InList) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EInList) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *InList) String() string {
+func (i *EInList) String() string {
 	items := make([]string, len(i.List))
 	for idx, item := range i.List {
 		items[idx] = item.String()
@@ -282,54 +255,49 @@ func (i *InList) String() string {
 	return fmt.Sprintf("%s IN (%s)", i.Expr.String(), strings.Join(items, ", "))
 }
 
-// InSubquery represents an IN subquery expression (e.g., `expr IN (SELECT ...)`).
-type InSubquery struct {
+// EInSubquery represents an IN subquery expression (was expr.InSubquery).
+type EInSubquery struct {
+	ExpressionBase
 	Expr     Expr
-	Subquery *QueryExpr
+	Subquery *EQueryExpr
 	Negated  bool
-	SpanVal token.Span
+	SpanVal  token.Span
 }
-
-func (i *InSubquery) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *InSubquery) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EInSubquery) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *InSubquery) String() string {
+func (i *EInSubquery) String() string {
 	if i.Negated {
 		return fmt.Sprintf("%s NOT IN (%s)", i.Expr.String(), i.Subquery.String())
 	}
 	return fmt.Sprintf("%s IN (%s)", i.Expr.String(), i.Subquery.String())
 }
 
-// InUnnest represents an IN UNNEST expression (e.g., `expr IN UNNEST(array)`).
-type InUnnest struct {
+// EInUnnest represents an IN UNNEST expression (was expr.InUnnest).
+type EInUnnest struct {
+	ExpressionBase
 	Expr      Expr
 	ArrayExpr Expr
 	Negated   bool
-	SpanVal token.Span
+	SpanVal   token.Span
 }
-
-func (i *InUnnest) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *InUnnest) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EInUnnest) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *InUnnest) String() string {
+func (i *EInUnnest) String() string {
 	if i.Negated {
 		return fmt.Sprintf("%s NOT IN UNNEST(%s)", i.Expr.String(), i.ArrayExpr.String())
 	}
 	return fmt.Sprintf("%s IN UNNEST(%s)", i.Expr.String(), i.ArrayExpr.String())
 }
 
-// Between represents a BETWEEN expression.
-type Between struct {
+// EBetween represents a BETWEEN expression (was expr.Between).
+type EBetween struct {
+	ExpressionBase
 	Expr    Expr
 	Negated bool
 	Low     Expr
@@ -337,40 +305,33 @@ type Between struct {
 	SpanVal token.Span
 }
 
-func (b *Between) exprNode() {}
-
 // Span returns the source span for this expression.
-func (b *Between) Span() token.Span {
-	return b.SpanVal
-}
+func (b *EBetween) Span() token.Span { return b.SpanVal }
 
 // String returns the SQL representation.
-func (b *Between) String() string {
+func (b *EBetween) String() string {
 	if b.Negated {
 		return fmt.Sprintf("%s NOT BETWEEN %s AND %s", b.Expr.String(), b.Low.String(), b.High.String())
 	}
 	return fmt.Sprintf("%s BETWEEN %s AND %s", b.Expr.String(), b.Low.String(), b.High.String())
 }
 
-// Like represents a LIKE expression.
-type Like struct {
+// ELike represents a LIKE expression (was expr.Like).
+type ELike struct {
+	ExpressionBase
 	Negated    bool
 	Any        bool // Snowflake ANY keyword
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
-
-func (l *Like) exprNode() {}
 
 // Span returns the source span for this expression.
-func (l *Like) Span() token.Span {
-	return l.SpanVal
-}
+func (l *ELike) Span() token.Span { return l.SpanVal }
 
 // String returns the SQL representation.
-func (l *Like) String() string {
+func (l *ELike) String() string {
 	var sb strings.Builder
 	sb.WriteString(l.Expr.String())
 	sb.WriteString(" ")
@@ -388,25 +349,22 @@ func (l *Like) String() string {
 	return sb.String()
 }
 
-// ILike represents an ILIKE (case-insensitive LIKE) expression.
-type ILike struct {
+// EILike represents an ILIKE (case-insensitive LIKE) expression (was expr.ILike).
+type EILike struct {
+	ExpressionBase
 	Negated    bool
 	Any        bool // Snowflake ANY keyword
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
-
-func (i *ILike) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *ILike) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EILike) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *ILike) String() string {
+func (i *EILike) String() string {
 	var sb strings.Builder
 	sb.WriteString(i.Expr.String())
 	sb.WriteString(" ")
@@ -424,24 +382,21 @@ func (i *ILike) String() string {
 	return sb.String()
 }
 
-// SimilarTo represents a SIMILAR TO regex expression.
-type SimilarTo struct {
+// ESimilarTo represents a SIMILAR TO regex expression (was expr.SimilarTo).
+type ESimilarTo struct {
+	ExpressionBase
 	Negated    bool
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
-
-func (s *SimilarTo) exprNode() {}
 
 // Span returns the source span for this expression.
-func (s *SimilarTo) Span() token.Span {
-	return s.SpanVal
-}
+func (s *ESimilarTo) Span() token.Span { return s.SpanVal }
 
 // String returns the SQL representation.
-func (s *SimilarTo) String() string {
+func (s *ESimilarTo) String() string {
 	var sb strings.Builder
 	sb.WriteString(s.Expr.String())
 	sb.WriteString(" ")
@@ -456,8 +411,9 @@ func (s *SimilarTo) String() string {
 	return sb.String()
 }
 
-// RLike represents an RLIKE/REGEXP expression.
-type RLike struct {
+// ERLike represents an RLIKE/REGEXP expression (was expr.RLike).
+type ERLike struct {
+	ExpressionBase
 	Negated bool
 	Expr    Expr
 	Pattern Expr
@@ -465,15 +421,11 @@ type RLike struct {
 	SpanVal token.Span
 }
 
-func (r *RLike) exprNode() {}
-
 // Span returns the source span for this expression.
-func (r *RLike) Span() token.Span {
-	return r.SpanVal
-}
+func (r *ERLike) Span() token.Span { return r.SpanVal }
 
 // String returns the SQL representation.
-func (r *RLike) String() string {
+func (r *ERLike) String() string {
 	var sb strings.Builder
 	sb.WriteString(r.Expr.String())
 	sb.WriteString(" ")
@@ -489,18 +441,18 @@ func (r *RLike) String() string {
 	return sb.String()
 }
 
-// CastKind represents the kind of cast operation.
-type CastKind int
+// ECastKind represents the kind of cast operation.
+type ECastKind int
 
 const (
-	CastStandard CastKind = iota
-	CastTry
-	CastSafe
-	CastDoubleColon
+	ECastStandard ECastKind = iota
+	ECastTry
+	ECastSafe
+	ECastDoubleColon
 )
 
-// CastFormat represents the format for CAST expressions.
-type CastFormat struct {
+// ECastFormat represents the format for CAST expressions.
+type ECastFormat struct {
 	Value           interface{} // ValueWithSpan
 	ValueAtTimeZone *struct {
 		Value    interface{} // ValueWithSpan
@@ -508,35 +460,32 @@ type CastFormat struct {
 	}
 }
 
-// Cast represents a CAST expression.
-type Cast struct {
-	Kind     CastKind
+// ECast represents a CAST expression (was expr.Cast).
+type ECast struct {
+	ExpressionBase
+	Kind     ECastKind
 	Expr     Expr
 	DataType string
 	Array    bool // MySQL-specific: CAST(... AS type ARRAY)
-	Format   *CastFormat
-	SpanVal token.Span
+	Format   *ECastFormat
+	SpanVal  token.Span
 }
-
-func (c *Cast) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *Cast) Span() token.Span {
-	return c.SpanVal
-}
+func (c *ECast) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
-func (c *Cast) String() string {
+func (c *ECast) String() string {
 	var sb strings.Builder
 
 	switch c.Kind {
-	case CastStandard:
+	case ECastStandard:
 		sb.WriteString("CAST(")
-	case CastTry:
+	case ECastTry:
 		sb.WriteString("TRY_CAST(")
-	case CastSafe:
+	case ECastSafe:
 		sb.WriteString("SAFE_CAST(")
-	case CastDoubleColon:
+	case ECastDoubleColon:
 		return fmt.Sprintf("%s::%s", c.Expr.String(), c.DataType)
 	}
 
@@ -563,26 +512,23 @@ func (c *Cast) String() string {
 	return sb.String()
 }
 
-// Convert represents a CONVERT expression.
-type Convert struct {
+// EConvert represents a CONVERT expression (was expr.Convert).
+type EConvert struct {
+	ExpressionBase
 	IsTry             bool
 	Expr              Expr
 	DataType          *string
 	Charset           *ObjectName
 	TargetBeforeValue bool // MSSQL syntax
 	Styles            []Expr
-	SpanVal token.Span
+	SpanVal           token.Span
 }
-
-func (c *Convert) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *Convert) Span() token.Span {
-	return c.SpanVal
-}
+func (c *EConvert) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
-func (c *Convert) String() string {
+func (c *EConvert) String() string {
 	var sb strings.Builder
 
 	if c.IsTry {
@@ -626,123 +572,109 @@ func (c *Convert) String() string {
 	return sb.String()
 }
 
-// Collate represents a COLLATE expression.
-type Collate struct {
+// ECollate represents a COLLATE expression (was expr.Collate).
+type ECollate struct {
+	ExpressionBase
 	Expr      Expr
 	Collation *ObjectName
-	SpanVal token.Span
+	SpanVal   token.Span
 }
-
-func (c *Collate) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *Collate) Span() token.Span {
-	return c.SpanVal
-}
+func (c *ECollate) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
-func (c *Collate) String() string {
+func (c *ECollate) String() string {
 	return fmt.Sprintf("%s COLLATE %s", c.Expr.String(), c.Collation.String())
 }
 
-// AnyOp represents an ANY/SOME subquery comparison expression.
-type AnyOp struct {
+// EAnyOp represents an ANY/SOME subquery comparison expression (was expr.AnyOp).
+type EAnyOp struct {
+	ExpressionBase
 	Left      Expr
-	CompareOp operator.BinaryOperator
+	CompareOp BinaryOperator
 	Right     Expr
 	IsSome    bool // ANY and SOME are synonymous
-	SpanVal token.Span
+	SpanVal   token.Span
 }
-
-func (a *AnyOp) exprNode() {}
 
 // Span returns the source span for this expression.
-func (a *AnyOp) Span() token.Span {
-	return a.SpanVal
-}
+func (a *EAnyOp) Span() token.Span { return a.SpanVal }
 
 // String returns the SQL representation.
-func (a *AnyOp) String() string {
+func (a *EAnyOp) String() string {
 	opName := "ANY"
 	if a.IsSome {
 		opName = "SOME"
 	}
 
-	// Check if right is a subquery (no parentheses needed)
-	_, isSubquery := a.Right.(*Subquery)
+	_, isSubquery := a.Right.(*ESubquery)
 	if isSubquery {
 		return fmt.Sprintf("%s %s %s %s", a.Left.String(), a.CompareOp.String(), opName, a.Right.String())
 	}
 	return fmt.Sprintf("%s %s %s(%s)", a.Left.String(), a.CompareOp.String(), opName, a.Right.String())
 }
 
-// AllOp represents an ALL subquery comparison expression.
-type AllOp struct {
+// EAllOp represents an ALL subquery comparison expression (was expr.AllOp).
+type EAllOp struct {
+	ExpressionBase
 	Left      Expr
-	CompareOp operator.BinaryOperator
+	CompareOp BinaryOperator
 	Right     Expr
-	SpanVal token.Span
+	SpanVal   token.Span
 }
-
-func (a *AllOp) exprNode() {}
 
 // Span returns the source span for this expression.
-func (a *AllOp) Span() token.Span {
-	return a.SpanVal
-}
+func (a *EAllOp) Span() token.Span { return a.SpanVal }
 
 // String returns the SQL representation.
-func (a *AllOp) String() string {
-	// Check if right is a subquery (no parentheses needed)
-	_, isSubquery := a.Right.(*Subquery)
+func (a *EAllOp) String() string {
+	_, isSubquery := a.Right.(*ESubquery)
 	if isSubquery {
 		return fmt.Sprintf("%s %s ALL %s", a.Left.String(), a.CompareOp.String(), a.Right.String())
 	}
 	return fmt.Sprintf("%s %s ALL(%s)", a.Left.String(), a.CompareOp.String(), a.Right.String())
 }
 
-// NormalizationForm represents the Unicode normalization form.
-type NormalizationForm int
+// ENormalizationForm represents the Unicode normalization form.
+type ENormalizationForm int
 
 const (
-	FormNFC NormalizationForm = iota
-	FormNFD
-	FormNFKC
-	FormNFKD
+	ENFC ENormalizationForm = iota
+	ENFD
+	ENFKC
+	ENFKD
 )
 
 // String returns the SQL representation.
-func (n NormalizationForm) String() string {
+func (n ENormalizationForm) String() string {
 	switch n {
-	case FormNFC:
+	case ENFC:
 		return "NFC"
-	case FormNFD:
+	case ENFD:
 		return "NFD"
-	case FormNFKC:
+	case ENFKC:
 		return "NFKC"
-	case FormNFKD:
+	case ENFKD:
 		return "NFKD"
 	}
 	return ""
 }
 
-// IsNormalized represents an IS [NOT] [form] NORMALIZED expression.
-type IsNormalized struct {
+// EIsNormalized represents an IS [NOT] [form] NORMALIZED expression (was expr.IsNormalized).
+type EIsNormalized struct {
+	ExpressionBase
 	Expr    Expr
-	Form    *NormalizationForm
+	Form    *ENormalizationForm
 	Negated bool
 	SpanVal token.Span
 }
 
-func (i *IsNormalized) exprNode() {}
-
 // Span returns the source span for this expression.
-func (i *IsNormalized) Span() token.Span {
-	return i.SpanVal
-}
+func (i *EIsNormalized) Span() token.Span { return i.SpanVal }
 
 // String returns the SQL representation.
-func (i *IsNormalized) String() string {
+func (i *EIsNormalized) String() string {
 	var sb strings.Builder
 	sb.WriteString(i.Expr.String())
 	sb.WriteString(" IS ")
@@ -757,141 +689,126 @@ func (i *IsNormalized) String() string {
 	return sb.String()
 }
 
-// ExtractSyntax represents the syntax for EXTRACT expressions.
-type ExtractSyntax int
+// EExtractSyntax represents the syntax for EXTRACT expressions.
+type EExtractSyntax int
 
 const (
-	ExtractFrom ExtractSyntax = iota
-	ExtractComma
+	EExtractFrom EExtractSyntax = iota
+	EExtractComma
 )
 
-// Extract represents an EXTRACT expression.
-type Extract struct {
-	Field  string // DateTimeField
-	Syntax ExtractSyntax
-	Expr   Expr
+// EExtract represents an EXTRACT expression (was expr.Extract).
+type EExtract struct {
+	ExpressionBase
+	Field   string // DateTimeField
+	Syntax  EExtractSyntax
+	Expr    Expr
 	SpanVal token.Span
 }
 
-func (e *Extract) exprNode() {}
-
 // Span returns the source span for this expression.
-func (e *Extract) Span() token.Span {
-	return e.SpanVal
-}
+func (e *EExtract) Span() token.Span { return e.SpanVal }
 
 // String returns the SQL representation.
-func (e *Extract) String() string {
-	if e.Syntax == ExtractFrom {
+func (e *EExtract) String() string {
+	if e.Syntax == EExtractFrom {
 		return fmt.Sprintf("EXTRACT(%s FROM %s)", e.Field, e.Expr.String())
 	}
 	return fmt.Sprintf("EXTRACT(%s, %s)", e.Field, e.Expr.String())
 }
 
-// CeilFloorKind represents the kind for CEIL/FLOOR expressions.
-type CeilFloorKind int
+// ECeilFloorKind represents the kind for CEIL/FLOOR expressions.
+type ECeilFloorKind int
 
 const (
-	CeilFloorDateTime CeilFloorKind = iota
-	CeilFloorScale
+	ECeilFloorDateTime ECeilFloorKind = iota
+	ECeilFloorScale
 )
 
-// CeilExpr represents a CEIL expression.
-type CeilExpr struct {
+// ECeilExpr represents a CEIL expression (was expr.CeilExpr).
+type ECeilExpr struct {
+	ExpressionBase
 	Expr  Expr
 	Field struct {
-		Kind          CeilFloorKind
+		Kind          ECeilFloorKind
 		DateTimeField *string
 		Scale         interface{} // ValueWithSpan
 	}
 	SpanVal token.Span
 }
 
-func (c *CeilExpr) exprNode() {}
-
 // Span returns the source span for this expression.
-func (c *CeilExpr) Span() token.Span {
-	return c.SpanVal
-}
+func (c *ECeilExpr) Span() token.Span { return c.SpanVal }
 
 // String returns the SQL representation.
-func (c *CeilExpr) String() string {
-	if c.Field.Kind == CeilFloorDateTime && c.Field.DateTimeField != nil {
+func (c *ECeilExpr) String() string {
+	if c.Field.Kind == ECeilFloorDateTime && c.Field.DateTimeField != nil {
 		return fmt.Sprintf("CEIL(%s TO %s)", c.Expr.String(), *c.Field.DateTimeField)
 	}
-	if c.Field.Kind == CeilFloorScale {
+	if c.Field.Kind == ECeilFloorScale {
 		return fmt.Sprintf("CEIL(%s, %v)", c.Expr.String(), c.Field.Scale)
 	}
 	return fmt.Sprintf("CEIL(%s)", c.Expr.String())
 }
 
-// FloorExpr represents a FLOOR expression.
-type FloorExpr struct {
+// EFloorExpr represents a FLOOR expression (was expr.FloorExpr).
+type EFloorExpr struct {
+	ExpressionBase
 	Expr  Expr
 	Field struct {
-		Kind          CeilFloorKind
+		Kind          ECeilFloorKind
 		DateTimeField *string
 		Scale         interface{} // ValueWithSpan
 	}
 	SpanVal token.Span
 }
 
-func (f *FloorExpr) exprNode() {}
-
 // Span returns the source span for this expression.
-func (f *FloorExpr) Span() token.Span {
-	return f.SpanVal
-}
+func (f *EFloorExpr) Span() token.Span { return f.SpanVal }
 
 // String returns the SQL representation.
-func (f *FloorExpr) String() string {
-	if f.Field.Kind == CeilFloorDateTime && f.Field.DateTimeField != nil {
+func (f *EFloorExpr) String() string {
+	if f.Field.Kind == ECeilFloorDateTime && f.Field.DateTimeField != nil {
 		return fmt.Sprintf("FLOOR(%s TO %s)", f.Expr.String(), *f.Field.DateTimeField)
 	}
-	if f.Field.Kind == CeilFloorScale {
+	if f.Field.Kind == ECeilFloorScale {
 		return fmt.Sprintf("FLOOR(%s, %v)", f.Expr.String(), f.Field.Scale)
 	}
 	return fmt.Sprintf("FLOOR(%s)", f.Expr.String())
 }
 
-// PositionExpr represents a POSITION expression.
-type PositionExpr struct {
-	Expr Expr
-	In   Expr
+// EPositionExpr represents a POSITION expression (was expr.PositionExpr).
+type EPositionExpr struct {
+	ExpressionBase
+	Expr    Expr
+	In      Expr
 	SpanVal token.Span
 }
 
-func (p *PositionExpr) exprNode() {}
-
 // Span returns the source span for this expression.
-func (p *PositionExpr) Span() token.Span {
-	return p.SpanVal
-}
+func (p *EPositionExpr) Span() token.Span { return p.SpanVal }
 
 // String returns the SQL representation.
-func (p *PositionExpr) String() string {
+func (p *EPositionExpr) String() string {
 	return fmt.Sprintf("POSITION(%s IN %s)", p.Expr.String(), p.In.String())
 }
 
-// Substring represents a SUBSTRING/SUBSTR expression.
-type Substring struct {
+// ESubstring represents a SUBSTRING/SUBSTR expression (was expr.Substring).
+type ESubstring struct {
+	ExpressionBase
 	Expr          Expr
 	SubstringFrom *Expr
 	SubstringFor  *Expr
 	Special       bool // true for SUBSTRING(expr, start, len) syntax
 	Shorthand     bool // true for SUBSTR shorthand
-	SpanVal token.Span
+	SpanVal       token.Span
 }
-
-func (s *Substring) exprNode() {}
 
 // Span returns the source span for this expression.
-func (s *Substring) Span() token.Span {
-	return s.SpanVal
-}
+func (s *ESubstring) Span() token.Span { return s.SpanVal }
 
 // String returns the SQL representation.
-func (s *Substring) String() string {
+func (s *ESubstring) String() string {
 	var sb strings.Builder
 	sb.WriteString("SUBSTR")
 	if !s.Shorthand {
@@ -924,46 +841,43 @@ func (s *Substring) String() string {
 	return sb.String()
 }
 
-// TrimWhere represents the trim direction.
-type TrimWhere int
+// ETrimWhere represents the trim direction.
+type ETrimWhere int
 
 const (
-	TrimBoth TrimWhere = iota
-	TrimLeading
-	TrimTrailing
+	ETrimBoth ETrimWhere = iota
+	ETrimLeading
+	ETrimTrailing
 )
 
 // String returns the SQL representation.
-func (t TrimWhere) String() string {
+func (t ETrimWhere) String() string {
 	switch t {
-	case TrimBoth:
+	case ETrimBoth:
 		return "BOTH"
-	case TrimLeading:
+	case ETrimLeading:
 		return "LEADING"
-	case TrimTrailing:
+	case ETrimTrailing:
 		return "TRAILING"
 	}
 	return ""
 }
 
-// TrimExpr represents a TRIM expression.
-type TrimExpr struct {
-	TrimWhere      *TrimWhere
+// ETrimExpr represents a TRIM expression (was expr.TrimExpr).
+type ETrimExpr struct {
+	ExpressionBase
+	TrimWhere      *ETrimWhere
 	TrimWhat       *Expr
 	Expr           Expr
 	TrimCharacters []Expr
-	SpanVal token.Span
+	SpanVal        token.Span
 }
-
-func (t *TrimExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (t *TrimExpr) Span() token.Span {
-	return t.SpanVal
-}
+func (t *ETrimExpr) Span() token.Span { return t.SpanVal }
 
 // String returns the SQL representation.
-func (t *TrimExpr) String() string {
+func (t *ETrimExpr) String() string {
 	var sb strings.Builder
 	sb.WriteString("TRIM(")
 
@@ -993,24 +907,21 @@ func (t *TrimExpr) String() string {
 	return sb.String()
 }
 
-// OverlayExpr represents an OVERLAY expression.
-type OverlayExpr struct {
+// EOverlayExpr represents an OVERLAY expression (was expr.OverlayExpr).
+type EOverlayExpr struct {
+	ExpressionBase
 	Expr        Expr
 	OverlayWhat Expr
 	OverlayFrom Expr
 	OverlayFor  *Expr
-	SpanVal token.Span
+	SpanVal     token.Span
 }
-
-func (o *OverlayExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (o *OverlayExpr) Span() token.Span {
-	return o.SpanVal
-}
+func (o *EOverlayExpr) Span() token.Span { return o.SpanVal }
 
 // String returns the SQL representation.
-func (o *OverlayExpr) String() string {
+func (o *EOverlayExpr) String() string {
 	var sb strings.Builder
 	sb.WriteString("OVERLAY(")
 	sb.WriteString(o.Expr.String())
@@ -1028,21 +939,18 @@ func (o *OverlayExpr) String() string {
 	return sb.String()
 }
 
-// AtTimeZone represents an AT TIME ZONE expression.
-type AtTimeZone struct {
+// EAtTimeZone represents an AT TIME ZONE expression (was expr.AtTimeZone).
+type EAtTimeZone struct {
+	ExpressionBase
 	Timestamp Expr
 	TimeZone  Expr
-	SpanVal token.Span
+	SpanVal   token.Span
 }
-
-func (a *AtTimeZone) exprNode() {}
 
 // Span returns the source span for this expression.
-func (a *AtTimeZone) Span() token.Span {
-	return a.SpanVal
-}
+func (a *EAtTimeZone) Span() token.Span { return a.SpanVal }
 
 // String returns the SQL representation.
-func (a *AtTimeZone) String() string {
+func (a *EAtTimeZone) String() string {
 	return fmt.Sprintf("%s AT TIME ZONE %s", a.Timestamp.String(), a.TimeZone.String())
 }

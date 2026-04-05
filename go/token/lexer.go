@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package tokenizer
+package token
 
 import (
 	"fmt"
@@ -23,9 +23,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"github.com/user/sqlparser/errors"
-	"github.com/user/sqlparser/span"
 )
 
 // Dialect defines the interface for SQL dialects.
@@ -247,7 +244,7 @@ func (t *Tokenizer) TokenizeIntoBufWithMapper(buf *[]TokenWithSpan, mapper func(
 			break
 		}
 
-		spanVal := span.NewSpan(location, state.Location())
+		spanVal := NewSpan(location, state.Location())
 
 		// Handle multiline comment hints
 		if ws, ok := token.(TokenWhitespace); ok && ws.Whitespace.Type == MultiLineComment {
@@ -271,7 +268,7 @@ func (t *Tokenizer) TokenizeIntoBufWithMapper(buf *[]TokenWithSpan, mapper func(
 }
 
 // tokenizeCommentHints re-tokenizes optimizer hints from a multiline comment
-func (t *Tokenizer) tokenizeCommentHints(comment string, spanVal span.Span, buf *[]TokenWithSpan, mapper func(TokenWithSpan) TokenWithSpan) error {
+func (t *Tokenizer) tokenizeCommentHints(comment string, spanVal Span, buf *[]TokenWithSpan, mapper func(TokenWithSpan) TokenWithSpan) error {
 	// Strip the leading '!' and any version digits (e.g., "50110")
 	hintContent := strings.TrimLeftFunc(comment[1:], func(r rune) bool {
 		return r >= '0' && r <= '9'
@@ -297,7 +294,7 @@ func (t *Tokenizer) tokenizeCommentHints(comment string, spanVal span.Span, buf 
 			break
 		}
 
-		tokenSpan := span.NewSpan(location, innerState.Location())
+		tokenSpan := NewSpan(location, innerState.Location())
 		// Adjust span to match original position
 		tokenSpan.Start.Line += spanVal.Start.Line - 1
 		tokenSpan.End.Line += spanVal.Start.Line - 1
@@ -677,7 +674,7 @@ func (t *Tokenizer) tokenizeNestedQuotedIdentifier(state *State, startQuote byte
 	state.SkipWhile(unicode.IsSpace)
 
 	if ch, ok := state.Peek(); !ok || byte(ch) != nestedQuote {
-		return nil, errors.NewTokenizerError(fmt.Sprintf("Expected nested delimiter '%c' before EOF.", nestedQuote), state.Location())
+		return nil, NewTokenizerError(fmt.Sprintf("Expected nested delimiter '%c' before EOF.", nestedQuote), state.Location())
 	}
 
 	var parts []string
@@ -694,7 +691,7 @@ func (t *Tokenizer) tokenizeNestedQuotedIdentifier(state *State, startQuote byte
 
 	endQuote := matchingEndQuote(startQuote)
 	if ch, ok := state.Peek(); !ok || byte(ch) != endQuote {
-		return nil, errors.NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", endQuote), state.Location())
+		return nil, NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", endQuote), state.Location())
 	}
 	state.Next() // consume closing quote
 
@@ -711,7 +708,7 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 				state.Next()
 				return TokenPeriod{}, nil
 			}
-			return nil, errors.NewTokenizerError("Unexpected character '_'", state.Location())
+			return nil, NewTokenizerError("Unexpected character '_'", state.Location())
 		}
 	}
 
@@ -1371,7 +1368,7 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 		}
 
 		if !terminated {
-			return nil, errors.NewTokenizerError("Unterminated dollar-quoted string", state.Location())
+			return nil, NewTokenizerError("Unterminated dollar-quoted string", state.Location())
 		}
 
 		return TokenDollarQuotedString{DollarQuotedString{Value: s.String(), Tag: nil}}, nil
@@ -1406,7 +1403,7 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 		for {
 			ch, ok := state.Next()
 			if !ok {
-				return nil, errors.NewTokenizerError("Unterminated dollar-quoted, expected $", state.Location())
+				return nil, NewTokenizerError("Unterminated dollar-quoted, expected $", state.Location())
 			}
 
 			s.WriteRune(ch)
@@ -1480,7 +1477,7 @@ func (t *Tokenizer) tokenizeMultilineComment(state *State) (Token, error) {
 	for {
 		ch, ok := state.Next()
 		if !ok {
-			return nil, errors.NewTokenizerError("Unexpected EOF while in a multi-line comment", state.Location())
+			return nil, NewTokenizerError("Unexpected EOF while in a multi-line comment", state.Location())
 		}
 
 		if ch == '/' {
@@ -1517,7 +1514,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteral(state *State, quoteChar ru
 	for {
 		ch, ok := state.Peek()
 		if !ok {
-			return "", errors.NewTokenizerError("Unterminated string literal", state.Location())
+			return "", NewTokenizerError("Unterminated string literal", state.Location())
 		}
 
 		state.Next()
@@ -1548,7 +1545,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteral(state *State, quoteChar ru
 			if t.unescape && !t.dialect.IgnoresWildcardEscapes() {
 				next, ok := state.Peek()
 				if !ok {
-					return "", errors.NewTokenizerError("Unterminated string literal", state.Location())
+					return "", NewTokenizerError("Unterminated string literal", state.Location())
 				}
 				state.Next()
 
@@ -1576,7 +1573,7 @@ func (t *Tokenizer) tokenizeQuotedIdentifierLiteral(state *State, quoteEnd byte)
 	for {
 		ch, ok := state.Next()
 		if !ok {
-			return "", errors.NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", quoteEnd), state.Location())
+			return "", NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", quoteEnd), state.Location())
 		}
 
 		if byte(ch) == quoteEnd {
@@ -1597,7 +1594,7 @@ func (t *Tokenizer) tokenizeQuotedIdentifierLiteral(state *State, quoteEnd byte)
 	}
 
 	if lastChar == 0 {
-		return "", errors.NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", quoteEnd), state.Location())
+		return "", NewTokenizerError(fmt.Sprintf("Expected close delimiter '%c' before EOF.", quoteEnd), state.Location())
 	}
 
 	return s.String(), nil
@@ -1636,7 +1633,7 @@ func (t *Tokenizer) tokenizeSingleOrTripleQuotedString(state *State, quoteStyle 
 		}
 		return tripleQuoteFn(s), nil
 	default:
-		return nil, errors.NewTokenizerError("invalid string literal opening", state.Location())
+		return nil, NewTokenizerError("invalid string literal opening", state.Location())
 	}
 }
 
@@ -1644,7 +1641,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteralWithQuotes(state *State, qu
 	// Consume any remaining opening quotes
 	for i := 0; i < numOpeningQuotes; i++ {
 		if ch, ok := state.Next(); !ok || ch != quoteStyle {
-			return "", errors.NewTokenizerError("invalid string literal opening", state.Location())
+			return "", NewTokenizerError("invalid string literal opening", state.Location())
 		}
 	}
 
@@ -1654,7 +1651,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteralWithQuotes(state *State, qu
 	for {
 		ch, ok := state.Peek()
 		if !ok {
-			return "", errors.NewTokenizerError("Unterminated string literal", state.Location())
+			return "", NewTokenizerError("Unterminated string literal", state.Location())
 		}
 
 		state.Next()
@@ -1691,7 +1688,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteralWithQuotes(state *State, qu
 				if t.unescape && !t.dialect.IgnoresWildcardEscapes() {
 					next, ok := state.Peek()
 					if !ok {
-						return "", errors.NewTokenizerError("Unterminated string literal", state.Location())
+						return "", NewTokenizerError("Unterminated string literal", state.Location())
 					}
 					state.Next()
 
@@ -1717,7 +1714,7 @@ func (t *Tokenizer) tokenizeQuoteDelimitedString(state *State, prefix []rune) (Q
 
 	startQuote, ok := state.Next()
 	if !ok || startQuote == ' ' || startQuote == '\t' || startQuote == '\r' || startQuote == '\n' {
-		return QuoteDelimitedString{}, errors.NewTokenizerError(fmt.Sprintf("Invalid space, tab, newline, or EOF after '%s''", string(prefix)), startLoc)
+		return QuoteDelimitedString{}, NewTokenizerError(fmt.Sprintf("Invalid space, tab, newline, or EOF after '%s''", string(prefix)), startLoc)
 	}
 
 	var endQuote byte
@@ -1738,7 +1735,7 @@ func (t *Tokenizer) tokenizeQuoteDelimitedString(state *State, prefix []rune) (Q
 	for {
 		ch, ok := state.Next()
 		if !ok {
-			return QuoteDelimitedString{}, errors.NewTokenizerError("Unterminated string literal", startLoc)
+			return QuoteDelimitedString{}, NewTokenizerError("Unterminated string literal", startLoc)
 		}
 
 		if byte(ch) == endQuote {
@@ -1763,7 +1760,7 @@ func (t *Tokenizer) tokenizeEscapedSingleQuotedString(state *State) (string, err
 	for {
 		ch, ok := state.Next()
 		if !ok {
-			return "", errors.NewTokenizerError("Unterminated encoded string literal", state.Location())
+			return "", NewTokenizerError("Unterminated encoded string literal", state.Location())
 		}
 
 		if ch == '\'' {
@@ -1782,7 +1779,7 @@ func (t *Tokenizer) tokenizeEscapedSingleQuotedString(state *State) (string, err
 
 		next, ok := state.Next()
 		if !ok {
-			return "", errors.NewTokenizerError("Unterminated encoded string literal", state.Location())
+			return "", NewTokenizerError("Unterminated encoded string literal", state.Location())
 		}
 
 		switch next {
@@ -1833,23 +1830,23 @@ func (t *Tokenizer) unescapeUnicode(state *State, numDigits int) (rune, error) {
 	for i := 0; i < numDigits; i++ {
 		ch, ok := state.Next()
 		if !ok {
-			return 0, errors.NewTokenizerError(fmt.Sprintf("Unexpected EOF while parsing unicode escape sequence"), state.Location())
+			return 0, NewTokenizerError(fmt.Sprintf("Unexpected EOF while parsing unicode escape sequence"), state.Location())
 		}
 		s.WriteRune(ch)
 	}
 
 	n, err := strconv.ParseInt(s.String(), 16, 32)
 	if err != nil {
-		return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid unicode escape sequence: %s", s.String()), state.Location())
+		return 0, NewTokenizerError(fmt.Sprintf("Invalid unicode escape sequence: %s", s.String()), state.Location())
 	}
 
 	if n == 0 {
-		return 0, errors.NewTokenizerError("Invalid null character in escape sequence", state.Location())
+		return 0, NewTokenizerError("Invalid null character in escape sequence", state.Location())
 	}
 
 	r := rune(n)
 	if !utf8.ValidRune(r) {
-		return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid unicode character: %x", n), state.Location())
+		return 0, NewTokenizerError(fmt.Sprintf("Invalid unicode character: %x", n), state.Location())
 	}
 
 	return r, nil
@@ -1877,11 +1874,11 @@ func (t *Tokenizer) unescapeHex(state *State) (rune, error) {
 
 	n = n & 0xFF
 	if n > 127 {
-		return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid hex escape: %s", s.String()), state.Location())
+		return 0, NewTokenizerError(fmt.Sprintf("Invalid hex escape: %s", s.String()), state.Location())
 	}
 
 	if n == 0 {
-		return 0, errors.NewTokenizerError("Invalid null character in escape sequence", state.Location())
+		return 0, NewTokenizerError("Invalid null character in escape sequence", state.Location())
 	}
 
 	return rune(n), nil
@@ -1907,11 +1904,11 @@ func (t *Tokenizer) unescapeOctal(state *State, first rune) (rune, error) {
 
 	n = n & 0xFF
 	if n > 127 {
-		return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid octal escape: %s", s.String()), state.Location())
+		return 0, NewTokenizerError(fmt.Sprintf("Invalid octal escape: %s", s.String()), state.Location())
 	}
 
 	if n == 0 {
-		return 0, errors.NewTokenizerError("Invalid null character in escape sequence", state.Location())
+		return 0, NewTokenizerError("Invalid null character in escape sequence", state.Location())
 	}
 
 	return rune(n), nil
@@ -1947,7 +1944,7 @@ func (t *Tokenizer) unescapeUnicodeSingleQuotedString(state *State) (string, err
 	for {
 		ch, ok := state.Next()
 		if !ok {
-			return "", errors.NewTokenizerError("Unterminated unicode encoded string literal", state.Location())
+			return "", NewTokenizerError("Unterminated unicode encoded string literal", state.Location())
 		}
 
 		if ch == '\'' {
@@ -1962,7 +1959,7 @@ func (t *Tokenizer) unescapeUnicodeSingleQuotedString(state *State) (string, err
 		if ch == '\\' {
 			next, ok := state.Peek()
 			if !ok {
-				return "", errors.NewTokenizerError("Unterminated unicode encoded string literal", state.Location())
+				return "", NewTokenizerError("Unterminated unicode encoded string literal", state.Location())
 			}
 
 			if next == '\\' {
@@ -1993,7 +1990,7 @@ func (t *Tokenizer) takeCharFromHexDigits(state *State, maxDigits int) (rune, er
 	for i := 0; i < maxDigits; i++ {
 		ch, ok := state.Next()
 		if !ok {
-			return 0, errors.NewTokenizerError("Unexpected EOF while parsing hex digit in escaped unicode string", state.Location())
+			return 0, NewTokenizerError("Unexpected EOF while parsing hex digit in escaped unicode string", state.Location())
 		}
 
 		var digit uint32
@@ -2005,7 +2002,7 @@ func (t *Tokenizer) takeCharFromHexDigits(state *State, maxDigits int) (rune, er
 		case ch >= 'A' && ch <= 'F':
 			digit = uint32(ch - 'A' + 10)
 		default:
-			return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid hex digit in escaped unicode string: %c", ch), state.Location())
+			return 0, NewTokenizerError(fmt.Sprintf("Invalid hex digit in escaped unicode string: %c", ch), state.Location())
 		}
 
 		result = result*16 + digit
@@ -2013,7 +2010,7 @@ func (t *Tokenizer) takeCharFromHexDigits(state *State, maxDigits int) (rune, er
 
 	r := rune(result)
 	if !utf8.ValidRune(r) {
-		return 0, errors.NewTokenizerError(fmt.Sprintf("Invalid unicode character: %x", result), state.Location())
+		return 0, NewTokenizerError(fmt.Sprintf("Invalid unicode character: %x", result), state.Location())
 	}
 
 	return r, nil

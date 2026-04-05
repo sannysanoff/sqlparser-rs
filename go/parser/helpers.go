@@ -22,10 +22,8 @@ import (
 	"strconv"
 
 	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // parseCommaSeparatedExprs parses a comma-separated list of expressions
@@ -41,14 +39,14 @@ func (ep *ExpressionParser) parseCommaSeparatedExprs() ([]expr.Expr, error) {
 
 		// Check for trailing comma support
 		dialect := ep.parser.GetDialect()
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 
 		// Check if trailing comma is allowed and we're at the end
 		if dialect.SupportsTrailingCommas() {
 			next := ep.parser.PeekTokenRef()
-			if _, isRParen := next.Token.(tokenizer.TokenRParen); isRParen {
+			if _, isRParen := next.Token.(token.TokenRParen); isRParen {
 				// Trailing comma is allowed
 				break
 			}
@@ -60,7 +58,7 @@ func (ep *ExpressionParser) parseCommaSeparatedExprs() ([]expr.Expr, error) {
 
 // parseParenthesizedExpr parses an expression in parentheses
 func (ep *ExpressionParser) parseParenthesizedExpr() (expr.Expr, error) {
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -69,7 +67,7 @@ func (ep *ExpressionParser) parseParenthesizedExpr() (expr.Expr, error) {
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +95,7 @@ func (ep *ExpressionParser) parseOptionalAliasWithValidator(validator func(expli
 	explicit := ep.parser.ParseKeyword("AS")
 
 	nextTok := ep.parser.PeekTokenRef()
-	word, ok := nextTok.Token.(tokenizer.TokenWord)
+	word, ok := nextTok.Token.(token.TokenWord)
 	if !ok {
 		if explicit {
 			return nil, fmt.Errorf("expected identifier after AS")
@@ -165,7 +163,7 @@ func (ep *ExpressionParser) parseArrayExpr(named bool) (expr.Expr, error) {
 
 	// Parse elements
 	var elements []expr.Expr
-	_, isRBracket := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRBracket)
+	_, isRBracket := ep.parser.PeekTokenRef().Token.(token.TokenRBracket)
 	if !isRBracket {
 		exprs, err := ep.parseCommaSeparatedExprs()
 		if err != nil {
@@ -174,7 +172,7 @@ func (ep *ExpressionParser) parseArrayExpr(named bool) (expr.Expr, error) {
 		elements = exprs
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRBracket{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRBracket{}); err != nil {
 		return nil, err
 	}
 
@@ -271,7 +269,7 @@ func (ep *ExpressionParser) isTemporalUnit() bool {
 	}
 
 	next := ep.parser.PeekTokenRef()
-	if word, ok := next.Token.(tokenizer.TokenWord); ok {
+	if word, ok := next.Token.(token.TokenWord); ok {
 		for _, unit := range units {
 			if word.Word.Keyword == token.Keyword(unit) {
 				return true
@@ -284,7 +282,7 @@ func (ep *ExpressionParser) isTemporalUnit() bool {
 // parseTemporalUnit parses a temporal unit keyword
 func (ep *ExpressionParser) parseTemporalUnit() string {
 	tok := ep.parser.NextToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		return string(word.Word.Keyword)
 	}
 	return ""
@@ -292,12 +290,12 @@ func (ep *ExpressionParser) parseTemporalUnit() string {
 
 // parseOptionalPrecision parses an optional precision like YEAR(2)
 func (ep *ExpressionParser) parseOptionalPrecision() (*uint64, error) {
-	if !ep.parser.ConsumeToken(tokenizer.TokenLParen{}) {
+	if !ep.parser.ConsumeToken(token.TokenLParen{}) {
 		return nil, nil
 	}
 
 	tok := ep.parser.NextToken()
-	num, ok := tok.Token.(tokenizer.TokenNumber)
+	num, ok := tok.Token.(token.TokenNumber)
 	if !ok {
 		return nil, fmt.Errorf("expected number in precision")
 	}
@@ -307,7 +305,7 @@ func (ep *ExpressionParser) parseOptionalPrecision() (*uint64, error) {
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -316,13 +314,13 @@ func (ep *ExpressionParser) parseOptionalPrecision() (*uint64, error) {
 
 // parseIntervalPrecisions parses precision for SECOND with optional fractional seconds
 func (ep *ExpressionParser) parseIntervalPrecisions() (*uint64, *uint64, error) {
-	if !ep.parser.ConsumeToken(tokenizer.TokenLParen{}) {
+	if !ep.parser.ConsumeToken(token.TokenLParen{}) {
 		return nil, nil, nil
 	}
 
 	// Parse leading precision
 	tok := ep.parser.NextToken()
-	num, ok := tok.Token.(tokenizer.TokenNumber)
+	num, ok := tok.Token.(token.TokenNumber)
 	if !ok {
 		return nil, nil, fmt.Errorf("expected number in precision")
 	}
@@ -335,9 +333,9 @@ func (ep *ExpressionParser) parseIntervalPrecisions() (*uint64, *uint64, error) 
 
 	// Check for comma and fractional seconds precision
 	var fracPrec *uint64
-	if ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+	if ep.parser.ConsumeToken(token.TokenComma{}) {
 		tok = ep.parser.NextToken()
-		num, ok = tok.Token.(tokenizer.TokenNumber)
+		num, ok = tok.Token.(token.TokenNumber)
 		if !ok {
 			return nil, nil, fmt.Errorf("expected number for fractional seconds precision")
 		}
@@ -348,7 +346,7 @@ func (ep *ExpressionParser) parseIntervalPrecisions() (*uint64, *uint64, error) 
 		fracPrec = &fp
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, nil, err
 	}
 
@@ -359,7 +357,7 @@ func (ep *ExpressionParser) parseIntervalPrecisions() (*uint64, *uint64, error) 
 func (ep *ExpressionParser) parseCastExpr(kind expr.CastKind) (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -393,7 +391,7 @@ func (ep *ExpressionParser) parseCastExpr(kind expr.CastKind) (expr.Expr, error)
 		format = &expr.CastFormat{}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -412,7 +410,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 	dialect := ep.parser.GetDialect()
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -431,7 +429,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 		}
 		dataType = dt.Value
 
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenComma{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenComma{}); err != nil {
 			return nil, err
 		}
 
@@ -442,7 +440,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 		convertExpr = ce
 
 		// Parse optional style(s)
-		for ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		for ep.parser.ConsumeToken(token.TokenComma{}) {
 			style, err := ep.ParseExpr()
 			if err != nil {
 				return nil, err
@@ -466,7 +464,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 			charset = cs
 		} else {
 			// AS type
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenComma{}); err != nil {
+			if _, err := ep.parser.ExpectToken(token.TokenComma{}); err != nil {
 				return nil, err
 			}
 			dt, err := ep.parseIdentifier()
@@ -486,7 +484,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -512,7 +510,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 	dialect := ep.parser.GetDialect()
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -523,7 +521,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 	var syntax expr.ExtractSyntax
 	if ep.parser.ParseKeyword("FROM") {
 		syntax = expr.ExtractFrom
-	} else if dialect.SupportsExtractCommaSyntax() && ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+	} else if dialect.SupportsExtractCommaSyntax() && ep.parser.ConsumeToken(token.TokenComma{}) {
 		syntax = expr.ExtractComma
 	} else {
 		return nil, fmt.Errorf("expected FROM or comma after field in EXTRACT")
@@ -534,7 +532,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -550,7 +548,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -568,7 +566,7 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 		ceilExpr.Field.Kind = expr.CeilFloorDateTime
 		dtField := ep.parseTemporalUnit()
 		ceilExpr.Field.DateTimeField = &dtField
-	} else if ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+	} else if ep.parser.ConsumeToken(token.TokenComma{}) {
 		// CEIL/FLOOR(expr, scale)
 		ceilExpr.Field.Kind = expr.CeilFloorScale
 		scale, err := ep.parseValue()
@@ -583,7 +581,7 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 		ceilExpr.Field.DateTimeField = &empty
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -601,13 +599,13 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 }
 
 // parsePositionExpr parses a POSITION expression
-func (ep *ExpressionParser) parsePositionExpr(word tokenizer.TokenWord, span span.Span) (expr.Expr, error) {
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.Span) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	// Parse expression (the substring)
-	betweenPrec := ep.getPrecedence(dialects.PrecedenceBetween)
+	betweenPrec := ep.getPrecedence(parseriface.PrecedenceBetween)
 	substrExpr, err := ep.ParseExprWithPrecedence(betweenPrec)
 	if err != nil {
 		return nil, err
@@ -623,7 +621,7 @@ func (ep *ExpressionParser) parsePositionExpr(word tokenizer.TokenWord, span spa
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -644,7 +642,7 @@ func (ep *ExpressionParser) parseSubstringExpr() (expr.Expr, error) {
 		return nil, fmt.Errorf("expected SUBSTR or SUBSTRING")
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -658,7 +656,7 @@ func (ep *ExpressionParser) parseSubstringExpr() (expr.Expr, error) {
 	var special bool
 
 	// Check for comma syntax (special) or FROM syntax
-	if ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+	if ep.parser.ConsumeToken(token.TokenComma{}) {
 		special = true
 		f, err := ep.ParseExpr()
 		if err != nil {
@@ -666,7 +664,7 @@ func (ep *ExpressionParser) parseSubstringExpr() (expr.Expr, error) {
 		}
 		fromExpr = &f
 
-		if ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if ep.parser.ConsumeToken(token.TokenComma{}) {
 			t, err := ep.ParseExpr()
 			if err != nil {
 				return nil, err
@@ -691,7 +689,7 @@ func (ep *ExpressionParser) parseSubstringExpr() (expr.Expr, error) {
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -709,7 +707,7 @@ func (ep *ExpressionParser) parseSubstringExpr() (expr.Expr, error) {
 func (ep *ExpressionParser) parseOverlayExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -749,7 +747,7 @@ func (ep *ExpressionParser) parseOverlayExpr() (expr.Expr, error) {
 		overlayFor = &f
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -767,7 +765,7 @@ func (ep *ExpressionParser) parseTrimExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 	dialect := ep.parser.GetDialect()
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -826,7 +824,7 @@ func (ep *ExpressionParser) parseTrimExpr() (expr.Expr, error) {
 
 	// Check for comma-separated trim characters (some dialects)
 	var trimChars []expr.Expr
-	if dialect.SupportsCommaSeparatedTrim() && ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+	if dialect.SupportsCommaSeparatedTrim() && ep.parser.ConsumeToken(token.TokenComma{}) {
 		chars, err := ep.parseCommaSeparatedExprs()
 		if err != nil {
 			return nil, err
@@ -834,7 +832,7 @@ func (ep *ExpressionParser) parseTrimExpr() (expr.Expr, error) {
 		trimChars = chars
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -853,14 +851,14 @@ func (ep *ExpressionParser) parseStructLiteral() (expr.Expr, error) {
 
 	// Check for typed struct syntax: STRUCT<type>(value1, value2)
 	var fields []expr.StructField
-	if _, ok := ep.parser.PeekTokenRef().Token.(tokenizer.TokenLt); ok {
+	if _, ok := ep.parser.PeekTokenRef().Token.(token.TokenLt); ok {
 		// Parse type definition
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenLt{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenLt{}); err != nil {
 			return nil, err
 		}
 		// Parse field definitions (simplified)
 		for {
-			_, isGt := ep.parser.PeekTokenRef().Token.(tokenizer.TokenGt)
+			_, isGt := ep.parser.PeekTokenRef().Token.(token.TokenGt)
 			if isGt {
 				break
 			}
@@ -877,16 +875,16 @@ func (ep *ExpressionParser) parseStructLiteral() (expr.Expr, error) {
 				FieldName: fieldName,
 				FieldType: fieldType.Value,
 			})
-			if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+			if !ep.parser.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenGt{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenGt{}); err != nil {
 			return nil, err
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -896,7 +894,7 @@ func (ep *ExpressionParser) parseStructLiteral() (expr.Expr, error) {
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -916,13 +914,13 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 		return nil, fmt.Errorf("MAP literal not supported in this dialect")
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLBrace{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLBrace{}); err != nil {
 		return nil, err
 	}
 
 	var entries []expr.MapEntry
 	for {
-		_, isRBrace := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRBrace)
+		_, isRBrace := ep.parser.PeekTokenRef().Token.(token.TokenRBrace)
 		if isRBrace {
 			break
 		}
@@ -930,7 +928,7 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenColon{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenColon{}); err != nil {
 			return nil, err
 		}
 		value, err := ep.ParseExpr()
@@ -942,12 +940,12 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 			Key:     key,
 			Value:   value,
 		})
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRBrace{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRBrace{}); err != nil {
 		return nil, err
 	}
 
@@ -961,13 +959,13 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 func (ep *ExpressionParser) parseDictionaryExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLBrace{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLBrace{}); err != nil {
 		return nil, err
 	}
 
 	var fields []expr.DictionaryField
 	for {
-		_, isRBrace := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRBrace)
+		_, isRBrace := ep.parser.PeekTokenRef().Token.(token.TokenRBrace)
 		if isRBrace {
 			break
 		}
@@ -975,7 +973,7 @@ func (ep *ExpressionParser) parseDictionaryExpr() (expr.Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenColon{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenColon{}); err != nil {
 			return nil, err
 		}
 		value, err := ep.ParseExpr()
@@ -987,12 +985,12 @@ func (ep *ExpressionParser) parseDictionaryExpr() (expr.Expr, error) {
 			Key:     key,
 			Value:   value,
 		})
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRBrace{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRBrace{}); err != nil {
 		return nil, err
 	}
 
@@ -1014,13 +1012,13 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 	// Parse parameters: either (x, y) or just x
 	var params []expr.LambdaFunctionParameter
 	next := ep.parser.PeekTokenRef()
-	if _, ok := next.Token.(tokenizer.TokenLParen); ok {
+	if _, ok := next.Token.(token.TokenLParen); ok {
 		// Multiple parameters in parentheses
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		for {
-			_, isRParen := ep.parser.PeekTokenRef().Token.(tokenizer.TokenRParen)
+			_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
 			if isRParen {
 				break
 			}
@@ -1033,7 +1031,7 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 				Name:    ident,
 			}
 			// Check for optional type
-			_, isArrow := ep.parser.PeekTokenRef().Token.(tokenizer.TokenArrow)
+			_, isArrow := ep.parser.PeekTokenRef().Token.(token.TokenArrow)
 			if !isArrow {
 				dt, err := ep.parseIdentifier()
 				if err == nil {
@@ -1041,11 +1039,11 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 				}
 			}
 			params = append(params, param)
-			if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+			if !ep.parser.ConsumeToken(token.TokenComma{}) {
 				break
 			}
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 	} else {
@@ -1061,7 +1059,7 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 	}
 
 	// Expect arrow
-	if !ep.parser.ConsumeToken(tokenizer.TokenArrow{}) {
+	if !ep.parser.ConsumeToken(token.TokenArrow{}) {
 		return nil, fmt.Errorf("expected -> in lambda expression")
 	}
 
@@ -1080,10 +1078,10 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 }
 
 // parseTimeFunction parses time functions like CURRENT_TIMESTAMP, NOW(), etc.
-func (ep *ExpressionParser) parseTimeFunction(word *tokenizer.TokenWord, span span.Span) (expr.Expr, error) {
+func (ep *ExpressionParser) parseTimeFunction(word *token.TokenWord, span token.Span) (expr.Expr, error) {
 	// Check for parentheses (some time functions can be called like NOW())
 	next := ep.parser.PeekTokenRef()
-	if _, ok := next.Token.(tokenizer.TokenLParen); ok {
+	if _, ok := next.Token.(token.TokenLParen); ok {
 		return ep.parseFunction(&expr.ObjectName{
 			SpanVal: span,
 			Parts: []*expr.ObjectNamePart{{
@@ -1105,7 +1103,7 @@ func (ep *ExpressionParser) parseTimeFunction(word *tokenizer.TokenWord, span sp
 func (ep *ExpressionParser) parseMatchAgainstExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1117,12 +1115,12 @@ func (ep *ExpressionParser) parseMatchAgainstExpr() (expr.Expr, error) {
 			return nil, err
 		}
 		columns = append(columns, col)
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1130,7 +1128,7 @@ func (ep *ExpressionParser) parseMatchAgainstExpr() (expr.Expr, error) {
 		return nil, fmt.Errorf("expected AGAINST in MATCH expression")
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -1158,7 +1156,7 @@ func (ep *ExpressionParser) parseMatchAgainstExpr() (expr.Expr, error) {
 		modifier = &m
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 

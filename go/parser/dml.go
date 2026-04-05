@@ -22,17 +22,17 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ParseInsert parses an INSERT statement
-func ParseInsert(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func ParseInsert(p *Parser, tok token.TokenWithSpan) (ast.Statement, error) {
 	return parseInsertInternal(p, tok)
 }
 
 // ParseReplace parses a REPLACE statement (MySQL-specific)
 // REPLACE works like INSERT but deletes the old row if a duplicate key exists
-func ParseReplace(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func ParseReplace(p *Parser, tok token.TokenWithSpan) (ast.Statement, error) {
 	// REPLACE is only supported by MySQL and Generic dialects
 	dialectName := p.dialect.Dialect()
 	if dialectName != "mysql" && dialectName != "generic" {
@@ -55,7 +55,7 @@ func ParseReplace(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error)
 
 // parseInsertInternal parses an INSERT statement
 // Reference: src/parser/mod.rs:17376
-func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.Statement, error) {
+func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present (MySQL style: INSERT /*+ hint */)
 	hintsInterface, err := maybeParseOptimizerHints(p)
 	if err != nil {
@@ -157,7 +157,7 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 
 	// Parse optional column list (col1, col2, ...) - can be empty ()
 	var columns []*ast.Ident
-	if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		columns, err = p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
@@ -205,7 +205,7 @@ func parseInsertInternal(p *Parser, insertToken tokenizer.TokenWithSpan) (ast.St
 				return nil, err
 			}
 			var colAliases []*ast.Ident
-			if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+			if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 				colAliases, err = p.ParseParenthesizedColumnList()
 				if err != nil {
 					return nil, err
@@ -274,7 +274,7 @@ func parseOnConflict(p *Parser) (*expr.OnInsert, error) {
 		conflictTarget = &expr.ConflictTarget{
 			OnConstraint: constraintName,
 		}
-	} else if _, ok := p.PeekToken().Token.(tokenizer.TokenLParen); ok {
+	} else if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		columns, err := p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
@@ -326,7 +326,7 @@ func parseOnConflict(p *Parser) (*expr.OnInsert, error) {
 }
 
 // finishInsert creates the final Insert statement
-func finishInsert(p *Parser, insertToken tokenizer.TokenWithSpan, optimizerHints []*expr.OptimizerHint,
+func finishInsert(p *Parser, insertToken token.TokenWithSpan, optimizerHints []*expr.OptimizerHint,
 	orConflict *expr.SqliteOnConflict, priority *expr.MysqlInsertPriority, ignore, replaceInto, overwrite, into,
 	hasTableKeyword bool, tableName *ast.ObjectName, tableAlias *ast.Ident, columns []*ast.Ident,
 	source *query.Query, defaultValues bool, assignments []*expr.Assignment, insertAlias *expr.InsertAliases,
@@ -356,8 +356,8 @@ func finishInsert(p *Parser, insertToken tokenizer.TokenWithSpan, optimizerHints
 }
 
 // isInsertReservedKeyword checks if a token is a reserved keyword that cannot be a table alias
-func isInsertReservedKeyword(tok tokenizer.TokenWithSpan) bool {
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+func isInsertReservedKeyword(tok token.TokenWithSpan) bool {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		kw := word.Word.Keyword
 		// Keywords that signal the end of table name/alias
 		reserved := map[string]bool{
@@ -374,14 +374,14 @@ func isInsertReservedKeyword(tok tokenizer.TokenWithSpan) bool {
 }
 
 // ParseUpdate parses UPDATE statements
-func ParseUpdate(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func ParseUpdate(p *Parser, tok token.TokenWithSpan) (ast.Statement, error) {
 	return parseUpdateInternal(p, tok)
 }
 
 // parseUpdateInternal parses an UPDATE statement
 // Basic syntax: UPDATE table SET col = val [, col2 = val2] [WHERE condition]
 // MySQL syntax: UPDATE table [AS alias] [JOIN ...] SET ... WHERE ...
-func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.Statement, error) {
+func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present
 	hintsInterface, err := maybeParseOptimizerHints(p)
 	if err != nil {
@@ -436,7 +436,7 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 
 		// Check for compound identifier (table.column)
 		for {
-			if !p.ConsumeToken(tokenizer.TokenPeriod{}) {
+			if !p.ConsumeToken(token.TokenPeriod{}) {
 				break
 			}
 			nextIdent, err := p.ParseIdentifier()
@@ -450,7 +450,7 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 		}
 
 		// Expect = token
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			return err
 		}
 
@@ -521,13 +521,13 @@ func parseUpdateInternal(p *Parser, updateToken tokenizer.TokenWithSpan) (ast.St
 }
 
 // ParseDelete parses DELETE statements
-func ParseDelete(p *Parser, tok tokenizer.TokenWithSpan) (ast.Statement, error) {
+func ParseDelete(p *Parser, tok token.TokenWithSpan) (ast.Statement, error) {
 	return parseDeleteInternal(p, tok)
 }
 
 // parseDeleteInternal parses a DELETE statement
 // Basic syntax: DELETE FROM table [WHERE condition]
-func parseDeleteInternal(p *Parser, deleteToken tokenizer.TokenWithSpan) (ast.Statement, error) {
+func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present
 	hintsInterface, err := maybeParseOptimizerHints(p)
 	if err != nil {
@@ -555,7 +555,7 @@ func parseDeleteInternal(p *Parser, deleteToken tokenizer.TokenWithSpan) (ast.St
 
 	// Check for additional tables (multi-table DELETE - MySQL style)
 	// Example: DELETE t1, t2 FROM t1, t2 WHERE ...
-	if p.ConsumeToken(tokenizer.TokenComma{}) {
+	if p.ConsumeToken(token.TokenComma{}) {
 		err = p.ParseCommaSeparated(func() error {
 			t, err := p.ParseObjectName()
 			if err != nil {
@@ -611,7 +611,7 @@ func parseDeleteInternal(p *Parser, deleteToken tokenizer.TokenWithSpan) (ast.St
 			return nil, err
 		}
 
-		if p.ConsumeToken(tokenizer.TokenComma{}) {
+		if p.ConsumeToken(token.TokenComma{}) {
 			// MySQL style: LIMIT offset, limit
 			secondExpr, err := ep.ParseExpr()
 			if err != nil {
@@ -672,7 +672,7 @@ func parseAssignments(p *Parser) ([]*expr.Assignment, error) {
 		}
 
 		// Expect = token
-		if _, err := p.ExpectToken(tokenizer.TokenEq{}); err != nil {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 			return err
 		}
 

@@ -21,80 +21,23 @@ package parser
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/span"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/parseriface"
+	"github.com/user/sqlparser/token"
 )
 
-// ParserInterface defines the methods needed from the parser
-// This avoids circular dependencies between packages
-type ParserInterface interface {
-	// Token access methods
-	PeekToken() tokenizer.TokenWithSpan
-	PeekTokenRef() *tokenizer.TokenWithSpan
-	PeekNthToken(n int) tokenizer.TokenWithSpan
-	PeekNthTokenRef(n int) *tokenizer.TokenWithSpan
-	NextToken() tokenizer.TokenWithSpan
-	NextTokenNoSkip() *tokenizer.TokenWithSpan
-	AdvanceToken()
-	PrevToken()
-	GetCurrentToken() *tokenizer.TokenWithSpan
-	GetCurrentIndex() int
-
-	// Token consumption
-	ConsumeToken(expected tokenizer.Token) bool
-	ExpectToken(expected tokenizer.Token) (tokenizer.TokenWithSpan, error)
-
-	// Keyword helpers
-	ParseKeyword(expected string) bool
-	PeekKeyword(expected string) bool
-	PeekNthKeyword(n int, expected string) bool
-	ParseOneOfKeywords(keywords []string) string
-	PeekOneOfKeywords(keywords []string) string
-	ParseKeywords(keywords []string) bool
-	ExpectKeyword(expected string) (tokenizer.TokenWithSpan, error)
-	ExpectKeywords(expected []string) error
-
-	// Comma-separated parsing
-	ParseCommaSeparated(parseFn func() error) error
-
-	// Expression and statement parsing
-	ParseExpression() (ast.Expr, error)
-	ParseInsert() (ast.Statement, error)
-	ParseQuery() (ast.Statement, error)
-	ParseDataType() (datatype.DataType, error)
-
-	// State management
-	GetState() dialects.ParserState
-	SetState(state dialects.ParserState)
-	InColumnDefinitionState() bool
-
-	// Dialect access
-	GetDialect() dialects.Dialect
-	GetOptions() dialects.ParserOptions
-
-	// Utility methods
-	Expected(expected string, found tokenizer.TokenWithSpan) error
-	ExpectedRef(expected string, found *tokenizer.TokenWithSpan) error
-	ExpectedAt(expected string, index int) error
-	SavePosition() func()
-}
-
 // mergeSpans combines two spans into one that covers both
-func mergeSpans(a, b span.Span) span.Span {
+func mergeSpans(a, b token.Span) token.Span {
 	return a.Merge(b)
 }
 
 // ExpressionParser provides methods for parsing SQL expressions
 type ExpressionParser struct {
-	parser ParserInterface
+	parser parseriface.Parser
 }
 
 // NewExpressionParser creates a new expression parser
-func NewExpressionParser(parser ParserInterface) *ExpressionParser {
+func NewExpressionParser(parser parseriface.Parser) *ExpressionParser {
 	return &ExpressionParser{parser: parser}
 }
 
@@ -134,7 +77,7 @@ func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr
 
 		// The period operator is handled exclusively by compound field access parsing
 		nextTok := ep.parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(tokenizer.TokenPeriod); ok {
+		if _, ok := nextTok.Token.(token.TokenPeriod); ok {
 			break
 		}
 
@@ -171,131 +114,131 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 	nextTok := ep.parser.PeekTokenRef()
 
 	switch tok := nextTok.Token.(type) {
-	case tokenizer.TokenWord:
+	case token.TokenWord:
 		switch tok.Word.Keyword {
 		case "OR":
-			return dialect.PrecValue(dialects.PrecedenceOr), nil
+			return dialect.PrecValue(parseriface.PrecedenceOr), nil
 		case "AND":
-			return dialect.PrecValue(dialects.PrecedenceAnd), nil
+			return dialect.PrecValue(parseriface.PrecedenceAnd), nil
 		case "NOT":
-			return dialect.PrecValue(dialects.PrecedenceUnaryNot), nil
+			return dialect.PrecValue(parseriface.PrecedenceUnaryNot), nil
 		case "IS":
-			return dialect.PrecValue(dialects.PrecedenceIs), nil
+			return dialect.PrecValue(parseriface.PrecedenceIs), nil
 		case "IN":
-			return dialect.PrecValue(dialects.PrecedenceBetween), nil
+			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "BETWEEN":
-			return dialect.PrecValue(dialects.PrecedenceBetween), nil
+			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "LIKE", "ILIKE":
-			return dialect.PrecValue(dialects.PrecedenceLike), nil
+			return dialect.PrecValue(parseriface.PrecedenceLike), nil
 		case "SIMILAR":
-			return dialect.PrecValue(dialects.PrecedenceLike), nil
+			return dialect.PrecValue(parseriface.PrecedenceLike), nil
 		case "REGEXP", "RLIKE":
-			return dialect.PrecValue(dialects.PrecedenceLike), nil
+			return dialect.PrecValue(parseriface.PrecedenceLike), nil
 		case "AT":
-			return dialect.PrecValue(dialects.PrecedenceAtTz), nil
+			return dialect.PrecValue(parseriface.PrecedenceAtTz), nil
 		case "NOTNULL":
 			if dialect.SupportsNotnullOperator() {
-				return dialect.PrecValue(dialects.PrecedenceIs), nil
+				return dialect.PrecValue(parseriface.PrecedenceIs), nil
 			}
 		case "MEMBER":
-			return dialect.PrecValue(dialects.PrecedenceBetween), nil
+			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "XOR":
-			return dialect.PrecValue(dialects.PrecedenceXor), nil
+			return dialect.PrecValue(parseriface.PrecedenceXor), nil
 		case "OVERLAPS":
-			return dialect.PrecValue(dialects.PrecedenceBetween), nil
+			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "OPERATOR":
 			// PostgreSQL custom operator
-			return dialect.PrecValue(dialects.PrecedenceEq), nil
+			return dialect.PrecValue(parseriface.PrecedenceEq), nil
 		}
 
-	case tokenizer.TokenPeriod:
-		return dialect.PrecValue(dialects.PrecedencePeriod), nil
+	case token.TokenPeriod:
+		return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 
-	case tokenizer.TokenDoubleColon:
-		return dialect.PrecValue(dialects.PrecedenceDoubleColon), nil
+	case token.TokenDoubleColon:
+		return dialect.PrecValue(parseriface.PrecedenceDoubleColon), nil
 
-	case tokenizer.TokenEq, tokenizer.TokenNeq, tokenizer.TokenGt, tokenizer.TokenGtEq,
-		tokenizer.TokenLt, tokenizer.TokenLtEq, tokenizer.TokenSpaceship, tokenizer.TokenDoubleEq:
-		return dialect.PrecValue(dialects.PrecedenceEq), nil
+	case token.TokenEq, token.TokenNeq, token.TokenGt, token.TokenGtEq,
+		token.TokenLt, token.TokenLtEq, token.TokenSpaceship, token.TokenDoubleEq:
+		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
-	case tokenizer.TokenPlus, tokenizer.TokenMinus:
-		return dialect.PrecValue(dialects.PrecedencePlusMinus), nil
+	case token.TokenPlus, token.TokenMinus:
+		return dialect.PrecValue(parseriface.PrecedencePlusMinus), nil
 
-	case tokenizer.TokenMul, tokenizer.TokenDiv, tokenizer.TokenMod:
-		return dialect.PrecValue(dialects.PrecedenceMulDivModOp), nil
+	case token.TokenMul, token.TokenDiv, token.TokenMod:
+		return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
 
-	case tokenizer.TokenPipe:
-		return dialect.PrecValue(dialects.PrecedencePipe), nil
+	case token.TokenPipe:
+		return dialect.PrecValue(parseriface.PrecedencePipe), nil
 
-	case tokenizer.TokenAmpersand:
-		return dialect.PrecValue(dialects.PrecedenceAmpersand), nil
+	case token.TokenAmpersand:
+		return dialect.PrecValue(parseriface.PrecedenceAmpersand), nil
 
-	case tokenizer.TokenCaret:
-		return dialect.PrecValue(dialects.PrecedenceCaret), nil
+	case token.TokenCaret:
+		return dialect.PrecValue(parseriface.PrecedenceCaret), nil
 
-	case tokenizer.TokenStringConcat:
-		return dialect.PrecValue(dialects.PrecedencePlusMinus), nil
+	case token.TokenStringConcat:
+		return dialect.PrecValue(parseriface.PrecedencePlusMinus), nil
 
-	case tokenizer.TokenShiftLeft, tokenizer.TokenShiftRight:
+	case token.TokenShiftLeft, token.TokenShiftRight:
 		if dialect.SupportsBitwiseShiftOperators() {
-			return dialect.PrecValue(dialects.PrecedenceMulDivModOp), nil
+			return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
 		}
 
-	case tokenizer.TokenSharp:
+	case token.TokenSharp:
 		if dialect.SupportsGeometricTypes() {
-			return dialect.PrecValue(dialects.PrecedencePgOther), nil
+			return dialect.PrecValue(parseriface.PrecedencePgOther), nil
 		}
 
-	case tokenizer.TokenOverlap:
+	case token.TokenOverlap:
 		if dialect.Dialect() == "postgresql" {
-			return dialect.PrecValue(dialects.PrecedenceEq), nil
+			return dialect.PrecValue(parseriface.PrecedenceEq), nil
 		}
 		if dialect.SupportsDoubleAmpersandOperator() {
-			return dialect.PrecValue(dialects.PrecedenceAnd), nil
+			return dialect.PrecValue(parseriface.PrecedenceAnd), nil
 		}
 
-	case tokenizer.TokenTilde, tokenizer.TokenTildeAsterisk,
-		tokenizer.TokenExclamationMarkTilde, tokenizer.TokenExclamationMarkTildeAsterisk,
-		tokenizer.TokenDoubleTilde, tokenizer.TokenDoubleTildeAsterisk,
-		tokenizer.TokenExclamationMarkDoubleTilde, tokenizer.TokenExclamationMarkDoubleTildeAsterisk:
-		return dialect.PrecValue(dialects.PrecedenceEq), nil
+	case token.TokenTilde, token.TokenTildeAsterisk,
+		token.TokenExclamationMarkTilde, token.TokenExclamationMarkTildeAsterisk,
+		token.TokenDoubleTilde, token.TokenDoubleTildeAsterisk,
+		token.TokenExclamationMarkDoubleTilde, token.TokenExclamationMarkDoubleTildeAsterisk:
+		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
-	case tokenizer.TokenArrow, tokenizer.TokenLongArrow,
-		tokenizer.TokenHashArrow, tokenizer.TokenHashLongArrow:
-		return dialect.PrecValue(dialects.PrecedenceEq), nil
+	case token.TokenArrow, token.TokenLongArrow,
+		token.TokenHashArrow, token.TokenHashLongArrow:
+		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
-	case tokenizer.TokenAtArrow, tokenizer.TokenArrowAt,
-		tokenizer.TokenHashMinus, tokenizer.TokenAtQuestion,
-		tokenizer.TokenAtAt, tokenizer.TokenQuestion,
-		tokenizer.TokenQuestionAnd, tokenizer.TokenQuestionPipe:
-		return dialect.PrecValue(dialects.PrecedenceEq), nil
+	case token.TokenAtArrow, token.TokenArrowAt,
+		token.TokenHashMinus, token.TokenAtQuestion,
+		token.TokenAtAt, token.TokenQuestion,
+		token.TokenQuestionAnd, token.TokenQuestionPipe:
+		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
-	case tokenizer.TokenLBracket:
+	case token.TokenLBracket:
 		// Array subscript
-		return dialect.PrecValue(dialects.PrecedencePeriod), nil
+		return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 
-	case tokenizer.TokenColon:
+	case token.TokenColon:
 		if dialect.SupportsPartiQL() {
-			return dialect.PrecValue(dialects.PrecedenceColon), nil
+			return dialect.PrecValue(parseriface.PrecedenceColon), nil
 		}
 
-	case tokenizer.TokenExclamationMark:
+	case token.TokenExclamationMark:
 		if dialect.SupportsFactorialOperator() {
 			// Postfix factorial operator
-			return dialect.PrecValue(dialects.PrecedencePeriod), nil
+			return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 		}
 		// Also used for bang-not operator in some dialects
 		if dialect.SupportsBangNotOperator() {
-			return dialect.PrecValue(dialects.PrecedenceUnaryNot), nil
+			return dialect.PrecValue(parseriface.PrecedenceUnaryNot), nil
 		}
 
-	case tokenizer.TokenCustomBinaryOperator:
+	case token.TokenCustomBinaryOperator:
 		// Custom operators (PostgreSQL)
-		return dialect.PrecValue(dialects.PrecedenceEq), nil
+		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
-	case tokenizer.TokenDuckIntDiv:
+	case token.TokenDuckIntDiv:
 		// DuckDB integer division
-		return dialect.PrecValue(dialects.PrecedenceMulDivModOp), nil
+		return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
 	}
 
 	// Default: no infix operator
@@ -310,18 +253,18 @@ func (ep *ExpressionParser) parseCompoundExpr(root expr.Expr, chain []expr.Acces
 // parseCompoundExprWithOptions parses compound expressions with wildcard support
 func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain []expr.AccessExpr, allowWildcard bool) (expr.Expr, error) {
 	dialect := ep.parser.GetDialect()
-	var endingWildcard *tokenizer.TokenWithSpan
+	var endingWildcard *token.TokenWithSpan
 
 	for {
 		// Check for dot access (e.g., foo.bar)
-		if ep.parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+		if ep.parser.ConsumeToken(token.TokenPeriod{}) {
 			nextTok := ep.parser.PeekTokenRef()
 
 			switch tok := nextTok.Token.(type) {
-			case tokenizer.TokenMul:
+			case token.TokenMul:
 				// Handle qualified wildcard like foo.*
 				if dialect.SupportsSelectWildcardExcept() {
-					endingWildcard = &tokenizer.TokenWithSpan{
+					endingWildcard = &token.TokenWithSpan{
 						Token: tok,
 						Span:  nextTok.Span,
 					}
@@ -332,7 +275,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 				}
 				goto done
 
-			case tokenizer.TokenSingleQuotedString:
+			case token.TokenSingleQuotedString:
 				// Quoted identifier as field name
 				fieldExpr := &expr.ValueExpr{
 					SpanVal: nextTok.Span,
@@ -344,7 +287,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 				})
 				ep.parser.AdvanceToken()
 
-			case tokenizer.TokenPlaceholder:
+			case token.TokenPlaceholder:
 				// Positional column reference (Snowflake $1, $2, etc.)
 				ident := &expr.Ident{
 					SpanVal: nextTok.Span,
@@ -356,9 +299,9 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 				})
 				ep.parser.AdvanceToken()
 
-			case tokenizer.TokenWord:
+			case token.TokenWord:
 				// Try to parse as expression with restricted precedence
-				periodPrec := dialect.PrecValue(dialects.PrecedencePeriod)
+				periodPrec := dialect.PrecValue(parseriface.PrecedencePeriod)
 				subExpr, err := ep.ParseExprWithPrecedence(periodPrec)
 				if err != nil {
 					// Fall back to identifier
@@ -390,7 +333,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 
 			default:
 				// Try to parse as expression
-				periodPrec := dialect.PrecValue(dialects.PrecedencePeriod)
+				periodPrec := dialect.PrecValue(parseriface.PrecedencePeriod)
 				subExpr, err := ep.ParseExprWithPrecedence(periodPrec)
 				if err != nil {
 					return nil, err
@@ -404,7 +347,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 		} else if !dialect.SupportsPartiQL() {
 			// Check for array subscript (e.g., foo[1])
 			nextTok := ep.parser.PeekTokenRef()
-			if _, ok := nextTok.Token.(tokenizer.TokenLBracket); ok {
+			if _, ok := nextTok.Token.(token.TokenLBracket); ok {
 				err := ep.parseMultiDimSubscript(&chain)
 				if err != nil {
 					return nil, err
@@ -587,19 +530,19 @@ func (ep *ExpressionParser) maybeParseOuterJoinOperator() bool {
 		return false
 	}
 
-	toks := []tokenizer.TokenWithSpan{
+	toks := []token.TokenWithSpan{
 		ep.parser.PeekNthToken(0),
 		ep.parser.PeekNthToken(1),
 		ep.parser.PeekNthToken(2),
 	}
 
-	if _, ok := toks[0].Token.(tokenizer.TokenLParen); !ok {
+	if _, ok := toks[0].Token.(token.TokenLParen); !ok {
 		return false
 	}
-	if _, ok := toks[1].Token.(tokenizer.TokenPlus); !ok {
+	if _, ok := toks[1].Token.(token.TokenPlus); !ok {
 		return false
 	}
-	if _, ok := toks[2].Token.(tokenizer.TokenRParen); !ok {
+	if _, ok := toks[2].Token.(token.TokenRParen); !ok {
 		return false
 	}
 
@@ -612,7 +555,7 @@ func (ep *ExpressionParser) maybeParseOuterJoinOperator() bool {
 }
 
 // parseIdentifierFromWord creates an identifier from a word token
-func (ep *ExpressionParser) parseIdentifierFromWord(word tokenizer.TokenWord, spanVal span.Span) expr.Expr {
+func (ep *ExpressionParser) parseIdentifierFromWord(word token.TokenWord, spanVal token.Span) expr.Expr {
 	// Preserve the original value - no dialect-specific normalization
 	// This matches the Rust reference implementation behavior
 	value := word.Word.Value
@@ -637,7 +580,7 @@ func (ep *ExpressionParser) parseIdentifierFromWord(word tokenizer.TokenWord, sp
 func (ep *ExpressionParser) parseMultiDimSubscript(chain *[]expr.AccessExpr) error {
 	for {
 		nextTok := ep.parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(tokenizer.TokenLBracket); !ok {
+		if _, ok := nextTok.Token.(token.TokenLBracket); !ok {
 			break
 		}
 
@@ -668,12 +611,12 @@ func (ep *ExpressionParser) parseSubscript(chain *[]expr.AccessExpr) error {
 // parseSubscriptInner parses the contents of a subscript
 func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 	dialect := ep.parser.GetDialect()
-	colonPrec := dialect.PrecValue(dialects.PrecedenceColon)
+	colonPrec := dialect.PrecValue(parseriface.PrecedenceColon)
 
 	// Check for start of slice [:...]
-	if ep.parser.ConsumeToken(tokenizer.TokenColon{}) {
+	if ep.parser.ConsumeToken(token.TokenColon{}) {
 		// We have [:...]
-		if ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+		if ep.parser.ConsumeToken(token.TokenRBracket{}) {
 			// [:]
 			return &expr.Subscript{
 				SpanVal: ep.parser.GetCurrentToken().Span,
@@ -686,7 +629,7 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 			return nil, err
 		}
 
-		if ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+		if ep.parser.ConsumeToken(token.TokenRBracket{}) {
 			// [:upper]
 			return &expr.Subscript{
 				SpanVal:    mergeSpans(ep.parser.GetCurrentToken().Span, upperBound.Span()),
@@ -695,17 +638,17 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 		}
 
 		// Expect second colon for stride
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenColon{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenColon{}); err != nil {
 			return nil, err
 		}
 
 		var stride expr.Expr
-		if !ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+		if !ep.parser.ConsumeToken(token.TokenRBracket{}) {
 			stride, err = ep.ParseExpr()
 			if err != nil {
 				return nil, err
 			}
-			if _, err := ep.parser.ExpectToken(tokenizer.TokenRBracket{}); err != nil {
+			if _, err := ep.parser.ExpectToken(token.TokenRBracket{}); err != nil {
 				return nil, err
 			}
 		}
@@ -723,7 +666,7 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 		return nil, err
 	}
 
-	if ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+	if ep.parser.ConsumeToken(token.TokenRBracket{}) {
 		// Simple index [index]
 		return &expr.Subscript{
 			SpanVal: index.Span(),
@@ -732,11 +675,11 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 	}
 
 	// Must be slice [lower:...]
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenColon{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenColon{}); err != nil {
 		return nil, err
 	}
 
-	if ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+	if ep.parser.ConsumeToken(token.TokenRBracket{}) {
 		// [lower:]
 		return &expr.Subscript{
 			SpanVal:    index.Span(),
@@ -750,7 +693,7 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 		return nil, err
 	}
 
-	if ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+	if ep.parser.ConsumeToken(token.TokenRBracket{}) {
 		// [lower:upper]
 		return &expr.Subscript{
 			SpanVal:    mergeSpans(index.Span(), upperBound.Span()),
@@ -760,17 +703,17 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 	}
 
 	// Must have stride [lower:upper:...]
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenColon{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenColon{}); err != nil {
 		return nil, err
 	}
 
 	var stride expr.Expr
-	if !ep.parser.ConsumeToken(tokenizer.TokenRBracket{}) {
+	if !ep.parser.ConsumeToken(token.TokenRBracket{}) {
 		stride, err = ep.ParseExpr()
 		if err != nil {
 			return nil, err
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRBracket{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenRBracket{}); err != nil {
 			return nil, err
 		}
 	}
@@ -784,11 +727,11 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 }
 
 // Parser returns the underlying parser interface
-func (ep *ExpressionParser) Parser() ParserInterface {
+func (ep *ExpressionParser) Parser() parseriface.Parser {
 	return ep.parser
 }
 
 // Helper method to get operator precedence from dialect
-func (ep *ExpressionParser) getPrecedence(prec dialects.Precedence) uint8 {
+func (ep *ExpressionParser) getPrecedence(prec parseriface.Precedence) uint8 {
 	return ep.parser.GetDialect().PrecValue(prec)
 }

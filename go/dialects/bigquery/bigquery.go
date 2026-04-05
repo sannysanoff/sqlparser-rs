@@ -21,7 +21,6 @@ import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // BigQueryDialect is a dialect for Google BigQuery SQL.
@@ -890,11 +889,11 @@ func (d *BigQueryDialect) ParseStatement(parser dialects.ParserAccessor) (ast.St
 		}
 
 		tok := parser.PeekToken()
-		if _, isSemicolon := tok.Token.(tokenizer.TokenSemiColon); isSemicolon {
+		if _, isSemicolon := tok.Token.(token.TokenSemiColon); isSemicolon {
 			parser.PrevToken()
 			return nil, false, nil
 		}
-		if _, isEOF := tok.Token.(tokenizer.EOF); isEOF {
+		if _, isEOF := tok.Token.(token.EOF); isEOF {
 			parser.PrevToken()
 			return nil, false, nil
 		}

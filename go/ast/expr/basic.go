@@ -22,19 +22,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Identifier represents a single identifier expression (Expr::Identifier in Rust).
 type Identifier struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Ident   *Ident
 }
 
 func (i *Identifier) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *Identifier) Span() span.Span {
+func (i *Identifier) Span() token.Span {
 	return i.SpanVal
 }
 
@@ -48,14 +48,14 @@ func (i *Identifier) String() string {
 
 // CompoundIdentifier represents a multi-part identifier (Expr::CompoundIdentifier in Rust).
 type CompoundIdentifier struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Idents  []*Ident
 }
 
 func (c *CompoundIdentifier) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CompoundIdentifier) Span() span.Span {
+func (c *CompoundIdentifier) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -70,14 +70,14 @@ func (c *CompoundIdentifier) String() string {
 
 // ValueExpr represents a literal value expression (Expr::Value in Rust).
 type ValueExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Value   interface{} // *ValueWithSpan or Value type
 }
 
 func (v *ValueExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (v *ValueExpr) Span() span.Span {
+func (v *ValueExpr) Span() token.Span {
 	return v.SpanVal
 }
 
@@ -94,14 +94,14 @@ func (v *ValueExpr) String() string {
 
 // QualifiedWildcard represents a qualified wildcard (Expr::QualifiedWildcard in Rust).
 type QualifiedWildcard struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Prefix  *ObjectName
 }
 
 func (q *QualifiedWildcard) exprNode() {}
 
 // Span returns the source span for this expression.
-func (q *QualifiedWildcard) Span() span.Span {
+func (q *QualifiedWildcard) Span() token.Span {
 	return q.SpanVal
 }
 
@@ -115,13 +115,13 @@ func (q *QualifiedWildcard) String() string {
 
 // Wildcard represents an unqualified `*` wildcard (Expr::Wildcard in Rust).
 type Wildcard struct {
-	SpanVal span.Span
+	SpanVal token.Span
 }
 
 func (w *Wildcard) exprNode() {}
 
 // Span returns the source span for this expression.
-func (w *Wildcard) Span() span.Span {
+func (w *Wildcard) Span() token.Span {
 	return w.SpanVal
 }
 
@@ -132,14 +132,14 @@ func (w *Wildcard) String() string {
 
 // Nested represents a nested expression in parentheses (Expr::Nested in Rust).
 type Nested struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr    Expr
 }
 
 func (n *Nested) exprNode() {}
 
 // Span returns the source span for this expression.
-func (n *Nested) Span() span.Span {
+func (n *Nested) Span() token.Span {
 	return n.SpanVal
 }
 
@@ -150,7 +150,7 @@ func (n *Nested) String() string {
 
 // Prefixed represents a prefixed expression (Expr::Prefixed in Rust).
 type Prefixed struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Prefix  *Ident
 	Value   Expr
 }
@@ -158,7 +158,7 @@ type Prefixed struct {
 func (p *Prefixed) exprNode() {}
 
 // Span returns the source span for this expression.
-func (p *Prefixed) Span() span.Span {
+func (p *Prefixed) Span() token.Span {
 	return p.SpanVal
 }
 
@@ -169,7 +169,7 @@ func (p *Prefixed) String() string {
 
 // TypedString represents a typed string literal like DATE '2020-01-01' (Expr::TypedString in Rust).
 type TypedString struct {
-	SpanVal  span.Span
+	SpanVal  token.Span
 	DataType string
 	Value    string
 }
@@ -177,7 +177,7 @@ type TypedString struct {
 func (t *TypedString) exprNode() {}
 
 // Span returns the source span for this expression.
-func (t *TypedString) Span() span.Span {
+func (t *TypedString) Span() token.Span {
 	return t.SpanVal
 }
 
@@ -188,13 +188,13 @@ func (t *TypedString) String() string {
 
 // Ident represents a single identifier (e.g., table name or column name).
 type Ident struct {
-	SpanVal    span.Span
+	SpanVal    token.Span
 	Value      string
 	QuoteStyle *rune // optional quote character: ', ", `, [
 }
 
 // Span returns the source span for this identifier.
-func (i *Ident) Span() span.Span {
+func (i *Ident) Span() token.Span {
 	return i.SpanVal
 }
 
@@ -216,12 +216,12 @@ func (i *Ident) String() string {
 func (i *Ident) exprNode() {}
 
 type ObjectNamePart struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Ident   *Ident
 }
 
 // Span returns the source span for this part.
-func (o *ObjectNamePart) Span() span.Span {
+func (o *ObjectNamePart) Span() token.Span {
 	return o.SpanVal
 }
 
@@ -235,12 +235,12 @@ func (o *ObjectNamePart) String() string {
 
 // ObjectName represents a qualified name (e.g., database.schema.table).
 type ObjectName struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Parts   []*ObjectNamePart
 }
 
 // Span returns the source span for this object name.
-func (o *ObjectName) Span() span.Span {
+func (o *ObjectName) Span() token.Span {
 	return o.SpanVal
 }
 
@@ -255,13 +255,13 @@ func (o *ObjectName) String() string {
 
 // SqlOption represents a SQL option (e.g., in OPTIONS clause).
 type SqlOption struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Name    *Ident
 	Value   Expr
 }
 
 // Span returns the source span for this option.
-func (s *SqlOption) Span() span.Span {
+func (s *SqlOption) Span() token.Span {
 	return s.SpanVal
 }
 
@@ -279,13 +279,13 @@ func (s *SqlOption) String() string {
 
 // ColumnOption represents a column option.
 type ColumnOption struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Name    string
 	Value   Expr
 }
 
 // Span returns the source span for this option.
-func (c *ColumnOption) Span() span.Span {
+func (c *ColumnOption) Span() token.Span {
 	return c.SpanVal
 }
 

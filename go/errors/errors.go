@@ -2,14 +2,14 @@ package errors
 
 import (
 	"fmt"
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // ParserError represents errors that can occur during parsing
 type ParserError struct {
 	Type    ErrorType
 	Message string
-	Span    span.Span
+	Span    token.Span
 }
 
 // ErrorType categorizes parser errors
@@ -44,16 +44,16 @@ func (pe *ParserError) Error() string {
 }
 
 // NewTokenizerError creates a new tokenizer error
-func NewTokenizerError(msg string, loc span.Location) *ParserError {
+func NewTokenizerError(msg string, loc token.Location) *ParserError {
 	return &ParserError{
 		Type:    TokenizerErrorType,
 		Message: msg,
-		Span:    span.NewSpan(loc, loc),
+		Span:    token.NewSpan(loc, loc),
 	}
 }
 
 // NewParserError creates a new parser error
-func NewParserError(msg string, sp span.Span) *ParserError {
+func NewParserError(msg string, sp token.Span) *ParserError {
 	return &ParserError{
 		Type:    SyntaxErrorType,
 		Message: msg,
@@ -62,7 +62,7 @@ func NewParserError(msg string, sp span.Span) *ParserError {
 }
 
 // NewRecursionLimitError creates a recursion limit exceeded error
-func NewRecursionLimitError(sp span.Span) *ParserError {
+func NewRecursionLimitError(sp token.Span) *ParserError {
 	return &ParserError{
 		Type:    RecursionLimitExceededType,
 		Message: "recursion limit exceeded",

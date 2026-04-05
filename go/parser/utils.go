@@ -21,8 +21,7 @@ import (
 	"fmt"
 
 	"github.com/user/sqlparser/errors"
-	"github.com/user/sqlparser/span"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/token"
 )
 
 // ============================================================
@@ -31,31 +30,31 @@ import (
 
 // PeekToken returns a copy of the first non-whitespace token that has not yet been processed,
 // or Token::EOF if at the end of the stream.
-func (p *Parser) PeekToken() tokenizer.TokenWithSpan {
+func (p *Parser) PeekToken() token.TokenWithSpan {
 	return p.PeekNthToken(0)
 }
 
 // PeekTokenRef returns a reference to the first non-whitespace token that has not yet
 // been processed, or Token::EOF if at the end of the stream.
 // This is more efficient than PeekToken when you don't need a copy.
-func (p *Parser) PeekTokenRef() *tokenizer.TokenWithSpan {
+func (p *Parser) PeekTokenRef() *token.TokenWithSpan {
 	return p.PeekNthTokenRef(0)
 }
 
 // PeekNthToken returns the nth non-whitespace token that has not yet been processed.
-func (p *Parser) PeekNthToken(n int) tokenizer.TokenWithSpan {
+func (p *Parser) PeekNthToken(n int) token.TokenWithSpan {
 	return *p.PeekNthTokenRef(n)
 }
 
 // PeekNthTokenRef returns a reference to the nth non-whitespace token that has not yet been processed.
-func (p *Parser) PeekNthTokenRef(n int) *tokenizer.TokenWithSpan {
+func (p *Parser) PeekNthTokenRef(n int) *token.TokenWithSpan {
 	index := p.index
 	for {
 		if index >= len(p.tokens) {
 			return &eofToken
 		}
 		tok := &p.tokens[index]
-		if _, isWhitespace := tok.Token.(tokenizer.TokenWhitespace); isWhitespace {
+		if _, isWhitespace := tok.Token.(token.TokenWhitespace); isWhitespace {
 			index++
 			continue
 		}
@@ -68,12 +67,12 @@ func (p *Parser) PeekNthTokenRef(n int) *tokenizer.TokenWithSpan {
 }
 
 // PeekTokenNoSkip returns the first token, possibly whitespace, that has not yet been processed.
-func (p *Parser) PeekTokenNoSkip() tokenizer.TokenWithSpan {
+func (p *Parser) PeekTokenNoSkip() token.TokenWithSpan {
 	return p.PeekNthTokenNoSkip(0)
 }
 
 // PeekNthTokenNoSkip returns the nth token, possibly whitespace, that has not yet been processed.
-func (p *Parser) PeekNthTokenNoSkip(n int) tokenizer.TokenWithSpan {
+func (p *Parser) PeekNthTokenNoSkip(n int) token.TokenWithSpan {
 	if p.index+n >= len(p.tokens) {
 		return eofToken
 	}
@@ -81,14 +80,14 @@ func (p *Parser) PeekNthTokenNoSkip(n int) tokenizer.TokenWithSpan {
 }
 
 // NextToken advances to the next non-whitespace token and returns a copy.
-func (p *Parser) NextToken() tokenizer.TokenWithSpan {
+func (p *Parser) NextToken() token.TokenWithSpan {
 	p.AdvanceToken()
 	return *p.GetCurrentToken()
 }
 
 // NextTokenNoSkip advances one token and returns the token, possibly whitespace.
 // Returns nil if reached end-of-file.
-func (p *Parser) NextTokenNoSkip() *tokenizer.TokenWithSpan {
+func (p *Parser) NextTokenNoSkip() *token.TokenWithSpan {
 	p.index++
 	if p.index-1 >= len(p.tokens) {
 		return nil
@@ -103,7 +102,7 @@ func (p *Parser) AdvanceToken() {
 		if p.index-1 >= len(p.tokens) {
 			return
 		}
-		if _, isWhitespace := p.tokens[p.index-1].Token.(tokenizer.TokenWhitespace); !isWhitespace {
+		if _, isWhitespace := p.tokens[p.index-1].Token.(token.TokenWhitespace); !isWhitespace {
 			return
 		}
 	}
@@ -111,19 +110,19 @@ func (p *Parser) AdvanceToken() {
 
 // GetCurrentToken returns a reference to the current token.
 // The current token is the one at index - 1.
-func (p *Parser) GetCurrentToken() *tokenizer.TokenWithSpan {
+func (p *Parser) GetCurrentToken() *token.TokenWithSpan {
 	return p.tokenAt(p.index - 1)
 }
 
 // GetPreviousToken returns a reference to the previous token.
 // The previous token is the one at index - 2.
-func (p *Parser) GetPreviousToken() *tokenizer.TokenWithSpan {
+func (p *Parser) GetPreviousToken() *token.TokenWithSpan {
 	return p.tokenAt(p.index - 2)
 }
 
 // GetNextToken returns a reference to the next token.
 // The next token is the one at index.
-func (p *Parser) GetNextToken() *tokenizer.TokenWithSpan {
+func (p *Parser) GetNextToken() *token.TokenWithSpan {
 	return p.tokenAt(p.index)
 }
 
@@ -145,7 +144,7 @@ func (p *Parser) PrevToken() {
 		}
 		p.index--
 		if p.index < len(p.tokens) {
-			if _, isWhitespace := p.tokens[p.index].Token.(tokenizer.TokenWhitespace); !isWhitespace {
+			if _, isWhitespace := p.tokens[p.index].Token.(token.TokenWhitespace); !isWhitespace {
 				return
 			}
 		}
@@ -182,7 +181,7 @@ func TryParse[T any](p *Parser, parseFn func() (T, error)) (T, bool) {
 
 // ConsumeToken consumes the next token if it matches the expected token.
 // Returns true if the token was consumed, false otherwise.
-func (p *Parser) ConsumeToken(expected tokenizer.Token) bool {
+func (p *Parser) ConsumeToken(expected token.Token) bool {
 	if p.PeekTokenRef().Token.Equals(expected) {
 		p.AdvanceToken()
 		return true
@@ -193,7 +192,7 @@ func (p *Parser) ConsumeToken(expected tokenizer.Token) bool {
 // ConsumeTokens consumes multiple tokens in sequence.
 // Returns true if all tokens were consumed, false otherwise.
 // If any token doesn't match, the parser state is restored.
-func (p *Parser) ConsumeTokens(tokens []tokenizer.Token) bool {
+func (p *Parser) ConsumeTokens(tokens []token.Token) bool {
 	index := p.index
 	for _, tok := range tokens {
 		if !p.ConsumeToken(tok) {
@@ -206,11 +205,11 @@ func (p *Parser) ConsumeTokens(tokens []tokenizer.Token) bool {
 
 // ExpectToken consumes the next token if it matches the expected token,
 // otherwise returns an error.
-func (p *Parser) ExpectToken(expected tokenizer.Token) (tokenizer.TokenWithSpan, error) {
+func (p *Parser) ExpectToken(expected token.Token) (token.TokenWithSpan, error) {
 	if p.PeekTokenRef().Token.Equals(expected) {
 		return p.NextToken(), nil
 	}
-	return tokenizer.TokenWithSpan{}, p.expectedRef(expected.String(), p.PeekTokenRef())
+	return token.TokenWithSpan{}, p.expectedRef(expected.String(), p.PeekTokenRef())
 }
 
 // ============================================================
@@ -230,7 +229,7 @@ func (p *Parser) ParseKeyword(expected string) bool {
 // PeekKeyword checks if the current token is the expected keyword without consuming it.
 func (p *Parser) PeekKeyword(expected string) bool {
 	tok := p.PeekTokenRef()
-	if wordTok, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if wordTok, ok := tok.Token.(token.TokenWord); ok {
 		return string(wordTok.Word.Keyword) == expected
 	}
 	return false
@@ -252,11 +251,11 @@ func (p *Parser) ParseKeywords(keywords []string) bool {
 
 // ExpectKeyword consumes the current token if it is the expected keyword.
 // Otherwise, returns an error.
-func (p *Parser) ExpectKeyword(expected string) (tokenizer.TokenWithSpan, error) {
+func (p *Parser) ExpectKeyword(expected string) (token.TokenWithSpan, error) {
 	if p.ParseKeyword(expected) {
 		return *p.GetCurrentToken(), nil
 	}
-	return tokenizer.TokenWithSpan{}, p.expectedRef(fmt.Sprintf("%q", expected), p.PeekTokenRef())
+	return token.TokenWithSpan{}, p.expectedRef(fmt.Sprintf("%q", expected), p.PeekTokenRef())
 }
 
 // ExpectKeywordIs consumes the current token if it is the expected keyword.
@@ -284,7 +283,7 @@ func (p *Parser) ExpectKeywords(expected []string) error {
 // Returns empty string if no match.
 func (p *Parser) ParseOneOfKeywords(keywords []string) string {
 	tok := p.PeekTokenRef()
-	if wordTok, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if wordTok, ok := tok.Token.(token.TokenWord); ok {
 		for _, keyword := range keywords {
 			if string(wordTok.Word.Keyword) == keyword {
 				p.AdvanceToken()
@@ -299,7 +298,7 @@ func (p *Parser) ParseOneOfKeywords(keywords []string) string {
 // without consuming it. Returns the matched keyword or empty string.
 func (p *Parser) PeekOneOfKeywords(keywords []string) string {
 	tok := p.PeekTokenRef()
-	if wordTok, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if wordTok, ok := tok.Token.(token.TokenWord); ok {
 		for _, keyword := range keywords {
 			if string(wordTok.Word.Keyword) == keyword {
 				return keyword
@@ -337,7 +336,7 @@ func (p *Parser) ParseCommaSeparatedWithTrailingCommas(parseFn func() error, tra
 			return err
 		}
 
-		if !p.ConsumeToken(tokenizer.TokenComma{}) {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			return nil
 		}
 
@@ -345,10 +344,10 @@ func (p *Parser) ParseCommaSeparatedWithTrailingCommas(parseFn func() error, tra
 		if trailingCommas {
 			nextTok := p.PeekTokenRef()
 			switch nextTok.Token.(type) {
-			case tokenizer.TokenRParen, tokenizer.EOF:
+			case token.TokenRParen, token.EOF:
 				return nil
 			}
-			if wordTok, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+			if wordTok, ok := nextTok.Token.(token.TokenWord); ok {
 				if p.isReservedForColumnAlias(string(wordTok.Word.Keyword)) {
 					p.PrevToken() // Put back the comma
 					return nil
@@ -382,13 +381,13 @@ func (p *Parser) ParseCommaSeparatedToSlice(parseFn func() (interface{}, error))
 // ParseParenthesized parses a parenthesized expression.
 // It expects a '(' before calling parseFn and expects a ')' after.
 func (p *Parser) ParseParenthesized(parseFn func() error) error {
-	if _, err := p.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return err
 	}
 	if err := parseFn(); err != nil {
 		return err
 	}
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return err
 	}
 	return nil
@@ -397,13 +396,13 @@ func (p *Parser) ParseParenthesized(parseFn func() error) error {
 // ParseParenthesizedOptional parses an optional parenthesized expression.
 // If the next token is '(', it parses the content, otherwise returns nil.
 func (p *Parser) ParseParenthesizedOptional(parseFn func() error) error {
-	if !p.ConsumeToken(tokenizer.TokenLParen{}) {
+	if !p.ConsumeToken(token.TokenLParen{}) {
 		return nil
 	}
 	if err := parseFn(); err != nil {
 		return err
 	}
-	if _, err := p.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 		return err
 	}
 	return nil
@@ -483,7 +482,7 @@ func NewRecursionCounter(remainingDepth int) RecursionCounter {
 // Returns an error if the remaining depth falls to 0.
 func (rc *RecursionCounter) TryDecrease() error {
 	if rc.remainingDepth == 0 {
-		return errors.NewRecursionLimitError(span.Span{})
+		return errors.NewRecursionLimitError(token.Span{})
 	}
 	rc.remainingDepth--
 	return nil
@@ -506,19 +505,19 @@ func (p *Parser) ParseLikePattern() (string, error) {
 	tok := p.PeekToken()
 
 	// Check for string literal
-	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+	if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
 
 	// Check for double-quoted string
-	if str, ok := tok.Token.(tokenizer.TokenDoubleQuotedString); ok {
+	if str, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
 
 	// Check for identifier or keyword
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		p.AdvanceToken()
 		return word.Word.Value, nil
 	}
@@ -531,13 +530,13 @@ func (p *Parser) ParseStringLiteral() (string, error) {
 	tok := p.PeekToken()
 
 	// Check for string literal
-	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+	if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
 
 	// Check for double-quoted string
-	if str, ok := tok.Token.(tokenizer.TokenDoubleQuotedString); ok {
+	if str, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
 		p.AdvanceToken()
 		return str.Value, nil
 	}
@@ -550,7 +549,7 @@ func (p *Parser) ParseLiteralChar() (rune, error) {
 	tok := p.PeekToken()
 
 	// Check for string literal
-	if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+	if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 		p.AdvanceToken()
 		if len(str.Value) != 1 {
 			return 0, fmt.Errorf("expected single character, got %q", str.Value)
@@ -566,7 +565,7 @@ func (p *Parser) ParseNumber() (string, error) {
 	tok := p.PeekToken()
 
 	// Check for number
-	if num, ok := tok.Token.(tokenizer.TokenNumber); ok {
+	if num, ok := tok.Token.(token.TokenNumber); ok {
 		p.AdvanceToken()
 		return num.Value, nil
 	}

@@ -15,164 +15,104 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Package dialects provides SQL dialect definitions and interfaces for the sqlparser.
+//
+// This package defines the Dialect interface and its sub-interfaces that
+// encapsulate the differences between SQL implementations. The interfaces
+// are organized using the Interface Segregation Principle, splitting a large
+// monolithic interface into focused, cohesive capability interfaces.
+//
+// The interfaces defined here work with the parseriface package to avoid
+// circular dependencies with the parser package.
 package dialects
 
 import (
 	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
-// ParserAccessor defines the interface that the parser must implement
-// to work with dialects. This breaks the circular dependency between
-// the parser and dialects packages.
-type ParserAccessor interface {
-	// Token access methods
-	PeekToken() tokenizer.TokenWithSpan
-	PeekTokenRef() *tokenizer.TokenWithSpan
-	PeekNthToken(n int) tokenizer.TokenWithSpan
-	PeekNthTokenRef(n int) *tokenizer.TokenWithSpan
-	NextToken() tokenizer.TokenWithSpan
-	NextTokenNoSkip() *tokenizer.TokenWithSpan
-	AdvanceToken()
-	PrevToken()
-	GetCurrentToken() *tokenizer.TokenWithSpan
-	GetCurrentIndex() int
+// Re-export types from parseriface for backward compatibility
+type (
+	// ParserAccessor is an alias for parseriface.Parser for backward compatibility.
+	// Deprecated: Use parseriface.Parser directly.
+	ParserAccessor = parseriface.Parser
 
-	// Token consumption
-	ConsumeToken(expected tokenizer.Token) bool
-	ExpectToken(expected tokenizer.Token) (tokenizer.TokenWithSpan, error)
+	// ParserState is an alias for parseriface.ParserState.
+	// Deprecated: Use parseriface.ParserState directly.
+	ParserState = parseriface.ParserState
 
-	// Keyword helpers
-	ParseKeyword(expected string) bool
-	PeekKeyword(expected string) bool
-	PeekNthKeyword(n int, expected string) bool
-	ParseOneOfKeywords(keywords []string) string
-	PeekOneOfKeywords(keywords []string) string
-	ExpectKeyword(expected string) (tokenizer.TokenWithSpan, error)
-	ExpectKeywords(expected []string) error
+	// ParserOptions is an alias for parseriface.ParserOptions.
+	// Deprecated: Use parseriface.ParserOptions directly.
+	ParserOptions = parseriface.ParserOptions
 
-	// Expression parsing
-	ParseExpression() (ast.Expr, error)
+	// Precedence is an alias for parseriface.Precedence.
+	// Deprecated: Use parseriface.Precedence directly.
+	Precedence = parseriface.Precedence
 
-	// Statement parsing
-	ParseInsert() (ast.Statement, error)
+	// NestedIdentifierQuote is an alias for parseriface.NestedIdentifierQuote.
+	// Deprecated: Use parseriface.NestedIdentifierQuote directly.
+	NestedIdentifierQuote = parseriface.NestedIdentifierQuote
 
-	// Comma-separated parsing
-	ParseCommaSeparated(parseFn func() error) error
+	// GranteesType is an alias for parseriface.GranteesType.
+	// Deprecated: Use parseriface.GranteesType directly.
+	GranteesType = parseriface.GranteesType
 
-	// State management
-	GetState() ParserState
-	SetState(state ParserState)
-	InColumnDefinitionState() bool
+	// ColumnOption is an alias for parseriface.ColumnOption.
+	// Deprecated: Use parseriface.ColumnOption directly.
+	ColumnOption = parseriface.ColumnOption
 
-	// Dialect access
-	GetDialect() Dialect
-	GetOptions() ParserOptions
-}
+	// Dialect is an alias for parseriface.Dialect.
+	// Deprecated: Use CompleteDialect or specific capability interfaces.
+	Dialect = CompleteDialect
+)
 
-// ParserState represents the current state of the parser.
-// This is a copy of parser.ParserState to avoid importing the parser package.
-type ParserState int
-
+// Re-export constants from parseriface for backward compatibility
 const (
-	// StateNormal is the default state of the parser.
-	StateNormal ParserState = iota
-	// StateConnectBy is the state when parsing a CONNECT BY expression.
-	StateConnectBy
-	// StateColumnDefinition is the state when parsing column definitions.
-	StateColumnDefinition
+	// Parser states
+	StateNormal           = parseriface.StateNormal
+	StateConnectBy        = parseriface.StateConnectBy
+	StateColumnDefinition = parseriface.StateColumnDefinition
+
+	// Precedence levels
+	PrecedencePeriod      = parseriface.PrecedencePeriod
+	PrecedenceDoubleColon = parseriface.PrecedenceDoubleColon
+	PrecedenceAtTz        = parseriface.PrecedenceAtTz
+	PrecedenceMulDivModOp = parseriface.PrecedenceMulDivModOp
+	PrecedencePlusMinus   = parseriface.PrecedencePlusMinus
+	PrecedenceXor         = parseriface.PrecedenceXor
+	PrecedenceAmpersand   = parseriface.PrecedenceAmpersand
+	PrecedenceCaret       = parseriface.PrecedenceCaret
+	PrecedencePipe        = parseriface.PrecedencePipe
+	PrecedenceColon       = parseriface.PrecedenceColon
+	PrecedenceBetween     = parseriface.PrecedenceBetween
+	PrecedenceEq          = parseriface.PrecedenceEq
+	PrecedenceLike        = parseriface.PrecedenceLike
+	PrecedenceIs          = parseriface.PrecedenceIs
+	PrecedencePgOther     = parseriface.PrecedencePgOther
+	PrecedenceUnaryNot    = parseriface.PrecedenceUnaryNot
+	PrecedenceAnd         = parseriface.PrecedenceAnd
+	PrecedenceOr          = parseriface.PrecedenceOr
+
+	// Grantee types
+	GranteeTypeNone = parseriface.GranteeTypeNone
+	GranteeTypeRole = parseriface.GranteeTypeRole
+	GranteeTypeUser = parseriface.GranteeTypeUser
 )
 
-// ParserOptions represents parser options.
-// This is a copy of parser.ParserOptions to avoid importing the parser package.
-type ParserOptions struct {
-	TrailingCommas   bool
-	Unescape         bool
-	RequireSemicolon bool
-}
+// ============================================================================
+// Capability Sub-Interfaces (Interface Segregation Principle)
+// ============================================================================
 
-// Precedence defines the precedence levels for SQL operators.
-// Higher values mean higher precedence (tighter binding).
-type Precedence int
-
-const (
-	// PrecedencePeriod - Member access operator '.' (highest precedence)
-	PrecedencePeriod Precedence = 100
-	// PrecedenceDoubleColon - Postgres style type cast '::'
-	PrecedenceDoubleColon Precedence = 50
-	// PrecedenceAtTz - Timezone operator (e.g., 'AT TIME ZONE')
-	PrecedenceAtTz Precedence = 41
-	// PrecedenceMulDivModOp - Multiplication/Division/Modulo operators
-	PrecedenceMulDivModOp Precedence = 40
-	// PrecedencePlusMinus - Addition/Subtraction
-	PrecedencePlusMinus Precedence = 30
-	// PrecedenceXor - Bitwise XOR operator
-	PrecedenceXor Precedence = 24
-	// PrecedenceAmpersand - Bitwise AND operator
-	PrecedenceAmpersand Precedence = 23
-	// PrecedenceCaret - Bitwise CARET for some dialects
-	PrecedenceCaret Precedence = 22
-	// PrecedencePipe - Bitwise OR / pipe operator
-	PrecedencePipe Precedence = 21
-	// PrecedenceColon - ':' operator for json/variant access
-	PrecedenceColon Precedence = 21
-	// PrecedenceBetween - BETWEEN operator
-	PrecedenceBetween Precedence = 20
-	// PrecedenceEq - Equality operator
-	PrecedenceEq Precedence = 20
-	// PrecedenceLike - Pattern matching (LIKE)
-	PrecedenceLike Precedence = 19
-	// PrecedenceIs - IS operator (e.g., 'IS NULL')
-	PrecedenceIs Precedence = 17
-	// PrecedencePgOther - Other Postgres-specific operators
-	PrecedencePgOther Precedence = 16
-	// PrecedenceUnaryNot - Unary NOT
-	PrecedenceUnaryNot Precedence = 15
-	// PrecedenceAnd - Logical AND
-	PrecedenceAnd Precedence = 10
-	// PrecedenceOr - Logical OR (lowest precedence)
-	PrecedenceOr Precedence = 5
-)
-
-// NestedIdentifierQuote represents a nested identifier with outer and optional inner quotes
-type NestedIdentifierQuote struct {
-	OuterQuote rune
-	InnerQuote *rune
-}
-
-// GranteesType represents grantee types that can be reserved
-type GranteesType int
-
-const (
-	// GranteeTypeNone represents no special grantee type
-	GranteeTypeNone GranteesType = iota
-	// GranteeTypeRole represents a role grantee
-	GranteeTypeRole
-	// GranteeTypeUser represents a user grantee
-	GranteeTypeUser
-)
-
-// ColumnOption represents a column option in CREATE TABLE
-type ColumnOption interface {
-	IsColumnOption()
-}
-
-// Dialect encapsulates the differences between SQL implementations.
-// SQL implementations deviate from one another, either due to custom extensions
-// or various historical reasons. This interface encapsulates the parsing differences
-// between dialects.
-type Dialect interface {
-	// ============================================================================
-	// Dialect Identification
-	// ============================================================================
-
+// CoreDialect defines the minimal dialect interface with just the identifier.
+type CoreDialect interface {
 	// Dialect returns the dialect name/identifier for identification purposes.
 	Dialect() string
+}
 
-	// ============================================================================
-	// Identifier Handling
-	// ============================================================================
+// IdentifierDialect defines identifier handling capabilities.
+type IdentifierDialect interface {
+	CoreDialect
 
 	// IsIdentifierStart returns true if the character is a valid start character
 	// for an unquoted identifier.
@@ -204,13 +144,18 @@ type Dialect interface {
 	// IsCustomOperatorPart returns true if the character is part of a custom operator.
 	IsCustomOperatorPart(ch rune) bool
 
-	// ============================================================================
-	// Reserved Keywords
-	// ============================================================================
-
 	// IsReservedForIdentifier returns true if the specified keyword is reserved
 	// and cannot be used as an identifier without special handling like quoting.
 	IsReservedForIdentifier(kw token.Keyword) bool
+
+	// IsIdentifierGeneratingFunctionName returns true if the dialect considers
+	// the specified ident as a function that returns an identifier.
+	IsIdentifierGeneratingFunctionName(ident *ast.Ident, nameParts []ast.ObjectNamePart) bool
+}
+
+// KeywordDialect defines keyword and alias handling capabilities.
+type KeywordDialect interface {
+	CoreDialect
 
 	// GetReservedKeywordsForSelectItemOperator returns reserved keywords that may
 	// prefix a select item expression (e.g., CONNECT_BY_ROOT in Snowflake).
@@ -220,29 +165,26 @@ type Dialect interface {
 	GetReservedGranteesTypes() []GranteesType
 
 	// IsColumnAlias returns true if the specified keyword should be parsed as a column alias.
-	IsColumnAlias(kw token.Keyword, parser ParserAccessor) bool
+	IsColumnAlias(kw token.Keyword, parser parseriface.Parser) bool
 
 	// IsSelectItemAlias returns true if the specified keyword should be parsed as
 	// a select item alias. When explicit is true, the keyword is preceded by an AS word.
-	IsSelectItemAlias(explicit bool, kw token.Keyword, parser ParserAccessor) bool
+	IsSelectItemAlias(explicit bool, kw token.Keyword, parser parseriface.Parser) bool
 
 	// IsTableFactor returns true if the specified keyword should be parsed as a table factor identifier.
-	IsTableFactor(kw token.Keyword, parser ParserAccessor) bool
+	IsTableFactor(kw token.Keyword, parser parseriface.Parser) bool
 
 	// IsTableAlias returns true if the specified keyword should be parsed as a table factor alias.
-	IsTableAlias(kw token.Keyword, parser ParserAccessor) bool
+	IsTableAlias(kw token.Keyword, parser parseriface.Parser) bool
 
 	// IsTableFactorAlias returns true if the specified keyword should be parsed as
 	// a table factor alias. When explicit is true, the keyword is preceded by an AS word.
-	IsTableFactorAlias(explicit bool, kw token.Keyword, parser ParserAccessor) bool
+	IsTableFactorAlias(explicit bool, kw token.Keyword, parser parseriface.Parser) bool
+}
 
-	// IsIdentifierGeneratingFunctionName returns true if the dialect considers
-	// the specified ident as a function that returns an identifier.
-	IsIdentifierGeneratingFunctionName(ident *ast.Ident, nameParts []ast.ObjectNamePart) bool
-
-	// ============================================================================
-	// String Literals
-	// ============================================================================
+// StringLiteralDialect defines string literal handling capabilities.
+type StringLiteralDialect interface {
+	CoreDialect
 
 	// SupportsStringLiteralBackslashEscape returns true if the dialect supports
 	// escaping characters via '\' in string literals.
@@ -275,10 +217,11 @@ type Dialect interface {
 	// SupportsStringEscapeConstant returns true if the dialect supports the
 	// E'...' syntax for string literals with escape sequences (Postgres).
 	SupportsStringEscapeConstant() bool
+}
 
-	// ============================================================================
-	// Aggregations and Window Functions
-	// ============================================================================
+// AggregationDialect defines aggregation and window function capabilities.
+type AggregationDialect interface {
+	CoreDialect
 
 	// SupportsFilterDuringAggregation returns true if the dialect supports
 	// FILTER (WHERE expr) for aggregate queries.
@@ -298,10 +241,11 @@ type Dialect interface {
 
 	// SupportsMatchRecognize returns true if the dialect supports the MATCH_RECOGNIZE operation.
 	SupportsMatchRecognize() bool
+}
 
-	// ============================================================================
-	// GROUP BY Support
-	// ============================================================================
+// GroupByDialect defines GROUP BY clause capabilities.
+type GroupByDialect interface {
+	CoreDialect
 
 	// SupportsGroupByExpr returns true if the dialect supports GROUP BY expressions
 	// like GROUPING SETS, ROLLUP, or CUBE.
@@ -310,10 +254,11 @@ type Dialect interface {
 	// SupportsGroupByWithModifier returns true if the dialect supports GROUP BY
 	// modifiers prefixed by a WITH keyword (e.g., GROUP BY value WITH ROLLUP).
 	SupportsGroupByWithModifier() bool
+}
 
-	// ============================================================================
-	// JOIN Support
-	// ============================================================================
+// JoinDialect defines JOIN clause capabilities.
+type JoinDialect interface {
+	CoreDialect
 
 	// SupportsLeftAssociativeJoinsWithoutParens returns true if the dialect supports
 	// left-associative join parsing by default when parentheses are omitted in nested joins.
@@ -326,18 +271,11 @@ type Dialect interface {
 	// SupportsCrossJoinConstraint returns true if the dialect supports a join
 	// specification on CROSS JOIN.
 	SupportsCrossJoinConstraint() bool
+}
 
-	// ============================================================================
-	// CONNECT BY Support
-	// ============================================================================
-
-	// SupportsConnectBy returns true if the dialect supports CONNECT BY for
-	// hierarchical queries (Oracle-style).
-	SupportsConnectBy() bool
-
-	// ============================================================================
-	// Transaction Support
-	// ============================================================================
+// TransactionDialect defines transaction statement capabilities.
+type TransactionDialect interface {
+	CoreDialect
 
 	// SupportsStartTransactionModifier returns true if the dialect supports
 	// BEGIN {DEFERRED | IMMEDIATE | EXCLUSIVE | TRY | CATCH} [TRANSACTION].
@@ -346,10 +284,11 @@ type Dialect interface {
 	// SupportsEndTransactionModifier returns true if the dialect supports
 	// END {TRY | CATCH} statements.
 	SupportsEndTransactionModifier() bool
+}
 
-	// ============================================================================
-	// Named Function Arguments
-	// ============================================================================
+// NamedArgumentDialect defines named function argument capabilities.
+type NamedArgumentDialect interface {
+	CoreDialect
 
 	// SupportsNamedFnArgsWithEqOperator returns true if the dialect supports
 	// named arguments of the form FUN(a = '1', b = '2').
@@ -370,10 +309,11 @@ type Dialect interface {
 	// SupportsNamedFnArgsWithExprName returns true if the dialect supports
 	// argument name as arbitrary expression.
 	SupportsNamedFnArgsWithExprName() bool
+}
 
-	// ============================================================================
-	// SET Statement Support
-	// ============================================================================
+// SetDialect defines SET statement capabilities.
+type SetDialect interface {
+	CoreDialect
 
 	// SupportsParenthesizedSetVariables returns true if the dialect supports
 	// multiple variable assignment using parentheses in a SET variable declaration.
@@ -389,10 +329,11 @@ type Dialect interface {
 
 	// SupportsSetNames returns true if the dialect supports SET NAMES <charset_name> [COLLATE <collation_name>].
 	SupportsSetNames() bool
+}
 
-	// ============================================================================
-	// SELECT Clause Support
-	// ============================================================================
+// SelectDialect defines SELECT clause capabilities.
+type SelectDialect interface {
+	CoreDialect
 
 	// SupportsSelectWildcardExcept returns true if the dialect supports EXCEPT
 	// clause following a wildcard in a select list.
@@ -458,10 +399,11 @@ type Dialect interface {
 	// SupportsLimitComma returns true if the dialect supports parsing LIMIT 1, 2
 	// as LIMIT 2 OFFSET 1.
 	SupportsLimitComma() bool
+}
 
-	// ============================================================================
-	// Type Conversion
-	// ============================================================================
+// TypeConversionDialect defines type conversion capabilities.
+type TypeConversionDialect interface {
+	CoreDialect
 
 	// ConvertTypeBeforeValue returns true if the dialect has a CONVERT function
 	// which accepts a type first and an expression second.
@@ -473,10 +415,11 @@ type Dialect interface {
 	// SupportsBinaryKwAsCast returns true if the dialect supports casting an expression
 	// to a binary type using the BINARY <expr> syntax.
 	SupportsBinaryKwAsCast() bool
+}
 
-	// ============================================================================
-	// Object Names and References
-	// ============================================================================
+// ObjectReferenceDialect defines object name and reference capabilities.
+type ObjectReferenceDialect interface {
+	CoreDialect
 
 	// SupportsObjectNameDoubleDotNotation returns true if the dialect supports
 	// double dot notation for object names (e.g., db_name..table_name).
@@ -489,18 +432,20 @@ type Dialect interface {
 	// SupportsNumericLiteralUnderscores returns true if the dialect supports
 	// numbers containing underscores (e.g., 10_000_000).
 	SupportsNumericLiteralUnderscores() bool
+}
 
-	// ============================================================================
-	// IN Expressions
-	// ============================================================================
+// InExpressionDialect defines IN expression capabilities.
+type InExpressionDialect interface {
+	CoreDialect
 
 	// SupportsInEmptyList returns true if the dialect supports (NOT) IN ()
 	// expressions with empty lists.
 	SupportsInEmptyList() bool
+}
 
-	// ============================================================================
-	// Dictionary and Literal Syntax
-	// ============================================================================
+// LiteralDialect defines dictionary and literal syntax capabilities.
+type LiteralDialect interface {
+	CoreDialect
 
 	// SupportsDictionarySyntax returns true if the dialect supports defining
 	// structs or objects using syntax like {'x': 1, 'y': 2, 'z': 3}.
@@ -518,10 +463,11 @@ type Dialect interface {
 
 	// SupportsLambdaFunctions returns true if the dialect supports lambda functions.
 	SupportsLambdaFunctions() bool
+}
 
-	// ============================================================================
-	// Table Definition Support
-	// ============================================================================
+// TableDefinitionDialect defines table definition capabilities.
+type TableDefinitionDialect interface {
+	CoreDialect
 
 	// SupportsCreateTableMultiSchemaInfoSources returns true if the dialect supports
 	// specifying multiple options in a CREATE TABLE statement.
@@ -575,10 +521,11 @@ type Dialect interface {
 
 	// SupportsIndexHints returns true if the dialect supports index hints (e.g., USE INDEX).
 	SupportsIndexHints() bool
+}
 
-	// ============================================================================
-	// Column Definition Support
-	// ============================================================================
+// ColumnDefinitionDialect defines column definition capabilities.
+type ColumnDefinitionDialect interface {
+	CoreDialect
 
 	// SupportsAscDescInColumnDefinition returns true if the dialect supports
 	// ASC and DESC in column definitions.
@@ -599,10 +546,11 @@ type Dialect interface {
 	// SupportsDataTypeSignedSuffix returns true if the dialect allows an optional
 	// SIGNED suffix after integer data types.
 	SupportsDataTypeSignedSuffix() bool
+}
 
-	// ============================================================================
-	// Comment Support
-	// ============================================================================
+// CommentDialect defines comment handling capabilities.
+type CommentDialect interface {
+	CoreDialect
 
 	// SupportsNestedComments returns true if the dialect supports nested comments.
 	SupportsNestedComments() bool
@@ -621,25 +569,28 @@ type Dialect interface {
 	// RequiresSingleLineCommentWhitespace returns true if the dialect requires
 	// a whitespace character after -- to start a single line comment.
 	RequiresSingleLineCommentWhitespace() bool
+}
 
-	// ============================================================================
-	// EXPLAIN Support
-	// ============================================================================
+// ExplainDialect defines EXPLAIN statement capabilities.
+type ExplainDialect interface {
+	CoreDialect
 
 	// SupportsExplainWithUtilityOptions returns true if the dialect supports
 	// EXPLAIN statements with utility options.
 	SupportsExplainWithUtilityOptions() bool
+}
 
-	// ============================================================================
-	// EXECUTE IMMEDIATE Support
-	// ============================================================================
+// ExecuteDialect defines EXECUTE IMMEDIATE statement capabilities.
+type ExecuteDialect interface {
+	CoreDialect
 
 	// SupportsExecuteImmediate returns true if the dialect supports EXECUTE IMMEDIATE statements.
 	SupportsExecuteImmediate() bool
+}
 
-	// ============================================================================
-	// Extract Function Support
-	// ============================================================================
+// ExtractDialect defines EXTRACT function capabilities.
+type ExtractDialect interface {
+	CoreDialect
 
 	// AllowExtractCustom returns true if the dialect allows the EXTRACT function
 	// to use words other than keywords.
@@ -652,33 +603,37 @@ type Dialect interface {
 	// SupportsExtractCommaSyntax returns true if the dialect supports EXTRACT
 	// function with a comma separator instead of FROM.
 	SupportsExtractCommaSyntax() bool
+}
 
-	// ============================================================================
-	// Subquery Support
-	// ============================================================================
+// SubqueryDialect defines subquery capabilities.
+type SubqueryDialect interface {
+	CoreDialect
 
 	// SupportsSubqueryAsFunctionArg returns true if the dialect supports a subquery
 	// passed to a function as the only argument without enclosing parentheses.
 	SupportsSubqueryAsFunctionArg() bool
+}
 
-	// ============================================================================
-	// Placeholder Support
-	// ============================================================================
+// PlaceholderDialect defines placeholder capabilities.
+type PlaceholderDialect interface {
+	CoreDialect
 
 	// SupportsDollarPlaceholder returns true if the dialect allows dollar placeholders (e.g., $var).
 	SupportsDollarPlaceholder() bool
+}
 
-	// ============================================================================
-	// Index Support
-	// ============================================================================
+// IndexDialect defines index statement capabilities.
+type IndexDialect interface {
+	CoreDialect
 
 	// SupportsCreateIndexWithClause returns true if the dialect supports WITH clause
 	// in CREATE INDEX statement.
 	SupportsCreateIndexWithClause() bool
+}
 
-	// ============================================================================
-	// Interval Support
-	// ============================================================================
+// IntervalDialect defines INTERVAL expression capabilities.
+type IntervalDialect interface {
+	CoreDialect
 
 	// RequireIntervalQualifier returns true if the dialect requires units
 	// (qualifiers) to be specified in INTERVAL expressions.
@@ -687,10 +642,11 @@ type Dialect interface {
 	// SupportsIntervalOptions returns true if the dialect supports INTERVAL data
 	// type with Postgres-style options.
 	SupportsIntervalOptions() bool
+}
 
-	// ============================================================================
-	// Operator Support
-	// ============================================================================
+// OperatorDialect defines operator support capabilities.
+type OperatorDialect interface {
+	CoreDialect
 
 	// SupportsFactorialOperator returns true if the dialect supports a!
 	// expressions for factorial.
@@ -711,83 +667,93 @@ type Dialect interface {
 	// SupportsDoubleAmpersandOperator returns true if the dialect considers
 	// the && operator as a boolean AND operator.
 	SupportsDoubleAmpersandOperator() bool
+}
 
-	// ============================================================================
-	// MATCH AGAINST Support
-	// ============================================================================
+// MatchDialect defines MATCH AGAINST capabilities.
+type MatchDialect interface {
+	CoreDialect
 
 	// SupportsMatchAgainst returns true if the dialect supports MATCH() AGAINST() syntax.
 	SupportsMatchAgainst() bool
+}
 
-	// ============================================================================
-	// Grantee Support
-	// ============================================================================
+// GranteeDialect defines grantee capabilities.
+type GranteeDialect interface {
+	CoreDialect
 
 	// SupportsUserHostGrantee returns true if the dialect supports MySQL-style
 	// 'user'@'host' grantee syntax.
 	SupportsUserHostGrantee() bool
+}
 
-	// ============================================================================
-	// LISTEN/NOTIFY Support
-	// ============================================================================
+// ListenNotifyDialect defines LISTEN/NOTIFY statement capabilities.
+type ListenNotifyDialect interface {
+	CoreDialect
 
 	// SupportsListenNotify returns true if the dialect supports LISTEN, UNLISTEN,
 	// and NOTIFY statements.
 	SupportsListenNotify() bool
+}
 
-	// ============================================================================
-	// LOAD Support
-	// ============================================================================
+// LoadDialect defines LOAD statement capabilities.
+type LoadDialect interface {
+	CoreDialect
 
 	// SupportsLoadData returns true if the dialect supports LOAD DATA statement.
 	SupportsLoadData() bool
 
 	// SupportsLoadExtension returns true if the dialect supports LOAD extension statement.
 	SupportsLoadExtension() bool
+}
 
-	// ============================================================================
-	// TOP/DISTINCT Ordering
-	// ============================================================================
+// TopDistinctDialect defines TOP/DISTINCT ordering capabilities.
+type TopDistinctDialect interface {
+	CoreDialect
 
 	// SupportsTopBeforeDistinct returns true if the dialect expects the TOP option
 	// before the ALL/DISTINCT options in a SELECT statement.
 	SupportsTopBeforeDistinct() bool
+}
 
-	// ============================================================================
-	// Boolean Literals
-	// ============================================================================
+// BooleanLiteralDialect defines boolean literal capabilities.
+type BooleanLiteralDialect interface {
+	CoreDialect
 
 	// SupportsBooleanLiterals returns true if the dialect supports boolean
 	// literals (true and false).
 	SupportsBooleanLiterals() bool
+}
 
-	// ============================================================================
-	// SHOW Statement Support
-	// ============================================================================
+// ShowDialect defines SHOW statement capabilities.
+type ShowDialect interface {
+	CoreDialect
 
 	// SupportsShowLikeBeforeIn returns true if the dialect supports the LIKE
 	// option in a SHOW statement before the IN option.
 	SupportsShowLikeBeforeIn() bool
+}
 
-	// ============================================================================
-	// PartiQL Support
-	// ============================================================================
+// PartiQLDialect defines PartiQL capabilities.
+type PartiQLDialect interface {
+	CoreDialect
 
 	// SupportsPartiQL returns true if the dialect supports PartiQL for querying
 	// semi-structured data.
 	SupportsPartiQL() bool
+}
 
-	// ============================================================================
-	// Alias Assignment
-	// ============================================================================
+// AliasDialect defines alias assignment capabilities.
+type AliasDialect interface {
+	CoreDialect
 
 	// SupportsEqAliasAssignment returns true if the dialect supports treating
 	// the equals operator = within a SelectItem as an alias assignment operator.
 	SupportsEqAliasAssignment() bool
+}
 
-	// ============================================================================
-	// INSERT Statement Support
-	// ============================================================================
+// InsertDialect defines INSERT statement capabilities.
+type InsertDialect interface {
+	CoreDialect
 
 	// SupportsInsertSet returns true if the dialect supports INSERT INTO ... SET syntax.
 	SupportsInsertSet() bool
@@ -807,10 +773,11 @@ type Dialect interface {
 	// SupportsInsertTableAlias returns true if the dialect supports INSERT INTO
 	// table [[AS] alias] syntax.
 	SupportsInsertTableAlias() bool
+}
 
-	// ============================================================================
-	// ALTER TABLE Support
-	// ============================================================================
+// AlterTableDialect defines ALTER TABLE statement capabilities.
+type AlterTableDialect interface {
+	CoreDialect
 
 	// SupportsAlterColumnTypeUsing returns true if the dialect supports the USING
 	// clause in an ALTER COLUMN statement.
@@ -819,33 +786,37 @@ type Dialect interface {
 	// SupportsCommaSeparatedDropColumnList returns true if the dialect supports
 	// ALTER TABLE tbl DROP COLUMN c1, ..., cn.
 	SupportsCommaSeparatedDropColumnList() bool
+}
 
-	// ============================================================================
-	// ORDER BY Support
-	// ============================================================================
+// OrderByDialect defines ORDER BY clause capabilities.
+type OrderByDialect interface {
+	CoreDialect
 
 	// SupportsOrderByAll returns true if the dialect supports ORDER BY ALL.
 	SupportsOrderByAll() bool
+}
 
-	// ============================================================================
-	// Geometric Types Support
-	// ============================================================================
+// GeometricDialect defines geometric type capabilities.
+type GeometricDialect interface {
+	CoreDialect
 
 	// SupportsGeometricTypes returns true if the dialect supports geometric types
 	// (Postgres geometric operations).
 	SupportsGeometricTypes() bool
+}
 
-	// ============================================================================
-	// DESCRIBE Support
-	// ============================================================================
+// DescribeDialect defines DESCRIBE statement capabilities.
+type DescribeDialect interface {
+	CoreDialect
 
 	// DescribeRequiresTableKeyword returns true if the dialect requires the TABLE
 	// keyword after DESCRIBE.
 	DescribeRequiresTableKeyword() bool
+}
 
-	// ============================================================================
-	// ClickHouse-specific Support
-	// ============================================================================
+// ClickHouseDialect defines ClickHouse-specific capabilities.
+type ClickHouseDialect interface {
+	CoreDialect
 
 	// SupportsOptimizeTable returns true if the dialect supports OPTIMIZE TABLE.
 	SupportsOptimizeTable() bool
@@ -867,59 +838,88 @@ type Dialect interface {
 
 	// SupportsSelectFormat returns true if the dialect supports FORMAT clause in SELECT.
 	SupportsSelectFormat() bool
+}
 
-	// ============================================================================
-	// DuckDB-specific Support
-	// ============================================================================
+// DuckDBDialect defines DuckDB-specific capabilities.
+type DuckDBDialect interface {
+	CoreDialect
 
 	// SupportsInstall returns true if the dialect supports INSTALL statement.
 	SupportsInstall() bool
 
 	// SupportsDetach returns true if the dialect supports DETACH statement.
 	SupportsDetach() bool
+}
 
-	// ============================================================================
-	// TRIM Support
-	// ============================================================================
+// TrimDialect defines TRIM function capabilities.
+type TrimDialect interface {
+	CoreDialect
 
 	// SupportsCommaSeparatedTrim returns true if the dialect supports the two-argument
 	// comma-separated form of TRIM function: TRIM(expr, characters).
 	SupportsCommaSeparatedTrim() bool
+}
 
-	// ============================================================================
-	// Precedence Handling
-	// ============================================================================
+// ConnectByDialect defines CONNECT BY clause capabilities.
+type ConnectByDialect interface {
+	CoreDialect
 
-	// PrecValue returns the precedence value for a given Precedence level.
-	PrecValue(prec Precedence) uint8
+	// SupportsConnectBy returns true if the dialect supports CONNECT BY for
+	// hierarchical queries (Oracle-style).
+	SupportsConnectBy() bool
+}
 
-	// PrecUnknown returns the precedence when precedence is otherwise unknown.
-	PrecUnknown() uint8
+// ============================================================================
+// Complete Dialect Interface (Embeds all capability interfaces)
+// ============================================================================
 
-	// GetNextPrecedence returns the dialect-specific precedence override for
-	// the next token. If returns 0, falls back to default behavior.
-	GetNextPrecedence(parser ParserAccessor) (uint8, error)
-
-	// GetNextPrecedenceDefault implements the default precedence logic.
-	GetNextPrecedenceDefault(parser ParserAccessor) (uint8, error)
-
-	// ============================================================================
-	// Custom Parsing Hooks
-	// ============================================================================
-
-	// ParsePrefix is a dialect-specific prefix parser override.
-	// If second return value is false, falls back to default behavior.
-	ParsePrefix(parser ParserAccessor) (ast.Expr, bool, error)
-
-	// ParseInfix is a dialect-specific infix parser override.
-	// If second return value is false, falls back to default behavior.
-	ParseInfix(parser ParserAccessor, expr ast.Expr, precedence uint8) (ast.Expr, bool, error)
-
-	// ParseStatement is a dialect-specific statement parser override.
-	// If second return value is false, falls back to default behavior.
-	ParseStatement(parser ParserAccessor) (ast.Statement, bool, error)
-
-	// ParseColumnOption is a dialect-specific column option parser override.
-	// If second return value is false, falls back to default behavior.
-	ParseColumnOption(parser ParserAccessor) (ColumnOption, bool, error)
+// CompleteDialect is the full dialect interface that embeds all capability sub-interfaces.
+// This is the interface that concrete dialect implementations should satisfy.
+type CompleteDialect interface {
+	CoreDialect
+	parseriface.Dialect
+	parseriface.CompleteDialect
+	IdentifierDialect
+	KeywordDialect
+	StringLiteralDialect
+	AggregationDialect
+	GroupByDialect
+	JoinDialect
+	TransactionDialect
+	NamedArgumentDialect
+	SetDialect
+	SelectDialect
+	TypeConversionDialect
+	ObjectReferenceDialect
+	InExpressionDialect
+	LiteralDialect
+	TableDefinitionDialect
+	ColumnDefinitionDialect
+	CommentDialect
+	ExplainDialect
+	ExecuteDialect
+	ExtractDialect
+	SubqueryDialect
+	PlaceholderDialect
+	IndexDialect
+	IntervalDialect
+	OperatorDialect
+	MatchDialect
+	GranteeDialect
+	ListenNotifyDialect
+	LoadDialect
+	TopDistinctDialect
+	BooleanLiteralDialect
+	ShowDialect
+	PartiQLDialect
+	AliasDialect
+	InsertDialect
+	AlterTableDialect
+	OrderByDialect
+	GeometricDialect
+	DescribeDialect
+	ClickHouseDialect
+	DuckDBDialect
+	TrimDialect
+	ConnectByDialect
 }

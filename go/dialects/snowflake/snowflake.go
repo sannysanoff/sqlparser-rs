@@ -27,7 +27,6 @@ import (
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
-	"github.com/user/sqlparser/tokenizer"
 )
 
 // SnowflakeDialect is a dialect for Snowflake SQL.
@@ -234,9 +233,9 @@ func (d *SnowflakeDialect) IsTableFactor(kw token.Keyword, parser dialects.Parse
 		}
 	case token.TABLE:
 		// Table function - check if followed by LParen
-		if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenChar); ok {
+		if _, ok := parser.PeekTokenRef().Token.(token.TokenChar); ok {
 			// Check if it's a left paren
-			if charTok, ok := parser.PeekTokenRef().Token.(tokenizer.TokenChar); ok && charTok.Char == '(' {
+			if charTok, ok := parser.PeekTokenRef().Token.(token.TokenChar); ok && charTok.Char == '(' {
 				return true
 			}
 		}
@@ -326,22 +325,22 @@ func (d *SnowflakeDialect) IsIdentifierGeneratingFunctionName(ident *ast.Ident, 
 }
 
 // Helper function to check if token is comma or EOF
-func isCommaOrEOF(t *tokenizer.TokenWithSpan) bool {
-	if _, ok := t.Token.(tokenizer.EOF); ok {
+func isCommaOrEOF(t *token.TokenWithSpan) bool {
+	if _, ok := t.Token.(token.EOF); ok {
 		return true
 	}
-	if charTok, ok := t.Token.(tokenizer.TokenChar); ok && charTok.Char == ',' {
+	if charTok, ok := t.Token.(token.TokenChar); ok && charTok.Char == ',' {
 		return true
 	}
 	return false
 }
 
 // Helper function to check if token is semicolon or EOF
-func isSemicolonOrEOF(t *tokenizer.TokenWithSpan) bool {
-	if _, ok := t.Token.(tokenizer.EOF); ok {
+func isSemicolonOrEOF(t *token.TokenWithSpan) bool {
+	if _, ok := t.Token.(token.EOF); ok {
 		return true
 	}
-	if charTok, ok := t.Token.(tokenizer.TokenChar); ok && charTok.Char == ';' {
+	if charTok, ok := t.Token.(token.TokenChar); ok && charTok.Char == ';' {
 		return true
 	}
 	return false
@@ -351,18 +350,18 @@ func isSemicolonOrEOF(t *tokenizer.TokenWithSpan) bool {
 func (d *SnowflakeDialect) peekForLimitOptions(parser dialects.ParserAccessor) bool {
 	tok := parser.PeekTokenRef()
 	switch tok.Token.(type) {
-	case tokenizer.TokenNumber, tokenizer.TokenPlaceholder:
+	case token.TokenNumber, token.TokenPlaceholder:
 		return true
-	case tokenizer.TokenSingleQuotedString:
-		if strTok, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+	case token.TokenSingleQuotedString:
+		if strTok, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 			return strTok.Value == ""
 		}
-	case tokenizer.TokenDollarQuotedString:
-		if dlrTok, ok := tok.Token.(tokenizer.TokenDollarQuotedString); ok {
+	case token.TokenDollarQuotedString:
+		if dlrTok, ok := tok.Token.(token.TokenDollarQuotedString); ok {
 			return dlrTok.Value == ""
 		}
 	default:
-		if wordTok, ok := tok.Token.(tokenizer.TokenWord); ok && wordTok.Word.Keyword == token.NULL {
+		if wordTok, ok := tok.Token.(token.TokenWord); ok && wordTok.Word.Keyword == token.NULL {
 			return true
 		}
 	}
@@ -1084,8 +1083,8 @@ func (d *SnowflakeDialect) PrecUnknown() uint8 {
 // Snowflake supports the `:` cast operator with higher precedence.
 func (d *SnowflakeDialect) GetNextPrecedence(parser dialects.ParserAccessor) (uint8, error) {
 	tok := parser.PeekTokenRef()
-	if _, ok := tok.Token.(tokenizer.TokenChar); ok {
-		if charTok, ok := tok.Token.(tokenizer.TokenChar); ok && charTok.Char == ':' {
+	if _, ok := tok.Token.(token.TokenChar); ok {
+		if charTok, ok := tok.Token.(token.TokenChar); ok && charTok.Char == ':' {
 			return d.PrecValue(dialects.PrecedenceDoubleColon), nil
 		}
 	}
@@ -1137,10 +1136,10 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 	kind := expr.CopyIntoSnowflakeKindTable
 	nextTok := parser.PeekTokenRef()
 	switch tok := nextTok.Token.(type) {
-	case tokenizer.TokenAtSign:
+	case token.TokenAtSign:
 		// @ indicates an internal stage (location kind)
 		kind = expr.CopyIntoSnowflakeKindLocation
-	case tokenizer.TokenSingleQuotedString:
+	case token.TokenSingleQuotedString:
 		// URL-like string indicates external stage (location kind)
 		if strings.Contains(tok.Value, "://") {
 			kind = expr.CopyIntoSnowflakeKindLocation
@@ -1164,10 +1163,10 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 
 	// Parse optional column list for table kind
 	var intoColumns []*ast.Ident
-	if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenLParen); ok {
+	if _, ok := parser.PeekTokenRef().Token.(token.TokenLParen); ok {
 		parser.AdvanceToken() // consume (
 		for {
-			if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenRParen); ok {
+			if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
 				parser.AdvanceToken() // consume )
 				break
 			}
@@ -1176,8 +1175,8 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 				return nil, err
 			}
 			intoColumns = append(intoColumns, col)
-			if !parser.ConsumeToken(tokenizer.TokenComma{}) {
-				if _, err := parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+			if !parser.ConsumeToken(token.TokenComma{}) {
+				if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
 					return nil, err
 				}
 				break
@@ -1197,7 +1196,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 	var fromQuery *query.Query
 
 	nextTok = parser.PeekTokenRef()
-	if _, ok := nextTok.Token.(tokenizer.TokenLParen); ok {
+	if _, ok := nextTok.Token.(token.TokenLParen); ok {
 		// Parenthesized source - could be query or transformations
 		parser.AdvanceToken() // consume (
 
@@ -1238,7 +1237,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 					fromObjAlias = alias
 				} else {
 					// Try to parse as implicit alias
-					if word, ok := parser.PeekTokenRef().Token.(tokenizer.TokenWord); ok {
+					if word, ok := parser.PeekTokenRef().Token.(token.TokenWord); ok {
 						// Check if it looks like an identifier (not a keyword)
 						if !token.IsReservedForIdentifier(word.Word.Keyword) {
 							parser.AdvanceToken()
@@ -1255,12 +1254,12 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 			depth := 1
 			for depth > 0 {
 				tok := parser.NextToken()
-				if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
+				if _, ok := tok.Token.(token.TokenLParen); ok {
 					depth++
-				} else if _, ok := tok.Token.(tokenizer.TokenRParen); ok {
+				} else if _, ok := tok.Token.(token.TokenRParen); ok {
 					depth--
 				}
-				if _, ok := tok.Token.(tokenizer.EOF); ok {
+				if _, ok := tok.Token.(token.EOF); ok {
 					return nil, fmt.Errorf("unexpected EOF while parsing COPY INTO query")
 				}
 			}
@@ -1287,7 +1286,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 			fromObjAlias = alias
 		} else {
 			// Try to parse as implicit alias
-			if word, ok := parser.PeekTokenRef().Token.(tokenizer.TokenWord); ok {
+			if word, ok := parser.PeekTokenRef().Token.(token.TokenWord); ok {
 				// Check if it looks like an identifier (not a keyword)
 				if !token.IsReservedForIdentifier(word.Word.Keyword) {
 					parser.AdvanceToken()
@@ -1305,17 +1304,17 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 
 	for {
 		nextTok := parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(tokenizer.EOF); ok {
+		if _, ok := nextTok.Token.(token.EOF); ok {
 			break
 		}
-		if charTok, ok := nextTok.Token.(tokenizer.TokenChar); ok && charTok.Char == ';' {
+		if charTok, ok := nextTok.Token.(token.TokenChar); ok && charTok.Char == ';' {
 			break
 		}
 
 		// Check for FILE_FORMAT
 		if parser.PeekKeyword("FILE_FORMAT") {
 			parser.AdvanceToken() // consume FILE_FORMAT
-			if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+			if !parser.ConsumeToken(token.TokenEq{}) {
 				return nil, fmt.Errorf("expected = after FILE_FORMAT")
 			}
 			opts, err := d.parseKeyValueOptions(parser, true)
@@ -1344,23 +1343,23 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		// Check for FILES
 		if parser.PeekKeyword("FILES") {
 			parser.AdvanceToken() // consume FILES
-			if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+			if !parser.ConsumeToken(token.TokenEq{}) {
 				return nil, fmt.Errorf("expected = after FILES")
 			}
-			if !parser.ConsumeToken(tokenizer.TokenLParen{}) {
+			if !parser.ConsumeToken(token.TokenLParen{}) {
 				return nil, fmt.Errorf("expected ( after FILES =")
 			}
 			for {
 				tok := parser.NextToken()
-				if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+				if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 					files = append(files, str.Value)
 				} else {
 					return nil, fmt.Errorf("expected string literal in FILES list, got %v", tok)
 				}
-				if parser.ConsumeToken(tokenizer.TokenComma{}) {
+				if parser.ConsumeToken(token.TokenComma{}) {
 					continue
 				}
-				if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenRParen); ok {
+				if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
 					parser.AdvanceToken()
 					break
 				}
@@ -1371,11 +1370,11 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		// Check for PATTERN
 		if parser.PeekKeyword("PATTERN") {
 			parser.AdvanceToken() // consume PATTERN
-			if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+			if !parser.ConsumeToken(token.TokenEq{}) {
 				return nil, fmt.Errorf("expected = after PATTERN")
 			}
 			tok := parser.NextToken()
-			if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+			if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 				pattern = &str.Value
 			} else {
 				return nil, fmt.Errorf("expected string literal after PATTERN =, got %v", tok)
@@ -1386,11 +1385,11 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		// Check for VALIDATION_MODE
 		if parser.PeekKeyword("VALIDATION_MODE") {
 			parser.AdvanceToken() // consume VALIDATION_MODE
-			if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+			if !parser.ConsumeToken(token.TokenEq{}) {
 				return nil, fmt.Errorf("expected = after VALIDATION_MODE")
 			}
 			tok := parser.NextToken()
-			if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+			if word, ok := tok.Token.(token.TokenWord); ok {
 				val := word.Word.Value
 				validationMode = &val
 			} else {
@@ -1402,7 +1401,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		// Check for COPY_OPTIONS
 		if parser.PeekKeyword("COPY_OPTIONS") {
 			parser.AdvanceToken() // consume COPY_OPTIONS
-			if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+			if !parser.ConsumeToken(token.TokenEq{}) {
 				return nil, fmt.Errorf("expected = after COPY_OPTIONS")
 			}
 			opts, err := d.parseKeyValueOptions(parser, true)
@@ -1415,7 +1414,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 
 		// For location kind, also allow standalone key=value options
 		if kind == expr.CopyIntoSnowflakeKindLocation {
-			if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+			if word, ok := nextTok.Token.(token.TokenWord); ok {
 				// Try to parse as key=value option
 				opt, err := d.parseKeyValueOption(parser, &word)
 				if err == nil && opt != nil {
@@ -1462,7 +1461,7 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 	parts := []ast.ObjectNamePart{}
 
 	// Check for @ prefix (stage reference)
-	if parser.ConsumeToken(tokenizer.TokenAtSign{}) {
+	if parser.ConsumeToken(token.TokenAtSign{}) {
 		// Stage reference - parse the stage identifier
 		// Can be: @namespace.stage_name, @stage_name, @~/path, @%table_name
 		var stageName strings.Builder
@@ -1471,12 +1470,12 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 		for {
 			tok := parser.NextToken()
 			switch t := tok.Token.(type) {
-			case tokenizer.TokenWord:
+			case token.TokenWord:
 				stageName.WriteString(t.Word.Value)
-			case tokenizer.TokenPeriod:
+			case token.TokenPeriod:
 				stageName.WriteRune('.')
 				continue
-			case tokenizer.TokenChar:
+			case token.TokenChar:
 				if t.Char == '/' || t.Char == '%' || t.Char == '~' {
 					stageName.WriteRune(t.Char)
 					continue
@@ -1488,7 +1487,7 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 					})
 					return &ast.ObjectName{Parts: parts}, nil
 				}
-			case tokenizer.TokenSingleQuotedString:
+			case token.TokenSingleQuotedString:
 				stageName.WriteString("'")
 				stageName.WriteString(t.Value)
 				stageName.WriteString("'")
@@ -1506,17 +1505,17 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 	// Regular object name (table or string literal for location)
 	tok := parser.NextToken()
 	switch t := tok.Token.(type) {
-	case tokenizer.TokenWord:
+	case token.TokenWord:
 		ident := &ast.Ident{Value: t.Word.Value}
 		parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
 
 		// Check for more parts (schema.table or db.schema.table)
 		for {
-			if !parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+			if !parser.ConsumeToken(token.TokenPeriod{}) {
 				break
 			}
 			nextTok := parser.NextToken()
-			if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+			if word, ok := nextTok.Token.(token.TokenWord); ok {
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
 					Ident: &ast.Ident{Value: word.Word.Value},
 				})
@@ -1526,7 +1525,7 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 		}
 		return &ast.ObjectName{Parts: parts}, nil
 
-	case tokenizer.TokenSingleQuotedString:
+	case token.TokenSingleQuotedString:
 		// String literal as object name (e.g., 's3://bucket/file.csv')
 		parts = append(parts, &ast.ObjectNamePartIdentifier{
 			Ident: &ast.Ident{Value: fmt.Sprintf("'%s'", t.Value)},
@@ -1561,25 +1560,25 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 		}
 
 		nextTok := parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(tokenizer.EOF); ok {
+		if _, ok := nextTok.Token.(token.EOF); ok {
 			break
 		}
-		if charTok, ok := nextTok.Token.(tokenizer.TokenChar); ok && charTok.Char == ';' {
+		if charTok, ok := nextTok.Token.(token.TokenChar); ok && charTok.Char == ';' {
 			break
 		}
-		if _, ok := nextTok.Token.(tokenizer.TokenRParen); ok {
+		if _, ok := nextTok.Token.(token.TokenRParen); ok {
 			break
 		}
 
-		if word, ok := nextTok.Token.(tokenizer.TokenWord); ok {
+		if word, ok := nextTok.Token.(token.TokenWord); ok {
 			switch word.Word.Keyword {
 			case token.URL:
 				parser.AdvanceToken()
-				if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+				if !parser.ConsumeToken(token.TokenEq{}) {
 					return nil, fmt.Errorf("expected = after URL")
 				}
 				tok := parser.NextToken()
-				if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+				if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 					params.Url = &str.Value
 				} else {
 					return nil, fmt.Errorf("expected string literal after URL =")
@@ -1587,11 +1586,11 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 
 			case token.STORAGE_INTEGRATION:
 				parser.AdvanceToken()
-				if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+				if !parser.ConsumeToken(token.TokenEq{}) {
 					return nil, fmt.Errorf("expected = after STORAGE_INTEGRATION")
 				}
 				tok := parser.NextToken()
-				if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+				if word, ok := tok.Token.(token.TokenWord); ok {
 					params.StorageIntegration = &word.Word.Value
 				} else {
 					return nil, fmt.Errorf("expected identifier after STORAGE_INTEGRATION =")
@@ -1599,11 +1598,11 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 
 			case token.ENDPOINT:
 				parser.AdvanceToken()
-				if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+				if !parser.ConsumeToken(token.TokenEq{}) {
 					return nil, fmt.Errorf("expected = after ENDPOINT")
 				}
 				tok := parser.NextToken()
-				if str, ok := tok.Token.(tokenizer.TokenSingleQuotedString); ok {
+				if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 					params.Endpoint = &str.Value
 				} else {
 					return nil, fmt.Errorf("expected string literal after ENDPOINT =")
@@ -1611,10 +1610,10 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 
 			case token.CREDENTIALS:
 				parser.AdvanceToken()
-				if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+				if !parser.ConsumeToken(token.TokenEq{}) {
 					return nil, fmt.Errorf("expected = after CREDENTIALS")
 				}
-				if !parser.ConsumeToken(tokenizer.TokenLParen{}) {
+				if !parser.ConsumeToken(token.TokenLParen{}) {
 					return nil, fmt.Errorf("expected ( after CREDENTIALS =")
 				}
 				opts, err := d.parseKeyValueOptions(parser, false)
@@ -1622,16 +1621,16 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 					return nil, err
 				}
 				params.Credentials = opts
-				if !parser.ConsumeToken(tokenizer.TokenRParen{}) {
+				if !parser.ConsumeToken(token.TokenRParen{}) {
 					return nil, fmt.Errorf("expected ) after CREDENTIALS options")
 				}
 
 			case token.ENCRYPTION:
 				parser.AdvanceToken()
-				if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+				if !parser.ConsumeToken(token.TokenEq{}) {
 					return nil, fmt.Errorf("expected = after ENCRYPTION")
 				}
-				if !parser.ConsumeToken(tokenizer.TokenLParen{}) {
+				if !parser.ConsumeToken(token.TokenLParen{}) {
 					return nil, fmt.Errorf("expected ( after ENCRYPTION =")
 				}
 				opts, err := d.parseKeyValueOptions(parser, false)
@@ -1639,7 +1638,7 @@ func (d *SnowflakeDialect) parseStageParams(parser dialects.ParserAccessor) (*ex
 					return nil, err
 				}
 				params.Encryption = opts
-				if !parser.ConsumeToken(tokenizer.TokenRParen{}) {
+				if !parser.ConsumeToken(token.TokenRParen{}) {
 					return nil, fmt.Errorf("expected ) after ENCRYPTION options")
 				}
 
@@ -1663,16 +1662,16 @@ func (d *SnowflakeDialect) parseKeyValueOptions(parser dialects.ParserAccessor, 
 	}
 
 	if allowParens {
-		if parser.ConsumeToken(tokenizer.TokenLParen{}) {
+		if parser.ConsumeToken(token.TokenLParen{}) {
 			// Parenthesized options (key=value, key=value)
 			opts.Delimiter = expr.KeyValueOptionsDelimiterComma
 			for {
-				if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenRParen); ok {
+				if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
 					parser.AdvanceToken()
 					break
 				}
 				tok := parser.NextToken()
-				if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+				if word, ok := tok.Token.(token.TokenWord); ok {
 					opt, err := d.parseKeyValueOption(parser, &word)
 					if err != nil {
 						return nil, err
@@ -1681,8 +1680,8 @@ func (d *SnowflakeDialect) parseKeyValueOptions(parser dialects.ParserAccessor, 
 				} else {
 					return nil, fmt.Errorf("expected option name, got %v", tok)
 				}
-				if !parser.ConsumeToken(tokenizer.TokenComma{}) {
-					if _, ok := parser.PeekTokenRef().Token.(tokenizer.TokenRParen); ok {
+				if !parser.ConsumeToken(token.TokenComma{}) {
+					if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
 						parser.AdvanceToken()
 						break
 					}
@@ -1696,10 +1695,10 @@ func (d *SnowflakeDialect) parseKeyValueOptions(parser dialects.ParserAccessor, 
 	// Non-parenthesized options key=value key=value
 	for {
 		tok := parser.PeekTokenRef()
-		if _, ok := tok.Token.(tokenizer.TokenRParen); ok {
+		if _, ok := tok.Token.(token.TokenRParen); ok {
 			break
 		}
-		if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+		if word, ok := tok.Token.(token.TokenWord); ok {
 			parser.AdvanceToken()
 			opt, err := d.parseKeyValueOption(parser, &word)
 			if err != nil {
@@ -1717,41 +1716,41 @@ func (d *SnowflakeDialect) parseKeyValueOptions(parser dialects.ParserAccessor, 
 }
 
 // parseKeyValueOption parses a single key=value option.
-func (d *SnowflakeDialect) parseKeyValueOption(parser dialects.ParserAccessor, keyWord *tokenizer.TokenWord) (*expr.KeyValueOption, error) {
+func (d *SnowflakeDialect) parseKeyValueOption(parser dialects.ParserAccessor, keyWord *token.TokenWord) (*expr.KeyValueOption, error) {
 	key := keyWord.Word.Value
 
-	if !parser.ConsumeToken(tokenizer.TokenEq{}) {
+	if !parser.ConsumeToken(token.TokenEq{}) {
 		return nil, fmt.Errorf("expected = after %s", key)
 	}
 
 	tok := parser.NextToken()
 	switch t := tok.Token.(type) {
-	case tokenizer.TokenWord:
+	case token.TokenWord:
 		return &expr.KeyValueOption{
 			OptionName:  key,
 			OptionValue: t.Word.Value,
 			Kind:        expr.KeyValueOptionKindSingle,
 		}, nil
-	case tokenizer.TokenSingleQuotedString:
+	case token.TokenSingleQuotedString:
 		return &expr.KeyValueOption{
 			OptionName:  key,
 			OptionValue: t.Value,
 			Kind:        expr.KeyValueOptionKindSingle,
 		}, nil
-	case tokenizer.TokenNumber:
+	case token.TokenNumber:
 		return &expr.KeyValueOption{
 			OptionName:  key,
 			OptionValue: t.Value,
 			Kind:        expr.KeyValueOptionKindSingle,
 		}, nil
-	case tokenizer.TokenLParen:
+	case token.TokenLParen:
 		// Multi-value or nested options
 		parser.AdvanceToken() // consume (
 		opts, err := d.parseKeyValueOptions(parser, true)
 		if err != nil {
 			return nil, err
 		}
-		if !parser.ConsumeToken(tokenizer.TokenRParen{}) {
+		if !parser.ConsumeToken(token.TokenRParen{}) {
 			return nil, fmt.Errorf("expected ) after nested options")
 		}
 		return &expr.KeyValueOption{
@@ -1767,7 +1766,7 @@ func (d *SnowflakeDialect) parseKeyValueOption(parser dialects.ParserAccessor, k
 // parseIdentifier parses a single identifier.
 func (d *SnowflakeDialect) parseIdentifier(parser dialects.ParserAccessor) (*ast.Ident, error) {
 	tok := parser.NextToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		return &ast.Ident{Value: word.Word.Value}, nil
 	}
 	return nil, fmt.Errorf("expected identifier, got %v", tok)
@@ -1793,7 +1792,7 @@ func (d *SnowflakeDialect) parseSelectItemsForDataLoad(parser dialects.ParserAcc
 			break
 		}
 
-		if !parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -1808,10 +1807,10 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 
 	// Check for optional alias prefix
 	tok := parser.PeekTokenRef()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		// Look ahead for .
 		nextTok := parser.PeekNthToken(1)
-		if _, ok := nextTok.Token.(tokenizer.TokenPeriod); ok {
+		if _, ok := nextTok.Token.(token.TokenPeriod); ok {
 			item.Alias = &ast.Ident{Value: word.Word.Value}
 			parser.AdvanceToken() // consume alias
 			parser.AdvanceToken() // consume .
@@ -1820,7 +1819,7 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 
 	// Expect $column_number
 	nextTok := parser.NextToken()
-	if char, ok := nextTok.Token.(tokenizer.TokenChar); !ok || char.Char != '$' {
+	if char, ok := nextTok.Token.(token.TokenChar); !ok || char.Char != '$' {
 		// Not a stage load item, go back
 		parser.PrevToken()
 		if item.Alias != nil {
@@ -1831,7 +1830,7 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 
 	// Parse column number
 	numTok := parser.NextToken()
-	if num, ok := numTok.Token.(tokenizer.TokenNumber); ok {
+	if num, ok := numTok.Token.(token.TokenNumber); ok {
 		// Try to parse as integer
 		val := 0
 		fmt.Sscanf(num.Value, "%d", &val)
@@ -1841,9 +1840,9 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 	}
 
 	// Check for optional :element
-	if parser.ConsumeToken(tokenizer.TokenChar{Char: ':'}) {
+	if parser.ConsumeToken(token.TokenChar{Char: ':'}) {
 		elemTok := parser.NextToken()
-		if word, ok := elemTok.Token.(tokenizer.TokenWord); ok {
+		if word, ok := elemTok.Token.(token.TokenWord); ok {
 			item.Element = &ast.Ident{Value: word.Word.Value}
 		} else {
 			return nil, fmt.Errorf("expected element name after :")

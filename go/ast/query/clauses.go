@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // With represents a WITH clause (common table expressions)
 type With struct {
-	span      span.Span
+	span      token.Span
 	Recursive bool
 	CteTables []CTE
 }
@@ -46,7 +46,7 @@ func (w *With) String() string {
 
 // CTE represents a single Common Table Expression
 type CTE struct {
-	span         span.Span
+	span         token.Span
 	Alias        TableAlias
 	Query        *Query
 	From         *Ident
@@ -89,7 +89,7 @@ func (c CteAsMaterialized) String() string {
 
 // OrderBy represents an ORDER BY clause
 type OrderBy struct {
-	span        span.Span
+	span        token.Span
 	Kind        OrderByKind
 	Interpolate *Interpolate
 }
@@ -133,7 +133,7 @@ func (o *OrderByAll) String() string {
 
 // OrderByExpr represents an expression in ORDER BY
 type OrderByExpr struct {
-	span     span.Span
+	span     token.Span
 	Expr     Expr
 	Options  OrderByOptions
 	WithFill *WithFill
@@ -152,7 +152,7 @@ func (o *OrderByExpr) String() string {
 func (o *OrderByExpr) exprNode() {}
 
 // Span returns the source span of this node
-func (o *OrderByExpr) Span() span.Span { return o.span }
+func (o *OrderByExpr) Span() token.Span { return o.span }
 
 // OrderByOptions represents ASC/DESC and NULLS FIRST/LAST options
 type OrderByOptions struct {
@@ -271,7 +271,7 @@ func (o *OffsetCommaLimit) String() string {
 
 // Offset represents an OFFSET clause
 type Offset struct {
-	span  span.Span
+	span  token.Span
 	Value Expr
 	Rows  OffsetRows
 }
@@ -302,7 +302,7 @@ func (o OffsetRows) String() string {
 
 // Fetch represents FETCH clause
 type Fetch struct {
-	span     span.Span
+	span     token.Span
 	WithTies bool
 	Percent  bool
 	Quantity Expr
@@ -325,7 +325,7 @@ func (f *Fetch) String() string {
 
 // LockClause represents FOR ... locking clause
 type LockClause struct {
-	span     span.Span
+	span     token.Span
 	LockType LockType
 	Of       *ObjectName
 	Nonblock *NonBlock
@@ -382,7 +382,7 @@ func (n NonBlock) String() string {
 
 // Setting represents a ClickHouse setting key-value pair
 type Setting struct {
-	span  span.Span
+	span  token.Span
 	Key   Ident
 	Value Expr
 }
@@ -409,7 +409,7 @@ func (f *FormatClause) String() string {
 
 // InputFormatClause represents FORMAT clause in input context (ClickHouse)
 type InputFormatClause struct {
-	span   span.Span
+	span   token.Span
 	Ident  Ident
 	Values []Expr
 }
@@ -543,7 +543,7 @@ func (f ForXml) String() string {
 
 // LateralView represents a Hive LATERAL VIEW
 type LateralView struct {
-	span            span.Span
+	span            token.Span
 	LateralView     Expr
 	LateralViewName ObjectName
 	LateralColAlias []Ident
@@ -573,7 +573,7 @@ type ConnectByKind interface {
 
 // ConnectBy represents CONNECT BY clause
 type ConnectBy struct {
-	span          span.Span
+	span          token.Span
 	Nocycle       bool
 	Relationships []Expr
 }
@@ -593,7 +593,7 @@ func (c *ConnectBy) String() string {
 
 // StartWith represents START WITH clause
 type StartWith struct {
-	span      span.Span
+	span      token.Span
 	Condition Expr
 }
 

@@ -19,12 +19,12 @@
 package expr
 
 import (
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Expr is the interface for all SQL expression types.
 type Expr interface {
-	span.Spanned
+	token.Spanned
 	exprNode()
 	String() string
 }

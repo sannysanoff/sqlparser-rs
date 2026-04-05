@@ -17,17 +17,19 @@
 
 package parser
 
+import "github.com/user/sqlparser/parseriface"
+
 // ParserState represents the current state of the parser.
 // The parser can be in different states depending on what
 // context it is parsing (e.g., normal statements, column definitions,
 // CONNECT BY expressions).
-type ParserState int
+type ParserState = parseriface.ParserState
 
 const (
 	// StateNormal is the default state of the parser.
 	// In this state, the parser processes standard SQL statements
 	// without any special context.
-	StateNormal ParserState = iota
+	StateNormal = parseriface.StateNormal
 
 	// StateConnectBy is the state when parsing a CONNECT BY expression.
 	// This allows parsing PRIOR expressions while still allowing PRIOR
@@ -37,7 +39,7 @@ const (
 	//   SELECT * FROM employees
 	//   START WITH manager_id IS NULL
 	//   CONNECT BY PRIOR employee_id = manager_id
-	StateConnectBy
+	StateConnectBy = parseriface.StateConnectBy
 
 	// StateColumnDefinition is the state when parsing column definitions.
 	// This state prohibits NOT NULL as an alias for IS NOT NULL
@@ -47,11 +49,11 @@ const (
 	//   CREATE TABLE foo (abc BIGINT NOT NULL);
 	//
 	// In this context, NOT NULL is a column constraint, not a boolean expression.
-	StateColumnDefinition
+	StateColumnDefinition = parseriface.StateColumnDefinition
 )
 
 // String returns the string representation of the parser state.
-func (s ParserState) String() string {
+func String(s parseriface.ParserState) string {
 	switch s {
 	case StateNormal:
 		return "Normal"

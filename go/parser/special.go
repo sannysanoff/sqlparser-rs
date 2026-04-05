@@ -22,8 +22,8 @@ import (
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/operator"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/tokenizer"
+	"github.com/user/sqlparser/parseriface"
+	"github.com/user/sqlparser/token"
 )
 
 // parseFunction parses a function call expression
@@ -35,12 +35,12 @@ func (ep *ExpressionParser) parseFunction(name *expr.ObjectName) (expr.Expr, err
 func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.Expr, error) {
 	dialect := ep.parser.GetDialect()
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
 	// Check for empty args
-	if ep.parser.ConsumeToken(tokenizer.TokenRParen{}) {
+	if ep.parser.ConsumeToken(token.TokenRParen{}) {
 		fnExpr := &expr.FunctionExpr{
 			Name:           name,
 			UsesOdbcSyntax: false,
@@ -74,7 +74,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		return nil, err
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -101,7 +101,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 
 	// Parse FILTER clause for aggregate functions (if supported)
 	if dialect.SupportsFilterDuringAggregation() && ep.parser.ParseKeyword("FILTER") {
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		if !ep.parser.ParseKeyword("WHERE") {
@@ -112,7 +112,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 			return nil, err
 		}
 		fnExpr.Filter = filterExpr
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 	}
@@ -130,7 +130,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 
 	// Parse WITHIN GROUP for ordered set aggregates
 	if dialect.SupportsWithinAfterArrayAggregation() && ep.parser.ParseKeywords([]string{"WITHIN", "GROUP"}) {
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		if !ep.parser.ParseKeyword("ORDER") || !ep.parser.ParseKeyword("BY") {
@@ -140,7 +140,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		if err != nil {
 			return nil, err
 		}
-		if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
 		// TODO: WithinGroup expects []Expr but OrderByExpr doesn't implement Expr
@@ -177,7 +177,7 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 		}
 		if ep.parser.PeekKeyword("NULL") {
 			next := ep.parser.PeekNthToken(1)
-			if word, ok := next.Token.(tokenizer.TokenWord); ok && word.Word.Keyword == "ON" {
+			if word, ok := next.Token.(token.TokenWord); ok && word.Word.Keyword == "ON" {
 				break // NULL ON NULL
 			}
 		}
@@ -192,7 +192,7 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 		}
 		args = append(args, arg)
 
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -256,7 +256,7 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 // Reference: src/parser/mod.rs:17788-17836 parse_function_args
 func (ep *ExpressionParser) parseFunctionArg() (expr.FunctionArg, error) {
 	// Check for wildcard * (used in COUNT(*) and similar)
-	if ep.parser.ConsumeToken(tokenizer.TokenMul{}) {
+	if ep.parser.ConsumeToken(token.TokenMul{}) {
 		return &expr.FunctionArgExpr{Expr: &expr.Wildcard{}}, nil
 	}
 
@@ -375,7 +375,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 	tok := ep.parser.PeekToken()
 
 	// Check for => operator (RArrow)
-	if _, ok := tok.Token.(tokenizer.TokenRArrow); ok {
+	if _, ok := tok.Token.(token.TokenRArrow); ok {
 		if dialect.SupportsNamedFnArgsWithRArrowOperator() {
 			ep.parser.NextToken() // consume
 			return "=>"
@@ -383,7 +383,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 	}
 
 	// Check for = operator (Eq)
-	if _, ok := tok.Token.(tokenizer.TokenEq); ok {
+	if _, ok := tok.Token.(token.TokenEq); ok {
 		if dialect.SupportsNamedFnArgsWithEqOperator() {
 			ep.parser.NextToken() // consume
 			return "="
@@ -393,9 +393,9 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 	// Check for := operator (Assignment)
 	// Note: Need to check if Assignment token exists in tokenizer
 	// For now, check for Colon followed by Eq
-	if _, ok := tok.Token.(tokenizer.TokenColon); ok {
+	if _, ok := tok.Token.(token.TokenColon); ok {
 		nextTok := ep.parser.PeekNthToken(1)
-		if _, ok := nextTok.Token.(tokenizer.TokenEq); ok {
+		if _, ok := nextTok.Token.(token.TokenEq); ok {
 			if dialect.SupportsNamedFnArgsWithAssignmentOperator() {
 				ep.parser.NextToken() // consume :
 				ep.parser.NextToken() // consume =
@@ -405,7 +405,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 	}
 
 	// Check for : operator (Colon) - used by some dialects
-	if _, ok := tok.Token.(tokenizer.TokenColon); ok {
+	if _, ok := tok.Token.(token.TokenColon); ok {
 		if dialect.SupportsNamedFnArgsWithColonOperator() {
 			ep.parser.NextToken() // consume
 			return ":"
@@ -419,7 +419,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 // Used for function argument values like COUNT(*)
 func (ep *ExpressionParser) parseWildcardExpr() (expr.Expr, error) {
 	// Check for wildcard
-	if ep.parser.ConsumeToken(tokenizer.TokenMul{}) {
+	if ep.parser.ConsumeToken(token.TokenMul{}) {
 		return &expr.Wildcard{}, nil
 	}
 	// Otherwise parse as regular expression
@@ -455,7 +455,7 @@ func (ep *ExpressionParser) parseCommaSeparatedOrderByExprs() ([]*expr.OrderByEx
 		}
 		items = append(items, item)
 
-		if !ep.parser.ConsumeToken(tokenizer.TokenComma{}) {
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
@@ -592,10 +592,10 @@ func (ep *ExpressionParser) parseWindowSpec() (*expr.WindowType, error) {
 	// Check for empty window spec: OVER ()
 	// We need to check if next is ( and if so, if the following is )
 	tok := ep.parser.PeekToken()
-	if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
+	if _, ok := tok.Token.(token.TokenLParen); ok {
 		// Check if it's an empty ()
 		nextTok := ep.parser.PeekNthToken(1)
-		if _, ok := nextTok.Token.(tokenizer.TokenRParen); ok {
+		if _, ok := nextTok.Token.(token.TokenRParen); ok {
 			// Empty window specification OVER ()
 			ep.parser.AdvanceToken() // consume (
 			ep.parser.AdvanceToken() // consume )
@@ -605,7 +605,7 @@ func (ep *ExpressionParser) parseWindowSpec() (*expr.WindowType, error) {
 
 	// Check for named window reference (just an identifier, no parentheses)
 	tok = ep.parser.PeekToken()
-	if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+	if word, ok := tok.Token.(token.TokenWord); ok {
 		// If it's not a keyword that starts window spec, treat as named window
 		if word.Word.Keyword != "PARTITION" && word.Word.Keyword != "ORDER" &&
 			word.Word.Keyword != "ROWS" && word.Word.Keyword != "RANGE" &&
@@ -621,7 +621,7 @@ func (ep *ExpressionParser) parseWindowSpec() (*expr.WindowType, error) {
 	}
 
 	// Parse window specification in parentheses
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 	spec, err := ep.parseWindowSpecDetails()
@@ -639,7 +639,7 @@ func (ep *ExpressionParser) parseWindowSpecDetails() (*expr.WindowSpec, error) {
 
 	// Opening paren should have been consumed by caller, so we start parsing the content
 	// But actually parseWindowSpec handles empty (), so we need to check for RParen
-	if ep.parser.ConsumeToken(tokenizer.TokenRParen{}) {
+	if ep.parser.ConsumeToken(token.TokenRParen{}) {
 		return spec, nil
 	}
 
@@ -690,7 +690,7 @@ func (ep *ExpressionParser) parseWindowSpecDetails() (*expr.WindowSpec, error) {
 		spec.WindowFrame = frame
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -766,7 +766,7 @@ func (ep *ExpressionParser) parseWindowFrameBound() (*expr.WindowFrameBound, err
 	// When the next token is a string literal, we need to parse it as an INTERVAL
 	// Reference: src/parser/mod.rs:2575-2578
 	nextTok := ep.parser.PeekTokenRef()
-	if _, isString := nextTok.Token.(tokenizer.TokenSingleQuotedString); isString {
+	if _, isString := nextTok.Token.(token.TokenSingleQuotedString); isString {
 		// The expression is a string literal, parse as INTERVAL
 		intervalExpr, err := ep.parseIntervalExpr()
 		if err != nil {
@@ -882,7 +882,7 @@ func (ep *ExpressionParser) parseSubqueryExpr() (expr.Expr, error) {
 	}
 
 	// Expect the closing parenthesis
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -897,7 +897,7 @@ func (ep *ExpressionParser) parseSubqueryExpr() (expr.Expr, error) {
 
 // parseExistsExpr parses an EXISTS expression
 func (ep *ExpressionParser) parseExistsExpr(negated bool) (expr.Expr, error) {
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenLParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
@@ -907,7 +907,7 @@ func (ep *ExpressionParser) parseExistsExpr(negated bool) (expr.Expr, error) {
 		return nil, fmt.Errorf("failed to parse EXISTS subquery: %w", err)
 	}
 
-	if _, err := ep.parser.ExpectToken(tokenizer.TokenRParen{}); err != nil {
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
 		return nil, err
 	}
 
@@ -925,7 +925,7 @@ func (ep *ExpressionParser) parseExistsExpr(negated bool) (expr.Expr, error) {
 func (ep *ExpressionParser) parseNotExpr() (expr.Expr, error) {
 	// NOT can be a prefix or part of IN/EXISTS/BETWEEN
 	// This handles the prefix case: NOT expr
-	innerExpr, err := ep.ParseExprWithPrecedence(ep.getPrecedence(dialects.PrecedenceUnaryNot))
+	innerExpr, err := ep.ParseExprWithPrecedence(ep.getPrecedence(parseriface.PrecedenceUnaryNot))
 	if err != nil {
 		return nil, err
 	}

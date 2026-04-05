@@ -22,7 +22,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // Value represents a primitive SQL value (literal).
@@ -261,7 +261,7 @@ func NewNumber(value string, long bool) (*Value, error) {
 		return nil, fmt.Errorf("invalid number: %s", value)
 	}
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindNumber,
 		Data:     ValueData{NumberValue: rat, LongSuffix: long},
 	}, nil
@@ -270,7 +270,7 @@ func NewNumber(value string, long bool) (*Value, error) {
 // NewSingleQuotedString creates a 'string' value.
 func NewSingleQuotedString(value string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindSingleQuotedString,
 		Data:     ValueData{StringValue: value},
 	}
@@ -279,7 +279,7 @@ func NewSingleQuotedString(value string) *Value {
 // NewDoubleQuotedString creates a "string" value.
 func NewDoubleQuotedString(value string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindDoubleQuotedString,
 		Data:     ValueData{StringValue: value},
 	}
@@ -288,7 +288,7 @@ func NewDoubleQuotedString(value string) *Value {
 // NewBoolean creates a TRUE or FALSE value.
 func NewBoolean(value bool) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindBoolean,
 		Data:     ValueData{BoolValue: value},
 	}
@@ -297,7 +297,7 @@ func NewBoolean(value bool) *Value {
 // NewNull creates a NULL value.
 func NewNull() *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindNull,
 	}
 }
@@ -305,7 +305,7 @@ func NewNull() *Value {
 // NewPlaceholder creates a placeholder value (? or $N).
 func NewPlaceholder(value string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindPlaceholder,
 		Data:     ValueData{PlaceholderValue: value},
 	}
@@ -314,7 +314,7 @@ func NewPlaceholder(value string) *Value {
 // NewDollarQuotedString creates a $$...$$ or $tag$...$tag$ value.
 func NewDollarQuotedString(value string, tag *string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindDollarQuotedString,
 		Data: ValueData{
 			DollarQuotedString: &DollarQuotedStringData{
@@ -328,7 +328,7 @@ func NewDollarQuotedString(value string, tag *string) *Value {
 // NewHexStringLiteral creates an X'hex' value.
 func NewHexStringLiteral(value string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindHexStringLiteral,
 		Data:     ValueData{StringValue: value},
 	}
@@ -337,7 +337,7 @@ func NewHexStringLiteral(value string) *Value {
 // NewNationalStringLiteral creates an N'string' value.
 func NewNationalStringLiteral(value string) *Value {
 	return &Value{
-		BaseNode: BaseNode{span: span.Span{}},
+		BaseNode: BaseNode{span: token.Span{}},
 		Kind:     ValueKindNationalStringLiteral,
 		Data:     ValueData{StringValue: value},
 	}
@@ -369,7 +369,7 @@ func EscapeUnicodeString(s string) string {
 // ValueWithSpan pairs a Value with its source Span for location tracking.
 type ValueWithSpan struct {
 	Value *Value
-	Span  span.Span
+	Span  token.Span
 }
 
 // String returns the SQL representation of the value.

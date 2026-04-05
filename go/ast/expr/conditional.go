@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/span"
+	"github.com/user/sqlparser/token"
 )
 
 // CaseWhen represents a WHEN clause in a CASE expression.
@@ -37,7 +37,7 @@ func (c *CaseWhen) String() string {
 
 // CaseExpr represents a CASE expression.
 type CaseExpr struct {
-	SpanVal    span.Span
+	SpanVal    token.Span
 	Operand    Expr
 	Conditions []CaseWhen
 	ElseResult Expr
@@ -46,7 +46,7 @@ type CaseExpr struct {
 func (c *CaseExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CaseExpr) Span() span.Span {
+func (c *CaseExpr) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -76,7 +76,7 @@ func (c *CaseExpr) String() string {
 
 // IfExpr represents an IF expression (e.g., `IF(condition, true_value, false_value)`).
 type IfExpr struct {
-	SpanVal    span.Span
+	SpanVal    token.Span
 	Condition  Expr
 	TrueValue  Expr
 	FalseValue Expr
@@ -85,7 +85,7 @@ type IfExpr struct {
 func (i *IfExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *IfExpr) Span() span.Span {
+func (i *IfExpr) Span() token.Span {
 	return i.SpanVal
 }
 
@@ -97,14 +97,14 @@ func (i *IfExpr) String() string {
 
 // CoalesceExpr represents a COALESCE expression.
 type CoalesceExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Exprs   []Expr
 }
 
 func (c *CoalesceExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (c *CoalesceExpr) Span() span.Span {
+func (c *CoalesceExpr) Span() token.Span {
 	return c.SpanVal
 }
 
@@ -119,7 +119,7 @@ func (c *CoalesceExpr) String() string {
 
 // NullIfExpr represents a NULLIF expression.
 type NullIfExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr1   Expr
 	Expr2   Expr
 }
@@ -127,7 +127,7 @@ type NullIfExpr struct {
 func (n *NullIfExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (n *NullIfExpr) Span() span.Span {
+func (n *NullIfExpr) Span() token.Span {
 	return n.SpanVal
 }
 
@@ -138,7 +138,7 @@ func (n *NullIfExpr) String() string {
 
 // IfNullExpr represents an IFNULL expression.
 type IfNullExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Expr1   Expr
 	Expr2   Expr
 }
@@ -146,7 +146,7 @@ type IfNullExpr struct {
 func (i *IfNullExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (i *IfNullExpr) Span() span.Span {
+func (i *IfNullExpr) Span() token.Span {
 	return i.SpanVal
 }
 
@@ -157,14 +157,14 @@ func (i *IfNullExpr) String() string {
 
 // GreatestExpr represents a GREATEST expression.
 type GreatestExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Exprs   []Expr
 }
 
 func (g *GreatestExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (g *GreatestExpr) Span() span.Span {
+func (g *GreatestExpr) Span() token.Span {
 	return g.SpanVal
 }
 
@@ -179,14 +179,14 @@ func (g *GreatestExpr) String() string {
 
 // LeastExpr represents a LEAST expression.
 type LeastExpr struct {
-	SpanVal span.Span
+	SpanVal token.Span
 	Exprs   []Expr
 }
 
 func (l *LeastExpr) exprNode() {}
 
 // Span returns the source span for this expression.
-func (l *LeastExpr) Span() span.Span {
+func (l *LeastExpr) Span() token.Span {
 	return l.SpanVal
 }
 

@@ -17,39 +17,12 @@
 
 package parser
 
+import "github.com/user/sqlparser/parseriface"
+
 // ParserOptions controls how the Parser parses SQL text.
 // These options allow you to mix & match behavior otherwise
 // constrained to certain dialects (e.g. trailing commas).
-type ParserOptions struct {
-	// TrailingCommas controls whether trailing commas are allowed in lists.
-	// If this option is false (the default), the following SQL will not parse:
-	//
-	//   SELECT foo, bar, FROM baz
-	//
-	// If the option is true, the SQL will parse.
-	//
-	// See also:
-	//   - BigQuery: https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#trailing_commas
-	//   - Snowflake: https://docs.snowflake.com/en/release-notes/2024/8_11#select-supports-trailing-commas
-	TrailingCommas bool
-
-	// Unescape controls how literal values are unescaped during tokenization.
-	// When true (default), escape sequences in string literals are processed.
-	// For example, 'It\'s' becomes "It's".
-	//
-	// See Tokenizer.WithUnescape for more details.
-	Unescape bool
-
-	// RequireSemicolon controls if the parser expects a semicolon token
-	// between statements. Default is true.
-	//
-	// When true, statements must be separated by semicolons:
-	//   SELECT 1; SELECT 2;
-	//
-	// When false, semicolons are optional:
-	//   SELECT 1 SELECT 2
-	RequireSemicolon bool
-}
+type ParserOptions = parseriface.ParserOptions
 
 // NewParserOptions creates a new ParserOptions with default values.
 //
@@ -64,8 +37,8 @@ type ParserOptions struct {
 //	    parser.WithTrailingCommas(true),
 //	    parser.WithUnescape(false),
 //	)
-func NewParserOptions(opts ...ParserOption) ParserOptions {
-	options := ParserOptions{
+func NewParserOptions(opts ...ParserOption) parseriface.ParserOptions {
+	options := parseriface.ParserOptions{
 		TrailingCommas:   false,
 		Unescape:         true,
 		RequireSemicolon: true,
@@ -77,7 +50,7 @@ func NewParserOptions(opts ...ParserOption) ParserOptions {
 }
 
 // ParserOption is a functional option for configuring ParserOptions.
-type ParserOption func(*ParserOptions)
+type ParserOption func(*parseriface.ParserOptions)
 
 // WithTrailingCommas sets whether trailing commas are allowed.
 //
@@ -90,7 +63,7 @@ type ParserOption func(*ParserOptions)
 //	// Now this SQL will parse successfully:
 //	// SELECT a, b, COUNT(*), FROM foo GROUP BY a, b,
 func WithTrailingCommas(allowed bool) ParserOption {
-	return func(o *ParserOptions) {
+	return func(o *parseriface.ParserOptions) {
 		o.TrailingCommas = allowed
 	}
 }
@@ -103,7 +76,7 @@ func WithTrailingCommas(allowed bool) ParserOption {
 //	    parser.WithUnescape(false),  // Keep escape sequences as-is
 //	)
 func WithUnescape(unescape bool) ParserOption {
-	return func(o *ParserOptions) {
+	return func(o *parseriface.ParserOptions) {
 		o.Unescape = unescape
 	}
 }
@@ -116,14 +89,14 @@ func WithUnescape(unescape bool) ParserOption {
 //	    parser.WithRequireSemicolon(false),  // Allow statements without semicolons
 //	)
 func WithRequireSemicolon(required bool) ParserOption {
-	return func(o *ParserOptions) {
+	return func(o *parseriface.ParserOptions) {
 		o.RequireSemicolon = required
 	}
 }
 
-// Clone returns a copy of the ParserOptions.
-func (o ParserOptions) Clone() ParserOptions {
-	return ParserOptions{
+// CloneOptions returns a copy of the ParserOptions.
+func CloneOptions(o parseriface.ParserOptions) parseriface.ParserOptions {
+	return parseriface.ParserOptions{
 		TrailingCommas:   o.TrailingCommas,
 		Unescape:         o.Unescape,
 		RequireSemicolon: o.RequireSemicolon,
