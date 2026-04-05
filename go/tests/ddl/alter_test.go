@@ -15,18 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package common contains the common SQL parsing tests.
+// Package ddl contains the DDL (Data Definition Language) SQL parsing tests.
 // These tests are ported from tests/sqlparser_common.rs in the Rust implementation.
-// This file contains tests 141-160.
-package common
+package ddl
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/dialects/duckdb"
@@ -36,173 +33,16 @@ import (
 	"github.com/user/sqlparser/tests/utils"
 )
 
-// TestParseCreateTableWithOptions verifies CREATE TABLE with WITH options parsing.
-// Reference: tests/sqlparser_common.rs:4614
-func TestParseCreateTableWithOptions(t *testing.T) {
-	genericDialect := generic.NewGenericDialect()
-	d := utils.NewTestedDialects()
-	d.Dialects = []dialects.Dialect{genericDialect}
+// TestParseAlterTable verifies ALTER TABLE statement parsing.
+// Reference: tests/sqlparser_common.rs: - this is a basic ALTER TABLE test
+func TestParseAlterTable(t *testing.T) {
+	dialects := utils.NewTestedDialects()
 
-	sql := "CREATE TABLE t (c INT) WITH (foo = 'bar', a = 123)"
-	stmt := d.VerifiedStmt(t, sql)
+	sql1 := "ALTER TABLE customer ADD COLUMN email VARCHAR(255)"
+	dialects.VerifiedStmt(t, sql1)
 
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-
-	// Verify table options exist and are of type WITH
-	require.NotNil(t, createTable.TableOptions)
-	assert.Equal(t, expr.CreateTableOptionsWith, createTable.TableOptions.Type)
-	assert.Len(t, createTable.TableOptions.Options, 2)
-
-	// Verify first option
-	opt1 := createTable.TableOptions.Options[0]
-	assert.Equal(t, "foo", opt1.Name.String())
-	assert.NotNil(t, opt1.Value)
-
-	// Verify second option
-	opt2 := createTable.TableOptions.Options[1]
-	assert.Equal(t, "a", opt2.Name.String())
-}
-
-// TestParseCreateTableClone verifies CREATE TABLE CLONE parsing.
-// Reference: tests/sqlparser_common.rs:4645
-func TestParseCreateTableClone(t *testing.T) {
-	sql := "CREATE OR REPLACE TABLE a CLONE a_tmp"
-	stmt := utils.NewTestedDialects().VerifiedStmt(t, sql)
-
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-
-	// Verify name is "a"
-	assert.Equal(t, "a", createTable.Name.String())
-
-	// Verify clone points to "a_tmp"
-	require.NotNil(t, createTable.Clone)
-	assert.Equal(t, "a_tmp", createTable.Clone.String())
-	assert.True(t, createTable.OrReplace)
-}
-
-// TestParseCreateTableTrailingComma verifies CREATE TABLE with trailing comma (DuckDB).
-// Reference: tests/sqlparser_common.rs:4657
-func TestParseCreateTableTrailingComma(t *testing.T) {
-	duckdbDialect := duckdb.NewDuckDbDialect()
-
-	sql := "CREATE TABLE foo (bar int,);"
-	canonical := "CREATE TABLE foo (bar INT)"
-
-	stmts, err := parser.ParseSQL(duckdbDialect, sql)
-	require.NoError(t, err)
-	require.Len(t, stmts, 1)
-
-	// Verify it re-serializes to canonical form
-	assert.Equal(t, canonical, stmts[0].String())
-}
-
-// TestParseCreateExternalTable verifies CREATE EXTERNAL TABLE parsing.
-// Reference: tests/sqlparser_common.rs:4665
-func TestParseCreateExternalTable(t *testing.T) {
-	sql := `CREATE EXTERNAL TABLE uk_cities (
-		   name VARCHAR(100) NOT NULL,
-		   lat DOUBLE NULL,
-		   lng DOUBLE)
-		   STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
-
-	canonical := `CREATE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL, 
-		 lat DOUBLE NULL, 
-		 lng DOUBLE) 
-		 STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
-
-	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
-
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-
-	// Verify basic properties
-	assert.Equal(t, "uk_cities", createTable.Name.String())
-	assert.True(t, createTable.External)
-	assert.Len(t, createTable.Columns, 3)
-
-	// Verify columns
-	assert.Equal(t, "name", createTable.Columns[0].Name.String())
-	assert.Equal(t, "lat", createTable.Columns[1].Name.String())
-	assert.Equal(t, "lng", createTable.Columns[2].Name.String())
-
-	// Verify external table properties
-	require.NotNil(t, createTable.FileFormat)
-	assert.Equal(t, expr.FileFormatTEXTFILE, *createTable.FileFormat)
-	require.NotNil(t, createTable.Location)
-	assert.Equal(t, "/tmp/example.csv", *createTable.Location)
-
-	// Verify table options are none
-	assert.Nil(t, createTable.TableOptions)
-	assert.False(t, createTable.IfNotExists)
-}
-
-// TestParseCreateOrReplaceExternalTable verifies CREATE OR REPLACE EXTERNAL TABLE parsing.
-// Reference: tests/sqlparser_common.rs:4735
-func TestParseCreateOrReplaceExternalTable(t *testing.T) {
-	sql := `CREATE OR REPLACE EXTERNAL TABLE uk_cities (
-		   name VARCHAR(100) NOT NULL)
-		   STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
-
-	canonical := `CREATE OR REPLACE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL) 
-		 STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
-
-	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
-
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-
-	// Verify basic properties
-	assert.Equal(t, "uk_cities", createTable.Name.String())
-	assert.True(t, createTable.External)
-	assert.True(t, createTable.OrReplace)
-	assert.Len(t, createTable.Columns, 1)
-
-	// Verify external table properties
-	require.NotNil(t, createTable.FileFormat)
-	assert.Equal(t, expr.FileFormatTEXTFILE, *createTable.FileFormat)
-	require.NotNil(t, createTable.Location)
-	assert.Equal(t, "/tmp/example.csv", *createTable.Location)
-
-	// Verify table options are none
-	assert.Nil(t, createTable.TableOptions)
-	assert.False(t, createTable.IfNotExists)
-}
-
-// TestParseCreateExternalTableLowercase verifies lowercase CREATE EXTERNAL TABLE parsing.
-// Reference: tests/sqlparser_common.rs:4790
-func TestParseCreateExternalTableLowercase(t *testing.T) {
-	sql := `create external table uk_cities (
-		   name varchar(100) not null,
-		   lat double null,
-		   lng double)
-		   stored as parquet location '/tmp/example.csv'`
-
-	canonical := `CREATE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL, 
-		 lat DOUBLE NULL, 
-		 lng DOUBLE) 
-		 STORED AS PARQUET LOCATION '/tmp/example.csv'`
-
-	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
-
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-	assert.True(t, createTable.External)
-}
-
-// TestParseCreateTableHiveFormatsNoneWhenNoOptions verifies hive_formats is None when no options.
-// Reference: tests/sqlparser_common.rs:4808
-func TestParseCreateTableHiveFormatsNoneWhenNoOptions(t *testing.T) {
-	sql := "CREATE TABLE simple_table (id INT, name VARCHAR(100))"
-	stmt := utils.NewTestedDialects().VerifiedStmt(t, sql)
-
-	createTable, ok := stmt.(*statement.CreateTable)
-	require.True(t, ok, "Expected CreateTable statement")
-	assert.Nil(t, createTable.HiveFormats)
+	sql2 := "ALTER TABLE customer DROP COLUMN email"
+	dialects.VerifiedStmt(t, sql2)
 }
 
 // TestParseAlterTableBatch9 verifies ALTER TABLE operations parsing.
@@ -243,35 +83,6 @@ func TestParseAlterTableBatch9(t *testing.T) {
 	d.VerifiedStmt(t, setStorageParams)
 }
 
-// TestParseRenameTable verifies RENAME TABLE statement parsing.
-// Reference: tests/sqlparser_common.rs:4924
-func TestParseRenameTable(t *testing.T) {
-	d := utils.NewTestedDialects()
-
-	// Single table rename
-	sql := "RENAME TABLE test.test1 TO test_db.test2"
-	stmt := d.VerifiedStmt(t, sql)
-
-	_, ok := stmt.(*statement.RenameTable)
-	require.True(t, ok, "Expected RenameTable statement")
-
-	// Multiple table rename
-	multiSql := "RENAME TABLE old_table1 TO new_table1, old_table2 TO new_table2, old_table3 TO new_table3"
-	stmt = d.VerifiedStmt(t, multiSql)
-	_, ok = stmt.(*statement.RenameTable)
-	require.True(t, ok)
-
-	// Test error: extra token after statement
-	_, err := parser.ParseSQL(generic.NewGenericDialect(), "RENAME TABLE old_table TO new_table a")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "end of statement")
-
-	// Test error: wrong keyword
-	_, err = parser.ParseSQL(generic.NewGenericDialect(), "RENAME TABLE1 old_table TO new_table a")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "TABLE")
-}
-
 // TestAlterTableWithOnCluster verifies ALTER TABLE with ON CLUSTER parsing.
 // Reference: tests/sqlparser_common.rs:4983
 func TestAlterTableWithOnCluster(t *testing.T) {
@@ -297,6 +108,32 @@ func TestAlterTableWithOnCluster(t *testing.T) {
 	_, err := parser.ParseSQL(generic.NewGenericDialect(), "ALTER TABLE t ON CLUSTER 123 ADD CONSTRAINT bar PRIMARY KEY (baz)")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "identifier")
+}
+
+// TestParseAlterTableDropConstraint verifies ALTER TABLE DROP CONSTRAINT parsing.
+// Reference: tests/sqlparser_common.rs:5291
+func TestParseAlterTableDropConstraint(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	checkOne := func(t *testing.T, constraintText string) {
+		sql := "ALTER TABLE tab " + constraintText
+		stmts := dialects.ParseSQL(t, sql)
+		require.Len(t, stmts, 1)
+
+		alterTable, ok := stmts[0].(*statement.AlterTable)
+		require.True(t, ok, "Expected AlterTable statement, got %T", stmts[0])
+
+		assert.Equal(t, "tab", alterTable.Name.String())
+		require.NotEmpty(t, alterTable.Operations, "Expected at least one operation")
+	}
+
+	checkOne(t, "DROP CONSTRAINT IF EXISTS constraint_name")
+	checkOne(t, "DROP CONSTRAINT IF EXISTS constraint_name RESTRICT")
+	checkOne(t, "DROP CONSTRAINT IF EXISTS constraint_name CASCADE")
+
+	// Test parsing error for invalid syntax
+	_, err := parser.ParseSQL(generic.NewGenericDialect(), "ALTER TABLE tab DROP CONSTRAINT is_active TEXT")
+	require.Error(t, err)
 }
 
 // TestParseAlterIndex verifies ALTER INDEX statement parsing.
@@ -537,10 +374,114 @@ func TestParseAlterTableAlterColumnType(t *testing.T) {
 	}
 }
 
-// alterTableOp extracts the first AlterTableOperation from a statement
-func alterTableOp(stmt ast.Statement) *expr.AlterTableOperation {
-	if alterTable, ok := stmt.(*statement.AlterTable); ok && len(alterTable.Operations) > 0 {
-		return alterTable.Operations[0]
+// TestParseAlterUser verifies ALTER USER statement parsing.
+// Reference: tests/sqlparser_common.rs:18245
+func TestParseAlterUser(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	// Basic ALTER USER
+	dialects.VerifiedStmt(t, "ALTER USER u1")
+
+	// ALTER USER IF EXISTS
+	dialects.VerifiedStmt(t, "ALTER USER IF EXISTS u1")
+
+	// ALTER USER RENAME TO
+	stmt1 := dialects.VerifiedStmt(t, "ALTER USER IF EXISTS u1 RENAME TO u2")
+	alterUser1, ok := stmt1.(*statement.AlterUser)
+	require.True(t, ok, "Expected AlterUser statement, got %T", stmt1)
+	assert.True(t, alterUser1.IfExists, "Expected IfExists to be true")
+	assert.Equal(t, "u1", alterUser1.Name.String())
+	require.NotNil(t, alterUser1.RenameTo, "Expected RenameTo")
+	assert.Equal(t, "u2", alterUser1.RenameTo.String())
+
+	// ALTER USER SET PASSWORD
+	stmt2 := dialects.VerifiedStmt(t, "ALTER USER u1 PASSWORD 'AAA'")
+	alterUser2, ok := stmt2.(*statement.AlterUser)
+	require.True(t, ok, "Expected AlterUser statement, got %T", stmt2)
+	assert.Equal(t, "u1", alterUser2.Name.String())
+
+	// ALTER USER ENCRYPTED PASSWORD
+	dialects.VerifiedStmt(t, "ALTER USER u1 ENCRYPTED PASSWORD 'AAA'")
+
+	// ALTER USER PASSWORD NULL
+	dialects.VerifiedStmt(t, "ALTER USER u1 PASSWORD NULL")
+
+	// WITH PASSWORD should parse to canonical form
+	dialects.OneStatementParsesTo(t, "ALTER USER u1 WITH PASSWORD 'AAA'", "ALTER USER u1 PASSWORD 'AAA'")
+}
+
+// TestParseAlterUserSetOptions verifies ALTER USER SET options.
+// Reference: tests/sqlparser_common.rs:18245 (additional tests)
+func TestParseAlterUserSetOptions(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	// SET options with various types
+	tests := []string{
+		"ALTER USER u1 SET PASSWORD='secret'",
+		"ALTER USER u1 SET DEFAULT_MFA_METHOD='PASSKEY'",
+		"ALTER USER u1 SET TAG k1='v1'",
+		"ALTER USER u1 SET DEFAULT_SECONDARY_ROLES=('ALL')",
+		"ALTER USER u1 UNSET PASSWORD",
 	}
-	return nil
+
+	for _, sql := range tests {
+		t.Run(sql, func(t *testing.T) {
+			stmts := dialects.ParseSQL(t, sql)
+			require.Len(t, stmts, 1)
+		})
+	}
+}
+
+// TestAlterPolicy verifies ALTER POLICY statement parsing.
+// Reference: tests/sqlparser_common.rs:14364
+func TestAlterPolicy(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	// Test ALTER POLICY RENAME
+	stmts := dialects.ParseSQL(t, "ALTER POLICY old_policy ON my_table RENAME TO new_policy")
+	require.Len(t, stmts, 1)
+
+	alterPolicy, ok := stmts[0].(*statement.AlterPolicy)
+	require.True(t, ok, "Expected AlterPolicy statement, got %T", stmts[0])
+	assert.Equal(t, "old_policy", alterPolicy.Name.String())
+	assert.Equal(t, "my_table", alterPolicy.TableName.String())
+
+	// Test ALTER POLICY with TO, USING, WITH CHECK
+	dialects.VerifiedStmt(t, "ALTER POLICY my_policy ON my_table TO CURRENT_USER USING ((SELECT c0)) WITH CHECK (c0 > 0)")
+
+	// Test minimal ALTER POLICY
+	dialects.VerifiedStmt(t, "ALTER POLICY my_policy ON my_table")
+
+	// Test error - mixing RENAME with other clauses
+	_, err := parser.ParseSQL(generic.NewGenericDialect(), "ALTER POLICY old_policy ON my_table TO public RENAME TO new_policy")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Expected: end of statement")
+}
+
+// TestAlterConnector verifies ALTER CONNECTOR statement parsing.
+// Reference: tests/sqlparser_common.rs:14521
+func TestAlterConnector(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	// Test ALTER CONNECTOR SET DCPROPERTIES
+	stmts := dialects.ParseSQL(t, "ALTER CONNECTOR my_connector SET DCPROPERTIES('user' = 'root', 'password' = 'password')")
+	require.Len(t, stmts, 1)
+
+	alterConnector, ok := stmts[0].(*statement.AlterConnector)
+	require.True(t, ok, "Expected AlterConnector statement, got %T", stmts[0])
+	assert.Equal(t, "my_connector", alterConnector.Name.String())
+
+	// Test ALTER CONNECTOR SET URL
+	dialects.VerifiedStmt(t, "ALTER CONNECTOR my_connector SET URL 'jdbc:mysql://localhost:3306/mydb'")
+
+	// Test ALTER CONNECTOR SET OWNER USER
+	dialects.VerifiedStmt(t, "ALTER CONNECTOR my_connector SET OWNER USER 'root'")
+
+	// Test ALTER CONNECTOR SET OWNER ROLE
+	dialects.VerifiedStmt(t, "ALTER CONNECTOR my_connector SET OWNER ROLE 'admin'")
+
+	// Test error - wrong option name
+	_, err := parser.ParseSQL(generic.NewGenericDialect(), "ALTER CONNECTOR my_connector SET WRONG 'jdbc:mysql://localhost:3306/mydb'")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Expected: end of statement")
 }
