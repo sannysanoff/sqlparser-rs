@@ -759,48 +759,586 @@ done:
 }
 
 // parseCall parses CALL statements
+// Reference: src/parser/mod.rs:11104
 func parseCall(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("CALL statement parsing not yet fully implemented")
+	objectName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert ObjectName to expr.ObjectName for FunctionExpr
+	var funcObjName *expr.ObjectName
+	if objectName != nil {
+		// Convert ast.ObjectNamePart to expr.ObjectNamePart
+		parts := make([]*expr.ObjectNamePart, len(objectName.Parts))
+		for i, part := range objectName.Parts {
+			if idPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+				parts[i] = &expr.ObjectNamePart{Ident: &expr.Ident{Value: idPart.Ident.Value, QuoteStyle: idPart.Ident.QuoteStyle}}
+			}
+		}
+		funcObjName = &expr.ObjectName{Parts: parts}
+	}
+
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		// Has parentheses - parse as function call
+		p.AdvanceToken() // consume '('
+
+		var args []expr.FunctionArg
+		if !p.ConsumeToken(token.TokenRParen{}) {
+			// Has arguments
+			ep := NewExpressionParser(p)
+			for {
+				argExpr, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, &expr.FunctionArgExpr{Expr: argExpr})
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+
+		// Build FunctionExpr
+		fnExpr := &expr.FunctionExpr{Name: funcObjName}
+		if len(args) > 0 {
+			fnExpr.Args = &expr.FunctionArguments{List: &expr.FunctionArgumentList{Args: args}}
+		} else {
+			fnExpr.Args = &expr.FunctionArguments{None: true}
+		}
+		fnExpr.Parameters = &expr.FunctionArguments{None: true}
+
+		return &statement.Call{Function: &expr.FunctionExpr{Name: funcObjName, Args: fnExpr.Args, Parameters: fnExpr.Parameters}}, nil
+	}
+
+	// No parentheses - simple call without arguments
+	fnExpr := &expr.FunctionExpr{
+		Name:       funcObjName,
+		Args:       &expr.FunctionArguments{None: true},
+		Parameters: &expr.FunctionArguments{None: true},
+	}
+	return &statement.Call{Function: fnExpr}, nil
 }
 
 // parseFlush parses FLUSH statements
+// Reference: src/parser/mod.rs:972
 func parseFlush(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("FLUSH statement parsing not yet fully implemented")
+	// MySQL and Generic dialect support FLUSH
+	// For now, we parse it for all dialects
+
+	var location *expr.FlushLocation
+	if p.ParseKeyword("NO_WRITE_TO_BINLOG") {
+		loc := expr.FlushLocationNoWriteToBinlog
+		location = &loc
+	} else if p.ParseKeyword("LOCAL") {
+		loc := expr.FlushLocationLocal
+		location = &loc
+	}
+
+	var channel *string
+	var tables []*ast.ObjectName
+	var readLock, export bool
+
+	var objectType expr.FlushType
+	for _, ft := range []struct {
+		keywords   []string
+		objectType expr.FlushType
+	}{
+		{[]string{"BINARY", "LOGS"}, expr.FlushTypeBinaryLogs},
+		{[]string{"ENGINE", "LOGS"}, expr.FlushTypeEngineLogs},
+		{[]string{"ERROR", "LOGS"}, expr.FlushTypeErrorLogs},
+		{[]string{"GENERAL", "LOGS"}, expr.FlushTypeGeneralLogs},
+		{[]string{"RELAY", "LOGS"}, expr.FlushTypeRelayLogs},
+		{[]string{"SLOW", "LOGS"}, expr.FlushTypeSlowLogs},
+		{[]string{"HOSTS"}, expr.FlushTypeHosts},
+		{[]string{"PRIVILEGES"}, expr.FlushTypePrivileges},
+		{[]string{"OPTIMIZER_COSTS"}, expr.FlushTypeOptimizerCosts},
+		{[]string{"STATUS"}, expr.FlushTypeStatus},
+		{[]string{"LOGS"}, expr.FlushTypeLogs},
+	} {
+		if p.ParseKeywords(ft.keywords) {
+			objectType = ft.objectType
+			break
+		}
+	}
+
+	if objectType == expr.FlushTypeNone {
+		if p.ParseKeywords([]string{"TABLES"}) {
+			objectType = expr.FlushTypeTables
+			for {
+				tok := p.PeekToken()
+				if word, ok := tok.Token.(token.TokenWord); ok {
+					if word.Word.Keyword == "WITH" {
+						p.AdvanceToken()
+						readLock = p.ParseKeywords([]string{"READ", "LOCK"})
+					} else if word.Word.Keyword == "FOR" {
+						p.AdvanceToken()
+						export = p.ParseKeyword("EXPORT")
+					} else if word.Word.Keyword == "" {
+						// NoKeyword - parse table names
+						table, err := p.ParseObjectName()
+						if err != nil {
+							return nil, err
+						}
+						tables = append(tables, table)
+						if !p.ConsumeToken(token.TokenComma{}) {
+							break
+						}
+					} else {
+						break
+					}
+				} else {
+					break
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("unexpected FLUSH statement type")
+		}
+	}
+
+	// Parse channel for RELAY LOGS
+	if objectType == expr.FlushTypeRelayLogs && p.ParseKeywords([]string{"FOR", "CHANNEL"}) {
+		channelIdent, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		channel = &channelIdent.Value
+	}
+
+	return &statement.Flush{
+		ObjectType: objectType,
+		Location:   location,
+		Channel:    channel,
+		ReadLock:   readLock,
+		Export:     export,
+		Tables:     tables,
+	}, nil
 }
 
 // parseKill parses KILL statements
+// Reference: src/parser/mod.rs:13498
 func parseKill(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("KILL statement parsing not yet fully implemented")
+	var modifier *expr.KillType
+
+	// Parse optional modifier (CONNECTION, QUERY, MUTATION)
+	if p.ParseKeyword("CONNECTION") {
+		mod := expr.KillTypeConnection
+		modifier = &mod
+	} else if p.ParseKeyword("QUERY") {
+		mod := expr.KillTypeQuery
+		modifier = &mod
+	} else if p.ParseKeyword("MUTATION") {
+		// ClickHouse-specific
+		mod := expr.KillTypeMutation
+		modifier = &mod
+	}
+
+	// Parse the ID (required)
+	idTok := p.PeekToken()
+	idStr, ok := idTok.Token.(token.TokenNumber)
+	if !ok {
+		return nil, p.expected("numeric ID", idTok)
+	}
+	p.AdvanceToken()
+
+	// Convert string to uint64
+	var id uint64
+	if _, err := fmt.Sscanf(idStr.Value, "%d", &id); err != nil {
+		return nil, fmt.Errorf("invalid KILL ID: %s", idStr.Value)
+	}
+
+	return &statement.Kill{
+		Modifier: modifier,
+		ID:       id,
+	}, nil
 }
 
 // parseVacuum parses VACUUM statements
+// Reference: src/parser/mod.rs:19800
 func parseVacuum(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("VACUUM statement parsing not yet fully implemented")
+	if _, err := p.ExpectKeyword("VACUUM"); err != nil {
+		return nil, err
+	}
+
+	// Skip FULL, SORT ONLY, DELETE ONLY, REINDEX, RECLUSTER keywords (not yet in AST)
+	p.ParseKeyword("FULL")
+	p.ParseKeywords([]string{"SORT", "ONLY"})
+	p.ParseKeywords([]string{"DELETE", "ONLY"})
+	p.ParseKeyword("REINDEX")
+	p.ParseKeyword("RECLUSTER")
+
+	// Try to parse table name
+	var tableName *ast.ObjectName
+	if _, ok := p.PeekToken().Token.(token.TokenWord); ok {
+		var err error
+		tableName, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse optional TO value PERCENT (skip it)
+		if p.ParseKeyword("TO") {
+			ep := NewExpressionParser(p)
+			if _, err := ep.ParseExpr(); err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectKeyword("PERCENT"); err != nil {
+				return nil, err
+			}
+		}
+
+		// Parse optional BOOST (skip it)
+		p.ParseKeyword("BOOST")
+	}
+
+	vacuumStmt := &expr.VacuumStatement{
+		TableName: tableName,
+	}
+
+	return &statement.Vacuum{Statement: vacuumStmt}, nil
 }
 
 // parseOptimize parses OPTIMIZE statements
+// Reference: src/parser/mod.rs:19115
 func parseOptimize(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("OPTIMIZE statement parsing not yet fully implemented")
+	hasTableKeyword := p.ParseKeyword("TABLE")
+
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// ClickHouse: ON CLUSTER
+	var onCluster *ast.Ident
+	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+		onCluster, err = p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ClickHouse: PARTITION
+	var partition *expr.Partition
+	if p.ParseKeyword("PARTITION") {
+		partition = &expr.Partition{}
+		if p.ParseKeyword("ID") {
+			// PARTITION ID 'partition_id'
+			if _, err := p.ParseIdentifier(); err != nil {
+				return nil, err
+			}
+		} else {
+			// PARTITION expression
+			if _, err := NewExpressionParser(p).ParseExpr(); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// ClickHouse: FINAL
+	includeFinal := p.ParseKeyword("FINAL")
+
+	// ClickHouse: DEDUPLICATE
+	var deduplicate *expr.Deduplicate
+	if p.ParseKeyword("DEDUPLICATE") {
+		deduplicate = &expr.Deduplicate{}
+		if p.ParseKeyword("BY") {
+			// DEDUPLICATE BY expression
+			if _, err := NewExpressionParser(p).ParseExpr(); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Databricks: WHERE predicate
+	var predicate expr.Expr
+	if p.ParseKeyword("WHERE") {
+		predicate, err = NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Databricks: ZORDER BY
+	var zorder []expr.Expr
+	if p.ParseKeywords([]string{"ZORDER", "BY"}) {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		for {
+			col, err := NewExpressionParser(p).ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			zorder = append(zorder, col)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.OptimizeTable{
+		Name:            name,
+		HasTableKeyword: hasTableKeyword,
+		OnCluster:       onCluster,
+		Partition:       partition,
+		IncludeFinal:    includeFinal,
+		Deduplicate:     deduplicate,
+		Predicate:       predicate,
+		Zorder:          zorder,
+	}, nil
 }
 
 // parseLoad parses LOAD statements
+// Reference: src/parser/mod.rs:19075
 func parseLoad(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("LOAD statement parsing not yet fully implemented")
+	// Check if it's LOAD DATA (Hive/Spark)
+	if p.ParseKeyword("DATA") {
+		local := p.ParseKeyword("LOCAL")
+		if _, err := p.ExpectKeyword("INPATH"); err != nil {
+			return nil, err
+		}
+		inpathTok := p.PeekToken()
+		var inpath string
+		if str, ok := inpathTok.Token.(token.TokenSingleQuotedString); ok {
+			inpath = str.Value
+			p.AdvanceToken()
+		} else {
+			return nil, p.expected("string literal for INPATH", inpathTok)
+		}
+
+		overwrite := p.ParseKeyword("OVERWRITE")
+
+		if err := p.ExpectKeywords([]string{"INTO", "TABLE"}); err != nil {
+			return nil, err
+		}
+		tableName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse optional partition
+		var partitioned []expr.Expr
+		if p.ConsumeToken(token.TokenLParen{}) {
+			ep := NewExpressionParser(p)
+			for {
+				part, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				partitioned = append(partitioned, part)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+
+		// Parse optional TABLE FORMAT (skip for now)
+		var tableFormat *expr.HiveLoadDataFormat
+		if p.ParseKeyword("TABLE") && p.ParseKeyword("FORMAT") {
+			// Skip file format and input format
+			tableFormat = &expr.HiveLoadDataFormat{}
+		}
+
+		return &statement.LoadData{
+			Local:       local,
+			Inpath:      inpath,
+			Overwrite:   overwrite,
+			TableName:   tableName,
+			Partitioned: partitioned,
+			TableFormat: tableFormat,
+		}, nil
+	}
+
+	// Simple LOAD extension (DuckDB)
+	extensionName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Load{ExtensionName: extensionName}, nil
 }
 
 // parseUnload parses UNLOAD statements
+// Reference: src/parser/mod.rs:18978
 func parseUnload(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("UNLOAD statement parsing not yet fully implemented")
+	if _, err := p.ExpectKeyword("UNLOAD"); err != nil {
+		return nil, err
+	}
+
+	// Parse (query) or 'query_text'
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var queryStmt *query.Query
+	var queryText *string
+
+	// Check if it's a string literal or a query
+	tok := p.PeekToken()
+	if _, isString := tok.Token.(token.TokenSingleQuotedString); isString {
+		// It's a query text string
+		p.AdvanceToken()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			queryText = &str.Value
+		}
+	} else {
+		// It's an actual query
+		stmt, err := p.parseQuery()
+		if err != nil {
+			return nil, err
+		}
+		if qs, ok := stmt.(*QueryStatement); ok {
+			queryStmt = qs.Query
+		}
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse TO identifier
+	if _, err := p.ExpectKeyword("TO"); err != nil {
+		return nil, err
+	}
+	to, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional IAM ROLE (skip for now)
+	var auth *expr.IamRoleKind
+	if p.ParseKeywords([]string{"IAM", "ROLE"}) {
+		kind := expr.IamRoleKindNone
+		auth = &kind
+	}
+
+	// Parse optional WITH options
+	var with []*expr.SqlOption
+	if p.ParseKeyword("WITH") {
+		for {
+			key, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			val, err := NewExpressionParser(p).ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			with = append(with, &expr.SqlOption{
+				Name:  &expr.Ident{Value: key.Value},
+				Value: val,
+			})
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+	}
+
+	// Parse optional legacy options
+	var options []*expr.CopyLegacyOption
+	for {
+		// Try to parse legacy options (skip for now)
+		break
+	}
+
+	return &statement.Unload{
+		Query:     queryStmt,
+		QueryText: queryText,
+		To:        to,
+		Auth:      auth,
+		With:      with,
+		Options:   options,
+	}, nil
 }
 
 // parseAttach parses ATTACH statements
+// Reference: src/parser/mod.rs:1189
 func parseAttach(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("ATTACH statement parsing not yet fully implemented")
+	// Check if it's ATTACH DATABASE
+	isDatabase := p.ParseKeyword("DATABASE")
+
+	// Check for DuckDB-style ATTACH DATABASE IF NOT EXISTS
+	if isDatabase {
+		ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+		databasePath, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		var databaseAlias *ast.Ident
+		if p.ParseKeyword("AS") {
+			databaseAlias, err = p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Parse attach options (skip for now)
+		var attachOptions []*expr.AttachDuckDBDatabaseOption
+
+		return &statement.AttachDuckDBDatabase{
+			IfNotExists:   ifNotExists,
+			Database:      isDatabase,
+			DatabasePath:  databasePath,
+			DatabaseAlias: databaseAlias,
+			AttachOptions: attachOptions,
+		}, nil
+	}
+
+	// SQLite-style ATTACH database_file_name AS schema_name
+	databaseFileName, err := NewExpressionParser(p).ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectKeyword("AS"); err != nil {
+		return nil, err
+	}
+
+	schemaName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.AttachDatabase{
+		Database:         isDatabase,
+		DatabaseFileName: databaseFileName,
+		SchemaName:       schemaName,
+	}, nil
 }
 
 // parseDetach parses DETACH statements
+// Reference: src/parser/mod.rs:1210
 func parseDetach(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("DETACH statement parsing not yet fully implemented")
+	// Check if it's DETACH DATABASE
+	isDatabase := p.ParseKeyword("DATABASE")
+
+	// Check for IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse database alias/name
+	databaseAlias, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DetachDuckDBDatabase{
+		IfExists:      ifExists,
+		Database:      isDatabase,
+		DatabaseAlias: databaseAlias,
+	}, nil
 }
 
 // parseComment parses COMMENT statements

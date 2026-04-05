@@ -2084,6 +2084,23 @@ go test ./tests/postgres/... -v      # PostgreSQL dialect
 go build ./...                      # Build everything
 ```
 
+### Counting Passing/Failing Tests (Smoke Test)
+
+To compute the current pass rate during porting:
+
+```bash
+# Quick summary (recommended)
+./run_tests.sh
+
+# Detailed counts
+./count_tests.sh
+
+# Manual one-liner
+go test ./tests/... -v 2>&1 | awk '/^--- PASS:/{p++} /^--- FAIL:/{f++} END{printf "Passing: %d, Failing: %d, Total: %d, Pass Rate: %.1f%%\n", p, f, p+f, p*100/(p+f)}'
+```
+
+The progress metric used throughout this document is: **Pass Rate = (passing / total) × 100**, where `total = passing + failing`.
+
 ---
 
 ### April 5, 2026 - PIVOT and UNPIVOT Table Factor Implementation

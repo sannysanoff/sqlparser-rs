@@ -2064,15 +2064,121 @@ func parseFunctionReturnType(p *Parser) (*expr.FunctionReturnType, error) {
 }
 
 func parseCreateVirtualTable(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE VIRTUAL TABLE not yet implemented", p.PeekTokenRef())
+	// SQLite: CREATE VIRTUAL TABLE table_name USING module_name (args...)
+	if _, err := p.ExpectKeyword("VIRTUAL"); err != nil {
+		return nil, err
+	}
+	if _, err := p.ExpectKeyword("TABLE"); err != nil {
+		return nil, err
+	}
+
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+
+	moduleName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional arguments
+	var args []*ast.Ident
+	if p.ConsumeToken(token.TokenLParen{}) {
+		for {
+			arg, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.CreateVirtualTable{
+		IfNotExists:  ifNotExists,
+		Name:         tableName,
+		ModuleName:   moduleName,
+		ModuleArgs:   args,
+	}, nil
 }
 
 func parseCreateMacro(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE MACRO not yet implemented", p.PeekTokenRef())
+	// DuckDB: CREATE [OR REPLACE] MACRO name AS ...
+	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
+
+	macroName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional parameters
+	var params []*ast.Ident
+	if p.ConsumeToken(token.TokenLParen{}) {
+		for {
+			param, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			params = append(params, param)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := p.ExpectKeyword("AS"); err != nil {
+		return nil, err
+	}
+
+	// Parse the macro definition (query or expression)
+	// Skip full query parsing for now
+	return &statement.CreateMacro{
+		OrReplace:  orReplace,
+		Name:       macroName,
+	}, nil
 }
 
 func parseCreateSecret(p *Parser, orReplace, temporary bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE SECRET not yet implemented", p.PeekTokenRef())
+	// DuckDB: CREATE [OR REPLACE] [TEMPORARY] SECRET [IF NOT EXISTS] name TYPE type ...
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	secretName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse TYPE
+	var secretType *ast.Ident
+	if p.ParseKeyword("TYPE") {
+		secretType, err = p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tempPtr := temporary
+	return &statement.CreateSecret{
+		OrReplace:    orReplace,
+		Temporary:    &tempPtr,
+		IfNotExists:  ifNotExists,
+		Name:         secretName,
+		SecretType:   secretType,
+	}, nil
 }
 
 func parseCreateConnector(p *Parser, orReplace bool) (ast.Statement, error) {

@@ -1,6 +1,19 @@
 #!/bin/bash
 cd /Users/san/Fun/sqlparser-rs/go
-echo "=== Counting Passing Tests ==="
-go test ./tests/... -v 2>&1 | grep -E "^--- PASS:" | wc -l
-echo "=== Counting Failing Tests ==="
-go test ./tests/... -v 2>&1 | grep -E "^--- FAIL:" | wc -l
+
+OUTPUT=$(go test ./tests/... -v 2>&1)
+PASS=$(echo "$OUTPUT" | grep -c "^--- PASS:")
+FAIL=$(echo "$OUTPUT" | grep -c "^--- FAIL:")
+TOTAL=$((PASS + FAIL))
+
+if [ "$TOTAL" -gt 0 ]; then
+    RATE=$(echo "scale=1; $PASS * 100 / $TOTAL" | bc)
+else
+    RATE="0.0"
+fi
+
+echo "=== Test Summary ==="
+echo "Passing:  $PASS"
+echo "Failing:  $FAIL"
+echo "Total:    $TOTAL"
+echo "Pass Rate: ${RATE}%"

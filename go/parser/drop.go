@@ -226,7 +226,27 @@ func parseDropRole(p *Parser) (ast.Statement, error) {
 }
 
 func parseDropDatabase(p *Parser) (ast.Statement, error) {
-	return nil, p.ExpectedRef("DROP DATABASE not yet implemented", p.PeekTokenRef())
+	// DATABASE keyword is already consumed by caller
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated database names
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE/RESTRICT
+	cascade := p.ParseKeyword("CASCADE")
+	restrict := p.ParseKeyword("RESTRICT")
+
+	return &statement.Drop{
+		ObjectType: expr.ObjectTypeDatabase,
+		IfExists:   ifExists,
+		Names:      names,
+		Cascade:    cascade,
+		Restrict:   restrict,
+	}, nil
 }
 
 func parseDropSchema(p *Parser) (ast.Statement, error) {
