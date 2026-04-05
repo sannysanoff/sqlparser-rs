@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
@@ -666,7 +667,106 @@ func parseCreateRole(p *Parser, orReplace bool) (ast.Statement, error) {
 }
 
 func parseCreateDatabase(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE DATABASE not yet implemented", p.PeekTokenRef())
+	// Consume DATABASE keyword
+	if _, err := p.ExpectKeyword("DATABASE"); err != nil {
+		return nil, err
+	}
+
+	// Check for IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse database name
+	dbName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional LOCATION/MANAGEDLOCATION (Hive/Databricks style)
+	var location, managedLocation *string
+	for {
+		if p.PeekKeyword("LOCATION") {
+			p.NextToken()
+			loc, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			location = &loc
+		} else if p.PeekKeyword("MANAGEDLOCATION") {
+			p.NextToken()
+			loc, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			managedLocation = &loc
+		} else {
+			break
+		}
+	}
+
+	// Parse optional CLONE (Snowflake style)
+	var clone *ast.ObjectName
+	if p.PeekKeyword("CLONE") {
+		p.NextToken()
+		clone, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse MySQL-style [DEFAULT] CHARACTER SET and [DEFAULT] COLLATE options
+	var defaultCharset, defaultCollation *string
+	for {
+		hasDefault := p.PeekKeyword("DEFAULT")
+		if hasDefault {
+			p.NextToken()
+		}
+
+		if p.PeekKeyword("CHARACTER") {
+			p.NextToken()
+			if !p.ParseKeyword("SET") {
+				// Not CHARACTER SET, put back and break
+				break
+			}
+			p.ConsumeToken(token.TokenEq{}) // Optional =
+			charset, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			defaultCharset = &charset.Value
+		} else if p.PeekKeyword("CHARSET") {
+			p.NextToken()
+			p.ConsumeToken(token.TokenEq{}) // Optional =
+			charset, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			defaultCharset = &charset.Value
+		} else if p.PeekKeyword("COLLATE") {
+			p.NextToken()
+			p.ConsumeToken(token.TokenEq{}) // Optional =
+			collation, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			defaultCollation = &collation.Value
+		} else if hasDefault {
+			// DEFAULT keyword not followed by CHARACTER SET, CHARSET, or COLLATE
+			// Put it back and break
+			break
+		} else {
+			break
+		}
+	}
+
+	return &statement.CreateDatabase{
+		DbName:           dbName,
+		IfNotExists:      ifNotExists,
+		Location:         location,
+		ManagedLocation:  managedLocation,
+		Clone:            clone,
+		DefaultCharset:   defaultCharset,
+		DefaultCollation: defaultCollation,
+	}, nil
 }
 
 func parseCreateSchema(p *Parser) (ast.Statement, error) {
@@ -990,7 +1090,358 @@ func parseCreatePolicy(p *Parser, orReplace bool) (ast.Statement, error) {
 }
 
 func parseCreateFunction(p *Parser, orReplace, temporary bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE FUNCTION not yet implemented", p.PeekTokenRef())
+	// Consume FUNCTION keyword
+	if _, err := p.ExpectKeyword("FUNCTION"); err != nil {
+		return nil, err
+	}
+
+	// Parse function name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse function arguments: (arg1 TYPE, arg2 TYPE, ...)
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var args []*expr.OperateFunctionArg
+	if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {
+		// Parse comma-separated arguments
+		for {
+			arg, err := parseFunctionArg(p)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, arg)
+
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			}
+			break
+		}
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional RETURNS clause
+	var returnType *expr.FunctionReturnType
+	if p.PeekKeyword("RETURNS") {
+		p.NextToken()
+		returnType, err = parseFunctionReturnType(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse function attributes (LANGUAGE, AS, IMMUTABLE, etc.)
+	var language *ast.Ident
+	var behavior *expr.FunctionBehavior
+	var calledOnNull *expr.FunctionCalledOnNull
+	var parallel *expr.FunctionParallel
+	var security *expr.FunctionSecurity
+	var body *expr.CreateFunctionBody
+	var setParams []*expr.FunctionDefinitionSetParam
+
+	for {
+		if p.PeekKeyword("LANGUAGE") {
+			p.NextToken()
+			lang, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			language = lang
+		} else if p.PeekKeyword("AS") {
+			p.NextToken()
+			// Parse function body as string literal or dollar-quoted string
+			bodyStr, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			body = &expr.CreateFunctionBody{Value: bodyStr}
+		} else if p.PeekKeyword("IMMUTABLE") {
+			p.NextToken()
+			b := expr.FunctionBehaviorImmutable
+			behavior = &b
+		} else if p.PeekKeyword("STABLE") {
+			p.NextToken()
+			b := expr.FunctionBehaviorStable
+			behavior = &b
+		} else if p.PeekKeyword("VOLATILE") {
+			p.NextToken()
+			b := expr.FunctionBehaviorVolatile
+			behavior = &b
+		} else if p.ParseKeywords([]string{"CALLED", "ON", "NULL", "INPUT"}) {
+			c := expr.FunctionCalledOnNullCalledOnNullInput
+			calledOnNull = &c
+		} else if p.ParseKeywords([]string{"RETURNS", "NULL", "ON", "NULL", "INPUT"}) {
+			c := expr.FunctionCalledOnNullReturnsNullOnNullInput
+			calledOnNull = &c
+		} else if p.PeekKeyword("STRICT") {
+			p.NextToken()
+			c := expr.FunctionCalledOnNullStrict
+			calledOnNull = &c
+		} else if p.PeekKeyword("PARALLEL") {
+			p.NextToken()
+			if p.PeekKeyword("UNSAFE") {
+				p.NextToken()
+				par := expr.FunctionParallelUnsafe
+				parallel = &par
+			} else if p.PeekKeyword("RESTRICTED") {
+				p.NextToken()
+				par := expr.FunctionParallelRestricted
+				parallel = &par
+			} else if p.PeekKeyword("SAFE") {
+				p.NextToken()
+				par := expr.FunctionParallelSafe
+				parallel = &par
+			}
+		} else if p.ParseKeywords([]string{"SECURITY", "DEFINER"}) {
+			s := expr.FunctionSecurityDefiner
+			security = &s
+		} else if p.ParseKeywords([]string{"SECURITY", "INVOKER"}) {
+			s := expr.FunctionSecurityInvoker
+			security = &s
+		} else if p.PeekKeyword("SET") {
+			p.NextToken()
+			// Parse SET param_name = value or SET param_name FROM CURRENT
+			paramName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			var paramValue expr.FunctionSetValue
+			if p.ParseKeywords([]string{"FROM", "CURRENT"}) {
+				paramValue = expr.FunctionSetValue{Kind: expr.FunctionSetValueFromCurrent}
+			} else {
+				// Parse = or TO followed by values
+				if !p.ConsumeToken(token.TokenEq{}) && !p.PeekKeyword("TO") {
+					return nil, fmt.Errorf("expected = or TO after SET parameter name")
+				}
+				if p.PeekKeyword("TO") {
+					p.NextToken()
+				}
+				// For simplicity, parse a single expression value
+				exprParser := NewExpressionParser(p)
+				value, err := exprParser.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				paramValue = expr.FunctionSetValue{Kind: expr.FunctionSetValueExpr, Expr: value}
+			}
+			setParams = append(setParams, &expr.FunctionDefinitionSetParam{
+				Name:  paramName,
+				Value: paramValue,
+			})
+		} else if p.PeekKeyword("RETURN") {
+			p.NextToken()
+			exprParser := NewExpressionParser(p)
+			retExpr, err := exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			body = &expr.CreateFunctionBody{ReturnExpr: retExpr}
+		} else {
+			break
+		}
+	}
+
+	return &statement.CreateFunction{
+		OrReplace:    orReplace,
+		Temporary:    temporary,
+		Name:         name,
+		Args:         args,
+		ReturnType:   returnType,
+		Language:     language,
+		Behavior:     behavior,
+		CalledOnNull: calledOnNull,
+		Parallel:     parallel,
+		Security:     security,
+		Body:         body,
+		Set:          setParams,
+	}, nil
+}
+
+// parseFunctionArg parses a function argument like "name TYPE" or "IN name TYPE"
+// Reference: src/parser/mod.rs:5972
+func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
+	// Check for IN/OUT/INOUT mode
+	var mode *expr.ArgMode
+	if p.PeekKeyword("IN") {
+		p.NextToken()
+		m := expr.ArgModeIn
+		mode = &m
+	} else if p.PeekKeyword("OUT") {
+		p.NextToken()
+		m := expr.ArgModeOut
+		mode = &m
+	} else if p.PeekKeyword("INOUT") {
+		p.NextToken()
+		m := expr.ArgModeInOut
+		mode = &m
+	}
+
+	// Try to parse the first token - it could be either:
+	// 1. A parameter name followed by a data type (e.g., "str1 VARCHAR")
+	// 2. Just a data type (e.g., "INTEGER")
+
+	// Save current position for potential backtracking
+	savedIdx := p.index
+
+	// Try to parse as data type first
+	firstDataType, err := p.ParseDataType()
+	if err != nil {
+		// Failed to parse as data type, try as identifier then data type
+		p.index = savedIdx
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		dataType, err := p.ParseDataType()
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for DEFAULT or = value
+		var defaultExpr expr.Expr
+		if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
+			if p.PeekKeyword("DEFAULT") {
+				p.NextToken()
+			}
+			exprParser := NewExpressionParser(p)
+			defaultExpr, err = exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return &expr.OperateFunctionArg{
+			Mode:        mode,
+			Name:        name,
+			DataType:    dataType,
+			DefaultExpr: defaultExpr,
+		}, nil
+	}
+
+	// We successfully parsed a data type. Now check if the next token could also be
+	// a data type keyword (which would mean the first token was actually a parameter name).
+	// This is the Rust approach: try to parse another data type, and if it succeeds,
+	// treat the first as a name.
+
+	// For simplicity, we check if next token looks like a type keyword
+	// Common SQL type keywords: VARCHAR, INTEGER, INT, TEXT, BOOLEAN, etc.
+	// If next token is one of these, the first token was likely a name.
+
+	// Save position again
+	secondIdx := p.index
+
+	// Try to peek at the next token to see if it looks like a type
+	nextTok := p.PeekToken()
+	if word, ok := nextTok.Token.(token.TokenWord); ok {
+		// Check if next token is a common SQL type
+		typeKeywords := map[string]bool{
+			"VARCHAR": true, "CHAR": true, "TEXT": true, "INTEGER": true,
+			"INT": true, "BIGINT": true, "SMALLINT": true, "BOOLEAN": true,
+			"BOOL": true, "REAL": true, "DOUBLE": true, "FLOAT": true,
+			"DECIMAL": true, "NUMERIC": true, "DATE": true, "TIME": true,
+			"TIMESTAMP": true, "INTERVAL": true, "ARRAY": true, "JSON": true,
+			"JSONB": true, "BYTEA": true, "UUID": true, "SERIAL": true,
+			"BIGSERIAL": true, "SMALLSERIAL": true, "MONEY": true,
+		}
+		upperWord := strings.ToUpper(word.Word.Value)
+		if typeKeywords[upperWord] {
+			// The next token is a type keyword, so first token was a name
+			// We need to parse the second data type
+			p.index = secondIdx
+			secondDataType, err := p.ParseDataType()
+			if err != nil {
+				// If we fail to parse second, just use first as data type
+				p.index = secondIdx
+
+				// Check for DEFAULT or = value
+				var defaultExpr expr.Expr
+				if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
+					if p.PeekKeyword("DEFAULT") {
+						p.NextToken()
+					}
+					exprParser := NewExpressionParser(p)
+					defaultExpr, err = exprParser.ParseExpr()
+					if err != nil {
+						return nil, err
+					}
+				}
+
+				return &expr.OperateFunctionArg{
+					Mode:        mode,
+					DataType:    firstDataType,
+					DefaultExpr: defaultExpr,
+				}, nil
+			}
+
+			// Create identifier from first "data type" (which was actually a name)
+			name := &ast.Ident{Value: firstDataType.(fmt.Stringer).String()}
+
+			// Check for DEFAULT or = value
+			var defaultExpr expr.Expr
+			if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
+				if p.PeekKeyword("DEFAULT") {
+					p.NextToken()
+				}
+				exprParser := NewExpressionParser(p)
+				defaultExpr, err = exprParser.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			return &expr.OperateFunctionArg{
+				Mode:        mode,
+				Name:        name,
+				DataType:    secondDataType,
+				DefaultExpr: defaultExpr,
+			}, nil
+		}
+	}
+
+	// Next token is not a type keyword, so firstDataType is the actual data type
+	// Check for DEFAULT or = value
+	var defaultExpr expr.Expr
+	if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
+		if p.PeekKeyword("DEFAULT") {
+			p.NextToken()
+		}
+		exprParser := NewExpressionParser(p)
+		defaultExpr, err = exprParser.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &expr.OperateFunctionArg{
+		Mode:        mode,
+		DataType:    firstDataType,
+		DefaultExpr: defaultExpr,
+	}, nil
+}
+
+// parseFunctionReturnType parses a return type like "INTEGER" or "SETOF INTEGER"
+func parseFunctionReturnType(p *Parser) (*expr.FunctionReturnType, error) {
+	if p.PeekKeyword("SETOF") {
+		p.NextToken()
+		dataType, err := p.ParseDataType()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.FunctionReturnType{Kind: expr.FunctionReturnTypeSetOf, DataType: dataType}, nil
+	}
+
+	dataType, err := p.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+	return &expr.FunctionReturnType{Kind: expr.FunctionReturnTypeDataType, DataType: dataType}, nil
 }
 
 func parseCreateVirtualTable(p *Parser) (ast.Statement, error) {

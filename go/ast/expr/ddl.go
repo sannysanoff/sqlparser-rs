@@ -554,55 +554,179 @@ func (i *IndexColumn) String() string {
 	return strings.Join(parts, " ")
 }
 
+// ArgMode represents function argument mode (IN, OUT, INOUT)
+type ArgMode int
+
+const (
+	ArgModeNone ArgMode = iota
+	ArgModeIn
+	ArgModeOut
+	ArgModeInOut
+)
+
+func (a ArgMode) String() string {
+	switch a {
+	case ArgModeIn:
+		return "IN"
+	case ArgModeOut:
+		return "OUT"
+	case ArgModeInOut:
+		return "INOUT"
+	default:
+		return ""
+	}
+}
+
 // OperateFunctionArg represents operate function argument.
-type OperateFunctionArg struct{}
+type OperateFunctionArg struct {
+	Mode        *ArgMode
+	Name        *ast.Ident
+	DataType    interface{} // datatype.DataType - using interface{} to avoid import cycle
+	DefaultExpr Expr
+}
 
 func (o *OperateFunctionArg) exprNode()        {}
 func (o *OperateFunctionArg) Span() token.Span { return token.Span{} }
-func (o *OperateFunctionArg) String() string   { return "" }
+func (o *OperateFunctionArg) String() string {
+	var f strings.Builder
+	if o.Mode != nil && *o.Mode != ArgModeNone {
+		f.WriteString(o.Mode.String())
+		f.WriteString(" ")
+	}
+	if o.Name != nil {
+		f.WriteString(o.Name.String())
+		f.WriteString(" ")
+	}
+	if o.DataType != nil {
+		if s, ok := o.DataType.(fmt.Stringer); ok {
+			f.WriteString(s.String())
+		}
+	}
+	if o.DefaultExpr != nil {
+		f.WriteString(" DEFAULT ")
+		f.WriteString(o.DefaultExpr.String())
+	}
+	return f.String()
+}
+
+// FunctionReturnTypeKind represents the kind of function return type
+type FunctionReturnTypeKind int
+
+const (
+	FunctionReturnTypeDataType FunctionReturnTypeKind = iota
+	FunctionReturnTypeSetOf
+)
 
 // FunctionReturnType represents function return type.
-type FunctionReturnType struct{}
+type FunctionReturnType struct {
+	Kind     FunctionReturnTypeKind
+	DataType interface{} // datatype.DataType - using interface{} to avoid import cycle
+}
 
 func (f *FunctionReturnType) exprNode()        {}
 func (f *FunctionReturnType) Span() token.Span { return token.Span{} }
-func (f *FunctionReturnType) String() string   { return "" }
+func (f *FunctionReturnType) String() string {
+	if f.DataType == nil {
+		return ""
+	}
+	s, ok := f.DataType.(fmt.Stringer)
+	if !ok {
+		return ""
+	}
+	if f.Kind == FunctionReturnTypeSetOf {
+		return "SETOF " + s.String()
+	}
+	return s.String()
+}
 
 // FunctionBehavior represents function behavior.
 type FunctionBehavior int
 
 const (
 	FunctionBehaviorNone FunctionBehavior = iota
+	FunctionBehaviorImmutable
+	FunctionBehaviorStable
+	FunctionBehaviorVolatile
 )
 
-func (f FunctionBehavior) String() string { return "" }
+func (f FunctionBehavior) String() string {
+	switch f {
+	case FunctionBehaviorImmutable:
+		return "IMMUTABLE"
+	case FunctionBehaviorStable:
+		return "STABLE"
+	case FunctionBehaviorVolatile:
+		return "VOLATILE"
+	default:
+		return ""
+	}
+}
 
 // FunctionCalledOnNull represents function called on null.
 type FunctionCalledOnNull int
 
 const (
 	FunctionCalledOnNullNone FunctionCalledOnNull = iota
+	FunctionCalledOnNullCalledOnNullInput
+	FunctionCalledOnNullReturnsNullOnNullInput
+	FunctionCalledOnNullStrict
 )
 
-func (f FunctionCalledOnNull) String() string { return "" }
+func (f FunctionCalledOnNull) String() string {
+	switch f {
+	case FunctionCalledOnNullCalledOnNullInput:
+		return "CALLED ON NULL INPUT"
+	case FunctionCalledOnNullReturnsNullOnNullInput:
+		return "RETURNS NULL ON NULL INPUT"
+	case FunctionCalledOnNullStrict:
+		return "STRICT"
+	default:
+		return ""
+	}
+}
 
 // FunctionParallel represents function parallel.
 type FunctionParallel int
 
 const (
 	FunctionParallelNone FunctionParallel = iota
+	FunctionParallelUnsafe
+	FunctionParallelRestricted
+	FunctionParallelSafe
 )
 
-func (f FunctionParallel) String() string { return "" }
+func (f FunctionParallel) String() string {
+	switch f {
+	case FunctionParallelUnsafe:
+		return "PARALLEL UNSAFE"
+	case FunctionParallelRestricted:
+		return "PARALLEL RESTRICTED"
+	case FunctionParallelSafe:
+		return "PARALLEL SAFE"
+	default:
+		return ""
+	}
+}
 
 // FunctionSecurity represents function security.
 type FunctionSecurity int
 
 const (
 	FunctionSecurityNone FunctionSecurity = iota
+	FunctionSecurityDefiner
+	FunctionSecurityInvoker
 )
 
-func (f FunctionSecurity) String() string { return "" }
+func (f FunctionSecurity) String() string {
+	switch f {
+	case FunctionSecurityDefiner:
+		return "SECURITY DEFINER"
+	case FunctionSecurityInvoker:
+		return "SECURITY INVOKER"
+	default:
+		return ""
+	}
+}
 
 // FunctionDeterminismSpecifier represents function determinism specifier.
 type FunctionDeterminismSpecifier int
@@ -613,19 +737,55 @@ const (
 
 func (f FunctionDeterminismSpecifier) String() string { return "" }
 
+// FunctionSetValueKind represents the kind of function SET value
+type FunctionSetValueKind int
+
+const (
+	FunctionSetValueFromCurrent FunctionSetValueKind = iota
+	FunctionSetValueExpr
+)
+
+// FunctionSetValue represents a function SET parameter value
+type FunctionSetValue struct {
+	Kind FunctionSetValueKind
+	Expr Expr
+}
+
 // CreateFunctionBody represents function body.
-type CreateFunctionBody struct{}
+type CreateFunctionBody struct {
+	Value      string // For AS 'string' syntax
+	ReturnExpr Expr   // For RETURN expr syntax
+}
 
 func (c *CreateFunctionBody) exprNode()        {}
 func (c *CreateFunctionBody) Span() token.Span { return token.Span{} }
-func (c *CreateFunctionBody) String() string   { return "" }
+func (c *CreateFunctionBody) String() string {
+	if c.ReturnExpr != nil {
+		return "RETURN " + c.ReturnExpr.String()
+	}
+	return c.Value
+}
 
 // FunctionDefinitionSetParam represents function definition set parameter.
-type FunctionDefinitionSetParam struct{}
+type FunctionDefinitionSetParam struct {
+	Name  *ast.Ident
+	Value FunctionSetValue
+}
 
 func (f *FunctionDefinitionSetParam) exprNode()        {}
 func (f *FunctionDefinitionSetParam) Span() token.Span { return token.Span{} }
-func (f *FunctionDefinitionSetParam) String() string   { return "" }
+func (f *FunctionDefinitionSetParam) String() string {
+	var b strings.Builder
+	b.WriteString("SET ")
+	b.WriteString(f.Name.String())
+	if f.Value.Kind == FunctionSetValueFromCurrent {
+		b.WriteString(" FROM CURRENT")
+	} else if f.Value.Expr != nil {
+		b.WriteString(" = ")
+		b.WriteString(f.Value.Expr.String())
+	}
+	return b.String()
+}
 
 // SqlSecurity represents SQL security.
 type SqlSecurity int

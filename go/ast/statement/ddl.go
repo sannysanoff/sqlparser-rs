@@ -809,6 +809,18 @@ func (c *CreateDatabase) String() string {
 		f.WriteString("IF NOT EXISTS ")
 	}
 	f.WriteString(c.DbName.String())
+
+	// Output MySQL-style CHARACTER SET and COLLATE options
+	// Note: We always output DEFAULT CHARACTER SET and DEFAULT COLLATE as the normalized form
+	if c.DefaultCharset != nil {
+		f.WriteString(" DEFAULT CHARACTER SET ")
+		f.WriteString(*c.DefaultCharset)
+	}
+	if c.DefaultCollation != nil {
+		f.WriteString(" DEFAULT COLLATE ")
+		f.WriteString(*c.DefaultCollation)
+	}
+
 	return f.String()
 }
 
