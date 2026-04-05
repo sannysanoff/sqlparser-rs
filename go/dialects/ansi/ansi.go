@@ -35,7 +35,100 @@ import (
 )
 
 // AnsiDialect is a dialect for strict ANSI SQL:2011 compliance.
+//
+// AnsiDialect implements the following capability interfaces from the dialects package:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//   - dialects.CompleteDialect (via parseriface.CompleteDialect)
 type AnsiDialect struct{}
+
+// Compile-time interface checks to ensure AnsiDialect implements all required interfaces.
+var _ dialects.CompleteDialect = (*AnsiDialect)(nil)
+var _ dialects.IdentifierDialect = (*AnsiDialect)(nil)
+var _ dialects.KeywordDialect = (*AnsiDialect)(nil)
+var _ dialects.StringLiteralDialect = (*AnsiDialect)(nil)
+var _ dialects.AggregationDialect = (*AnsiDialect)(nil)
+var _ dialects.GroupByDialect = (*AnsiDialect)(nil)
+var _ dialects.JoinDialect = (*AnsiDialect)(nil)
+var _ dialects.TransactionDialect = (*AnsiDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*AnsiDialect)(nil)
+var _ dialects.SetDialect = (*AnsiDialect)(nil)
+var _ dialects.SelectDialect = (*AnsiDialect)(nil)
+var _ dialects.TypeConversionDialect = (*AnsiDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*AnsiDialect)(nil)
+var _ dialects.InExpressionDialect = (*AnsiDialect)(nil)
+var _ dialects.LiteralDialect = (*AnsiDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*AnsiDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*AnsiDialect)(nil)
+var _ dialects.CommentDialect = (*AnsiDialect)(nil)
+var _ dialects.ExplainDialect = (*AnsiDialect)(nil)
+var _ dialects.ExecuteDialect = (*AnsiDialect)(nil)
+var _ dialects.ExtractDialect = (*AnsiDialect)(nil)
+var _ dialects.SubqueryDialect = (*AnsiDialect)(nil)
+var _ dialects.PlaceholderDialect = (*AnsiDialect)(nil)
+var _ dialects.IndexDialect = (*AnsiDialect)(nil)
+var _ dialects.IntervalDialect = (*AnsiDialect)(nil)
+var _ dialects.OperatorDialect = (*AnsiDialect)(nil)
+var _ dialects.MatchDialect = (*AnsiDialect)(nil)
+var _ dialects.GranteeDialect = (*AnsiDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*AnsiDialect)(nil)
+var _ dialects.LoadDialect = (*AnsiDialect)(nil)
+var _ dialects.TopDistinctDialect = (*AnsiDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*AnsiDialect)(nil)
+var _ dialects.ShowDialect = (*AnsiDialect)(nil)
+var _ dialects.PartiQLDialect = (*AnsiDialect)(nil)
+var _ dialects.AliasDialect = (*AnsiDialect)(nil)
+var _ dialects.InsertDialect = (*AnsiDialect)(nil)
+var _ dialects.AlterTableDialect = (*AnsiDialect)(nil)
+var _ dialects.OrderByDialect = (*AnsiDialect)(nil)
+var _ dialects.GeometricDialect = (*AnsiDialect)(nil)
+var _ dialects.DescribeDialect = (*AnsiDialect)(nil)
+var _ dialects.ClickHouseDialect = (*AnsiDialect)(nil)
+var _ dialects.DuckDBDialect = (*AnsiDialect)(nil)
+var _ dialects.TrimDialect = (*AnsiDialect)(nil)
+var _ dialects.ConnectByDialect = (*AnsiDialect)(nil)
 
 // NewAnsiDialect creates a new instance of AnsiDialect.
 func NewAnsiDialect() *AnsiDialect {
