@@ -1351,11 +1351,32 @@ func (p *Parser) parseOpen() (ast.Statement, error) {
 }
 
 func (p *Parser) parseEnd() (ast.Statement, error) {
-	return nil, p.expectedRef("END not yet implemented", p.PeekTokenRef())
+	// Parse optional modifier (TRY/CATCH for MSSQL)
+	var modifier *expr.TransactionModifier
+	if p.GetDialect().SupportsEndTransactionModifier() {
+		if p.ParseKeyword("TRY") {
+			m := expr.TransactionModifierTry
+			modifier = &m
+		} else if p.ParseKeyword("CATCH") {
+			m := expr.TransactionModifierCatch
+			modifier = &m
+		}
+	}
+
+	chain, err := parseCommitRollbackChain(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Commit{
+		Chain:    chain,
+		End:      true,
+		Modifier: modifier,
+	}, nil
 }
 
 func (p *Parser) parseIfStatement() (ast.Statement, error) {
-	return nil, p.expectedRef("IF statement not yet implemented", p.PeekTokenRef())
+	return parseIfStatement(p)
 }
 
 func (p *Parser) parseWhile() (ast.Statement, error) {

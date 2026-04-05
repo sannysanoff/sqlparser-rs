@@ -480,6 +480,12 @@ const (
 	GrantObjectTypeAllTablesInSchema
 	// GrantObjectTypeAllViewsInSchema - ALL VIEWS IN SCHEMA
 	GrantObjectTypeAllViewsInSchema
+	// GrantObjectTypeAllMaterializedViewsInSchema - ALL MATERIALIZED VIEWS IN SCHEMA
+	GrantObjectTypeAllMaterializedViewsInSchema
+	// GrantObjectTypeAllExternalTablesInSchema - ALL EXTERNAL TABLES IN SCHEMA
+	GrantObjectTypeAllExternalTablesInSchema
+	// GrantObjectTypeAllFunctionsInSchema - ALL FUNCTIONS IN SCHEMA
+	GrantObjectTypeAllFunctionsInSchema
 	// GrantObjectTypeFutureTablesInSchema - FUTURE TABLES IN SCHEMA
 	GrantObjectTypeFutureTablesInSchema
 )
@@ -556,6 +562,30 @@ func (g *GrantObjects) String() string {
 		}
 	case GrantObjectTypeAllViewsInSchema:
 		f.WriteString("ALL VIEWS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeAllMaterializedViewsInSchema:
+		f.WriteString("ALL MATERIALIZED VIEWS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeAllExternalTablesInSchema:
+		f.WriteString("ALL EXTERNAL TABLES IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeAllFunctionsInSchema:
+		f.WriteString("ALL FUNCTIONS IN SCHEMA ")
 		for i, schema := range g.Schemas {
 			if i > 0 {
 				f.WriteString(", ")

@@ -2382,19 +2382,52 @@ func (c *CaseStatementElse) exprNode()        {}
 func (c *CaseStatementElse) Span() token.Span { return token.Span{} }
 func (c *CaseStatementElse) String() string   { return "" }
 
-// IfStatementCondition represents IF statement condition.
-type IfStatementCondition struct{}
+// IfStatementCondition represents IF statement IF/ELSEIF condition block.
+// Reference: src/ast/mod.rs:2701 ConditionalStatementBlock
+type IfStatementCondition struct {
+	Condition  Expr            // The boolean condition expression
+	Statements []ast.Statement // Statements to execute when condition is true
+}
 
-func (i *IfStatementCondition) exprNode()        {}
+func (i *IfStatementCondition) exprNode() {}
+
 func (i *IfStatementCondition) Span() token.Span { return token.Span{} }
-func (i *IfStatementCondition) String() string   { return "" }
+
+func (i *IfStatementCondition) String() string {
+	var sb strings.Builder
+	if i.Condition != nil {
+		sb.WriteString(i.Condition.String())
+	}
+	sb.WriteString(" THEN")
+	for _, stmt := range i.Statements {
+		sb.WriteString(" ")
+		sb.WriteString(stmt.String())
+		// Add semicolon after each statement
+		sb.WriteString(";")
+	}
+	return sb.String()
+}
 
 // IfStatementElse represents IF statement ELSE clause.
-type IfStatementElse struct{}
+// Reference: src/ast/mod.rs:2701 ConditionalStatementBlock
+type IfStatementElse struct {
+	Statements []ast.Statement
+}
 
 func (i *IfStatementElse) exprNode()        {}
 func (i *IfStatementElse) Span() token.Span { return token.Span{} }
-func (i *IfStatementElse) String() string   { return "" }
+
+func (i *IfStatementElse) String() string {
+	var sb strings.Builder
+	sb.WriteString(" ELSE")
+	for _, stmt := range i.Statements {
+		sb.WriteString(" ")
+		sb.WriteString(stmt.String())
+		// Add semicolon after each statement
+		sb.WriteString(";")
+	}
+	return sb.String()
+}
 
 // RaiseLevel represents RAISE level.
 type RaiseLevel int

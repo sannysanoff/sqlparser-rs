@@ -34,6 +34,7 @@ import (
 // Analyze represents an ANALYZE statement
 type Analyze struct {
 	BaseStatement
+	HasTableKeyword   bool
 	TableName         *ast.ObjectName
 	Partitions        []expr.Expr
 	Columns           []*ast.Ident
@@ -48,6 +49,9 @@ func (a *Analyze) statementNode() {}
 func (a *Analyze) String() string {
 	var f strings.Builder
 	f.WriteString("ANALYZE ")
+	if a.HasTableKeyword {
+		f.WriteString("TABLE ")
+	}
 	if a.TableName != nil {
 		f.WriteString(a.TableName.String())
 	}
@@ -267,29 +271,30 @@ func (c *CaseStatement) String() string {
 // ============================================================================
 
 // IfStatement represents an IF statement
+// Reference: src/ast/mod.rs:2609
 type IfStatement struct {
 	BaseStatement
-	Conditions []*expr.IfStatementCondition
-	Else       *expr.IfStatementElse
+	Conditions []*expr.IfStatementCondition // IF and ELSEIF conditions
+	Else       *expr.IfStatementElse        // Optional ELSE clause
 }
 
 func (i *IfStatement) statementNode() {}
 
 func (i *IfStatement) String() string {
-	var f strings.Builder
-	f.WriteString("IF ")
-	for j, cond := range i.Conditions {
-		if j > 0 {
-			f.WriteString("ELSEIF ")
+	var sb strings.Builder
+	for idx, cond := range i.Conditions {
+		if idx == 0 {
+			sb.WriteString("IF ")
+		} else {
+			sb.WriteString(" ELSEIF ")
 		}
-		f.WriteString(cond.String())
-		f.WriteString(" ")
+		sb.WriteString(cond.String())
 	}
 	if i.Else != nil {
-		f.WriteString(i.Else.String())
+		sb.WriteString(i.Else.String())
 	}
-	f.WriteString("END IF")
-	return f.String()
+	sb.WriteString(" END IF")
+	return sb.String()
 }
 
 // ============================================================================

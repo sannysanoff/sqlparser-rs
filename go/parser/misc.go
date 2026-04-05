@@ -241,7 +241,7 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		objects.Schemas = schemas
 	} else if p.ParseKeywords([]string{"ALL", "MATERIALIZED", "VIEWS", "IN", "SCHEMA"}) {
 		// Snowflake: ALL MATERIALIZED VIEWS IN SCHEMA
-		objects.ObjectType = statement.GrantObjectTypeAllViewsInSchema // Treat as views for now
+		objects.ObjectType = statement.GrantObjectTypeAllMaterializedViewsInSchema
 		schemas, err := parseCommaSeparatedObjectNames(p)
 		if err != nil {
 			return nil, nil, err
@@ -249,7 +249,7 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		objects.Schemas = schemas
 	} else if p.ParseKeywords([]string{"ALL", "EXTERNAL", "TABLES", "IN", "SCHEMA"}) {
 		// Snowflake: ALL EXTERNAL TABLES IN SCHEMA
-		objects.ObjectType = statement.GrantObjectTypeAllTablesInSchema // Treat as tables for now
+		objects.ObjectType = statement.GrantObjectTypeAllExternalTablesInSchema
 		schemas, err := parseCommaSeparatedObjectNames(p)
 		if err != nil {
 			return nil, nil, err
@@ -257,7 +257,7 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		objects.Schemas = schemas
 	} else if p.ParseKeywords([]string{"ALL", "FUNCTIONS", "IN", "SCHEMA"}) {
 		// Snowflake: ALL FUNCTIONS IN SCHEMA
-		objects.ObjectType = statement.GrantObjectTypeAllTablesInSchema // Generic handling
+		objects.ObjectType = statement.GrantObjectTypeAllFunctionsInSchema
 		schemas, err := parseCommaSeparatedObjectNames(p)
 		if err != nil {
 			return nil, nil, err
@@ -923,8 +923,94 @@ func parseUse(p *Parser) (ast.Statement, error) {
 }
 
 // parseAnalyze parses ANALYZE statements
+// Reference: src/parser/mod.rs:1235-1297
 func parseAnalyze(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("ANALYZE statement parsing not yet fully implemented")
+	// Check for TABLE keyword
+	hasTableKeyword := p.ParseKeyword("TABLE")
+
+	// Try to parse optional table name
+	var tableName *ast.ObjectName
+	if !p.PeekKeyword("FOR") && !p.PeekKeyword("PARTITION") && !p.PeekKeyword("CACHE") &&
+		!p.PeekKeyword("NOSCAN") && !p.PeekKeyword("COMPUTE") {
+		tableName, _ = p.ParseObjectName()
+	}
+
+	// Parse optional column list for PostgreSQL: ANALYZE t (col1, col2)
+	var columns []*ast.Ident
+	if tableName != nil {
+		tok := p.PeekToken()
+		if _, ok := tok.Token.(token.TokenLParen); ok {
+			p.AdvanceToken() // consume (
+			cols, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, err
+			}
+			p.ExpectToken(token.TokenRParen{})
+			columns = cols
+		}
+	}
+
+	var forColumns bool
+	var cacheMetadata bool
+	var noscan bool
+	var partitions []expr.Expr
+	var computeStatistics bool
+
+	// Parse additional clauses in a loop
+	for {
+		switch {
+		case p.ParseKeyword("PARTITION"):
+			p.ExpectToken(token.TokenLParen{})
+			parts, err := NewExpressionParser(p).parseCommaSeparatedExprs()
+			if err != nil {
+				return nil, err
+			}
+			partitions = parts
+			p.ExpectToken(token.TokenRParen{})
+		case p.ParseKeyword("NOSCAN"):
+			noscan = true
+		case p.ParseKeyword("FOR"):
+			if !p.ParseKeyword("COLUMNS") {
+				return nil, fmt.Errorf("Expected COLUMNS after FOR")
+			}
+			forColumns = true
+			// Optional column list
+			tok := p.PeekToken()
+			if _, ok := tok.Token.(token.TokenLParen); ok {
+				p.AdvanceToken() // consume (
+				cols, err := parseCommaSeparatedIdents(p)
+				if err != nil {
+					return nil, err
+				}
+				columns = cols
+				p.ExpectToken(token.TokenRParen{})
+			}
+		case p.ParseKeyword("CACHE"):
+			if !p.ParseKeyword("METADATA") {
+				return nil, fmt.Errorf("Expected METADATA after CACHE")
+			}
+			cacheMetadata = true
+		case p.ParseKeyword("COMPUTE"):
+			if !p.ParseKeyword("STATISTICS") {
+				return nil, fmt.Errorf("Expected STATISTICS after COMPUTE")
+			}
+			computeStatistics = true
+		default:
+			goto done
+		}
+	}
+done:
+
+	return &statement.Analyze{
+		HasTableKeyword:   hasTableKeyword,
+		TableName:         tableName,
+		ForColumns:        forColumns,
+		Columns:           columns,
+		Partitions:        partitions,
+		CacheMetadata:     cacheMetadata,
+		Noscan:            noscan,
+		ComputeStatistics: computeStatistics,
+	}, nil
 }
 
 // parseCall parses CALL statements
@@ -1779,4 +1865,107 @@ func parseMsck(p *Parser) (ast.Statement, error) {
 	}
 
 	return msck, nil
+}
+
+// parseIfStatement parses IF statements
+// Reference: src/parser/mod.rs:772-807
+func parseIfStatement(p *Parser) (ast.Statement, error) {
+	p.ExpectKeyword("IF")
+
+	var conditions []*expr.IfStatementCondition
+
+	// Parse initial IF condition
+	ifCond, err := NewExpressionParser(p).ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	p.ExpectKeyword("THEN")
+
+	// Parse statements until we hit ELSEIF, ELSE, or END
+	ifStmts, err := parseConditionalStatements(p, []string{"ELSEIF", "ELSE", "END"})
+	if err != nil {
+		return nil, err
+	}
+
+	conditions = append(conditions, &expr.IfStatementCondition{
+		Condition:  ifCond,
+		Statements: ifStmts,
+	})
+
+	// Parse optional ELSEIF blocks
+	for p.ParseKeyword("ELSEIF") {
+		elseifCond, err := NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		p.ExpectKeyword("THEN")
+
+		elseifStmts, err := parseConditionalStatements(p, []string{"ELSEIF", "ELSE", "END"})
+		if err != nil {
+			return nil, err
+		}
+
+		conditions = append(conditions, &expr.IfStatementCondition{
+			Condition:  elseifCond,
+			Statements: elseifStmts,
+		})
+	}
+
+	// Parse optional ELSE block
+	var elseClause *expr.IfStatementElse
+	if p.ParseKeyword("ELSE") {
+		elseStmts, err := parseConditionalStatements(p, []string{"END"})
+		if err != nil {
+			return nil, err
+		}
+		elseClause = &expr.IfStatementElse{
+			Statements: elseStmts,
+		}
+	}
+
+	// Expect END IF
+	p.ExpectKeyword("END")
+	p.ExpectKeyword("IF")
+
+	return &statement.IfStatement{
+		Conditions: conditions,
+		Else:       elseClause,
+	}, nil
+}
+
+// parseConditionalStatements parses a sequence of statements until one of the terminal keywords is encountered
+func parseConditionalStatements(p *Parser, terminalKeywords []string) ([]ast.Statement, error) {
+	var stmts []ast.Statement
+
+	for {
+		// Skip any semicolons (statement separators)
+		for p.ConsumeToken(token.TokenSemiColon{}) {
+			// Keep consuming semicolons
+		}
+
+		// Check for terminal keywords
+		tok := p.PeekToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			kw := string(word.Word.Keyword)
+			for _, term := range terminalKeywords {
+				if kw == term {
+					return stmts, nil
+				}
+			}
+		}
+
+		// Check for EOF
+		if _, ok := tok.Token.(token.EOF); ok {
+			return stmts, nil
+		}
+
+		// Parse next statement
+		stmt, err := p.ParseStatement()
+		if err != nil {
+			return nil, err
+		}
+		stmts = append(stmts, stmt)
+	}
 }
