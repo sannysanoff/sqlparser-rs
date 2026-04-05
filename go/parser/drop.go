@@ -290,7 +290,102 @@ func parseDropSequence(p *Parser) (ast.Statement, error) {
 }
 
 func parseDropFunction(p *Parser) (ast.Statement, error) {
-	return nil, p.ExpectedRef("DROP FUNCTION not yet implemented", p.PeekTokenRef())
+	// DROP FUNCTION [ IF EXISTS ] function_name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ] [, ...]
+	// [ CASCADE | RESTRICT ]
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse function descriptions (comma-separated)
+	var funcDescs []*expr.FunctionDesc
+	for {
+		funcDesc, err := parseFunctionDesc(p)
+		if err != nil {
+			return nil, err
+		}
+		funcDescs = append(funcDescs, funcDesc)
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		behavior := expr.DropBehaviorCascade
+		dropBehavior = &behavior
+	} else if p.ParseKeyword("RESTRICT") {
+		behavior := expr.DropBehaviorRestrict
+		dropBehavior = &behavior
+	}
+
+	return &statement.DropFunction{
+		IfExists:     ifExists,
+		FuncDesc:     funcDescs,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseFunctionDesc parses a function description with optional argument list
+func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	funcDesc := &expr.FunctionDesc{
+		Name: name,
+		Args: nil, // No args if no parentheses
+	}
+
+	// Check for optional argument list
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		p.AdvanceToken() // consume (
+
+		// Check for empty argument list: ()
+		if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
+			p.AdvanceToken() // consume )
+			funcDesc.Args = []expr.Expr{}
+		} else {
+			// Parse argument list
+			var args []expr.Expr
+			for {
+				// For DROP FUNCTION, we just need to parse the data type of each argument
+				// The syntax is: [ argmode ] [ argname ] argtype
+				// For simplicity, we parse the argtype (data type) which is required
+				dataType, err := p.ParseDataType()
+				if err != nil {
+					// Try parsing as expression for simpler cases
+					ep := NewExpressionParser(p)
+					arg, err := ep.ParseExpr()
+					if err != nil {
+						return nil, err
+					}
+					args = append(args, arg)
+				} else {
+					// Convert data type to expression representation
+					args = append(args, &expr.Identifier{
+						SpanVal: token.Span{},
+						Ident:   &expr.Ident{Value: dataType.String()},
+					})
+				}
+
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+
+			// Expect closing )
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			funcDesc.Args = args
+		}
+	}
+
+	return funcDesc, nil
 }
 
 // parseTruncate parses TRUNCATE statements

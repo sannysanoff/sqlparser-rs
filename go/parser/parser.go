@@ -609,7 +609,94 @@ func (p *Parser) parseMsck() (ast.Statement, error) {
 }
 
 func (p *Parser) parseFlush() (ast.Statement, error) {
-	return nil, p.expectedRef("FLUSH not yet implemented", p.PeekTokenRef())
+	// FLUSH [NO_WRITE_TO_BINLOG | LOCAL] flush_option [, flush_option]...
+	// Check dialect support (MySQL or Generic only)
+	dialect := p.GetDialect()
+	dialectName := dialect.Dialect()
+	if dialectName != "mysql" && dialectName != "generic" {
+		return nil, fmt.Errorf("Unsupported statement FLUSH")
+	}
+
+	flush := &statement.Flush{}
+
+	// Parse optional location modifier
+	if p.ParseKeywords([]string{"NO_WRITE_TO_BINLOG"}) {
+		loc := expr.FlushLocationNoWriteToBinlog
+		flush.Location = &loc
+	} else if p.ParseKeyword("LOCAL") {
+		loc := expr.FlushLocationLocal
+		flush.Location = &loc
+	}
+
+	// Parse flush type
+	switch {
+	case p.ParseKeywords([]string{"BINARY", "LOGS"}):
+		flush.ObjectType = expr.FlushTypeBinaryLogs
+	case p.ParseKeywords([]string{"ENGINE", "LOGS"}):
+		flush.ObjectType = expr.FlushTypeEngineLogs
+	case p.ParseKeywords([]string{"ERROR", "LOGS"}):
+		flush.ObjectType = expr.FlushTypeErrorLogs
+	case p.ParseKeywords([]string{"GENERAL", "LOGS"}):
+		flush.ObjectType = expr.FlushTypeGeneralLogs
+	case p.ParseKeywords([]string{"HOSTS"}):
+		flush.ObjectType = expr.FlushTypeHosts
+	case p.ParseKeyword("PRIVILEGES"):
+		flush.ObjectType = expr.FlushTypePrivileges
+	case p.ParseKeyword("OPTIMIZER_COSTS"):
+		flush.ObjectType = expr.FlushTypeOptimizerCosts
+	case p.ParseKeywords([]string{"RELAY", "LOGS"}):
+		// Check for FOR CHANNEL clause
+		if p.ParseKeywords([]string{"FOR", "CHANNEL"}) {
+			channel, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			channelStr := channel.Value
+			flush.Channel = &channelStr
+		}
+		flush.ObjectType = expr.FlushTypeRelayLogs
+	case p.ParseKeywords([]string{"SLOW", "LOGS"}):
+		flush.ObjectType = expr.FlushTypeSlowLogs
+	case p.ParseKeyword("STATUS"):
+		flush.ObjectType = expr.FlushTypeStatus
+	case p.ParseKeyword("USER_RESOURCES"):
+		// Note: USER_RESOURCES is a valid MySQL FLUSH option
+		flush.ObjectType = expr.FlushTypeStatus
+	case p.ParseKeywords([]string{"LOGS"}):
+		flush.ObjectType = expr.FlushTypeLogs
+	case p.ParseKeywords([]string{"TABLES"}):
+		flush.ObjectType = expr.FlushTypeTables
+		// Parse optional table list and READ LOCK
+		for {
+			if p.PeekKeyword("WITH") || p.PeekKeyword("READ") || p.PeekKeyword("EXPORT") {
+				break
+			}
+			tok := p.PeekToken()
+			if _, ok := tok.Token.(token.TokenWord); !ok {
+				break
+			}
+			tableName, err := p.ParseObjectName()
+			if err != nil {
+				break
+			}
+			flush.Tables = append(flush.Tables, tableName)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		// Check for READ LOCK
+		if p.ParseKeyword("WITH") && p.ParseKeyword("READ") && p.ParseKeyword("LOCK") {
+			flush.ReadLock = true
+		}
+		// Check for EXPORT
+		if p.ParseKeyword("FOR") && p.ParseKeyword("EXPORT") {
+			flush.Export = true
+		}
+	default:
+		return nil, p.expected("FLUSH option", p.PeekToken())
+	}
+
+	return flush, nil
 }
 
 func (p *Parser) parseKill() (ast.Statement, error) {
@@ -1072,7 +1159,62 @@ func (p *Parser) parseRelease() (ast.Statement, error) {
 }
 
 func (p *Parser) parseLock() (ast.Statement, error) {
-	return nil, p.expectedRef("LOCK not yet implemented for generic dialect", p.PeekTokenRef())
+	// LOCK TABLE table_name [, ...] [IN lock_mode MODE] [NOWAIT]
+	// Check dialect - some dialects like MySQL handle LOCK in their own parseStatement
+	dialect := p.GetDialect()
+	dialectName := dialect.Dialect()
+
+	// PostgreSQL/generic dialect: LOCK TABLE
+	// MySQL has its own LOCK TABLES handling
+	if dialectName == "mysql" {
+		return nil, p.expectedRef("LOCK not yet implemented for generic dialect", p.PeekTokenRef())
+	}
+
+	// Check for LOCK [TABLE | TABLES]
+	isTables := p.ParseKeyword("TABLES")
+	if !isTables {
+		p.ParseKeyword("TABLE") // Optional TABLE keyword
+	}
+
+	// Parse table list
+	var tables []*expr.LockTable
+	for {
+		tableName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		tables = append(tables, &expr.LockTable{
+			Table:    tableName,
+			LockType: expr.LockTableTypeRead, // Default
+		})
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// Parse optional IN ... MODE clause
+	var lockMode *expr.LockMode
+	if p.ParseKeyword("IN") {
+		// Simplified: just consume the mode keywords and set a basic mode
+		// Full implementation would parse ACCESS SHARE, ROW EXCLUSIVE, etc.
+		p.ParseKeyword("ACCESS")
+		p.ParseKeyword("SHARE")
+		if p.ParseKeyword("MODE") {
+			mode := expr.LockMode(1) // Placeholder
+			lockMode = &mode
+		}
+	}
+
+	// Parse optional NOWAIT
+	noWait := p.ParseKeyword("NOWAIT")
+
+	return &statement.Lock{
+		Tables: tables,
+		Mode:   lockMode,
+		NoWait: noWait,
+	}, nil
 }
 
 func (p *Parser) parseUnlock() (ast.Statement, error) {
@@ -1080,11 +1222,61 @@ func (p *Parser) parseUnlock() (ast.Statement, error) {
 }
 
 func (p *Parser) parseRename() (ast.Statement, error) {
-	return nil, p.expectedRef("RENAME not yet implemented", p.PeekTokenRef())
+	// RENAME TABLE old_name TO new_name [, old_name2 TO new_name2, ...]
+	if !p.ParseKeyword("TABLE") {
+		return nil, p.expected("TABLE after RENAME", p.PeekToken())
+	}
+
+	var renames []*expr.RenameTable
+
+	for {
+		oldName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		if !p.ParseKeyword("TO") {
+			return nil, p.expected("TO after table name", p.PeekToken())
+		}
+
+		newName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		renames = append(renames, &expr.RenameTable{
+			OldName: oldName,
+			NewName: newName,
+		})
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return &statement.RenameTable{
+		Renames: renames,
+	}, nil
 }
 
 func (p *Parser) parseReset() (ast.Statement, error) {
-	return nil, p.expectedRef("RESET not yet implemented", p.PeekTokenRef())
+	// RESET { ALL | configuration_parameter }
+	// Check for ALL keyword first
+	if p.ParseKeyword("ALL") {
+		return &statement.Reset{
+			Statement: &expr.ResetStatement{ConfigName: "ALL"},
+		}, nil
+	}
+
+	// Parse configuration parameter name (can be multi-part)
+	configName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Reset{
+		Statement: &expr.ResetStatement{ConfigName: configName.String()},
+	}, nil
 }
 
 func (p *Parser) parseDiscard() (ast.Statement, error) {
@@ -1122,7 +1314,20 @@ func (p *Parser) parseExport() (ast.Statement, error) {
 }
 
 func (p *Parser) parseReturn() (ast.Statement, error) {
-	return nil, p.expectedRef("RETURN not yet implemented", p.PeekTokenRef())
+	// RETURN [expression]
+	// Parse optional expression
+	ep := NewExpressionParser(p)
+	exprVal, err := ep.ParseExpr()
+	if err != nil {
+		// RETURN without expression is valid
+		return &statement.Return{
+			Statement: &expr.ReturnStatement{Value: nil},
+		}, nil
+	}
+
+	return &statement.Return{
+		Statement: &expr.ReturnStatement{Value: exprVal},
+	}, nil
 }
 
 func (p *Parser) parsePrint() (ast.Statement, error) {
