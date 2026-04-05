@@ -1310,6 +1310,24 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 	typeName := strings.ToUpper(word.Word.Value)
 
 	switch typeName {
+	case "UNSIGNED":
+		// MySQL: UNSIGNED [INTEGER] - check if INTEGER or INT follows
+		if p.ParseKeyword("INTEGER") {
+			return &datatype.UnsignedIntegerType{SpanVal: tok.Span}, nil
+		}
+		if p.ParseKeyword("INT") {
+			return &datatype.UnsignedIntegerType{SpanVal: tok.Span}, nil
+		}
+		return &datatype.UnsignedType{SpanVal: tok.Span}, nil
+	case "SIGNED":
+		// MySQL: SIGNED [INTEGER] - check if INTEGER or INT follows
+		if p.ParseKeyword("INTEGER") {
+			return &datatype.SignedIntegerType{SpanVal: tok.Span}, nil
+		}
+		if p.ParseKeyword("INT") {
+			return &datatype.SignedIntegerType{SpanVal: tok.Span}, nil
+		}
+		return &datatype.SignedType{SpanVal: tok.Span}, nil
 	case "INT", "INTEGER":
 		return parseIntType(p, tok.Span)
 	case "INT4":
@@ -1355,7 +1373,7 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 	case "NUMERIC":
 		return parseNumericType(p, tok.Span)
 	case "DECIMAL", "DEC":
-		return parseDecimalType(p, tok.Span)
+		return parseDecimalType(p, tok.Span, word.Word.Value)
 	case "REAL":
 		return parseRealType(p, tok.Span)
 	case "BYTEA":
@@ -1819,7 +1837,7 @@ func parseNumericType(p *Parser, spanVal token.Span) (datatype.DataType, error) 
 
 // parseDecimalType parses DECIMAL [(p[,s])] or DEC [(p[,s])] with UNSIGNED modifier
 // Reference: src/parser/mod.rs:12181-12198
-func parseDecimalType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+func parseDecimalType(p *Parser, spanVal token.Span, typeName string) (datatype.DataType, error) {
 	var info datatype.ExactNumberInfo
 	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
@@ -1851,8 +1869,15 @@ func parseDecimalType(p *Parser, spanVal token.Span) (datatype.DataType, error) 
 		}
 	}
 
+	isDec := strings.ToUpper(typeName) == "DEC"
 	if p.ParseKeyword("UNSIGNED") {
+		if isDec {
+			return &datatype.DecUnsignedType{Info: info, SpanVal: spanVal}, nil
+		}
 		return &datatype.DecimalUnsignedType{Info: info, SpanVal: spanVal}, nil
+	}
+	if isDec {
+		return &datatype.DecType{Info: info, SpanVal: spanVal}, nil
 	}
 	return &datatype.DecimalType{Info: info, SpanVal: spanVal}, nil
 }

@@ -82,6 +82,13 @@ func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr
 			break
 		}
 
+		// The colon operator is used for named function arguments (e.g., JSON_OBJECT('key' : value))
+		// It's not a general infix operator, so we stop expression parsing here
+		// and let the function argument parser handle it.
+		if _, ok := nextTok.Token.(token.TokenColon); ok {
+			break
+		}
+
 		// Parse the infix operator
 		left, err = ep.parseInfix(left, nextPrecedence)
 		if err != nil {

@@ -870,7 +870,7 @@ Always check the Rust reference when implementing identifier parsing.
 
 ## Current Status
 
-**Overall Progress: ~42% Test Pass Rate** (~473+ tests failing)
+**Overall Progress: ~42% Test Pass Rate** (~469 tests failing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -886,14 +886,44 @@ Always check the Rust reference when implementing identifier parsing.
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 68,201 lines (101% of Rust - added data types)
-- Go Tests: 14,131 lines
+- Go Source: 68,233 lines (101% of Rust - added data types)
+- Rust Tests: 49,886 lines
+- Go Tests: 14,131 lines (28%)
 
-**Recent Focus:** CAST expressions with complex data types, table-valued functions, and data type completeness
+**Recent Focus:** CAST expressions with complex data types, named function arguments, and JSON_OBJECT parsing
 
 ---
 
 ## Recent Progress
+
+### April 7, 2026 - Data Type Parsing and JSON_OBJECT Named Arguments
+
+Implemented critical fixes for data type parsing and named function argument support:
+
+1. **DEC vs DECIMAL Type Preservation** (parser/parser.go):
+   - Fixed `parseDecimalType()` to accept the original type name parameter
+   - Now correctly returns `DecType` for "DEC" and `DecimalType` for "DECIMAL"
+   - Updated `ParseDataType()` to pass the original keyword to `parseDecimalType()`
+   - **+1 test passing** (TestParseCast - DEC now stays as DEC in output)
+
+2. **UNSIGNED INTEGER Data Type Support** (parser/parser.go):
+   - Added case for "UNSIGNED" keyword in `ParseDataType()` switch
+   - Supports both `UNSIGNED INTEGER` and `UNSIGNED INT` syntax (MySQL style)
+   - Falls back to plain `UNSIGNED` type if no INTEGER/INT follows
+   - **+1 test passing** (TestParseCastIntegers - MySQL UNSIGNED INTEGER now works)
+
+3. **Colon Operator for Named Function Arguments** (parser/core.go, parser/infix.go):
+   - Added colon (`:`) to the expression parsing break list in `ParseExprWithPrecedence()`
+   - The colon is now treated as an expression boundary, not an infix operator
+   - This allows the function argument parser to handle `:` as a named argument separator
+   - Required for MSSQL JSON_OBJECT syntax: `JSON_OBJECT('key' : value)`
+   - JSON_OBJECT now parses successfully (though String() output uses `=>` instead of `:` - AST enhancement needed)
+
+**Key Pattern Documentation:**
+- **Pattern W: Data Type Name Preservation** - When multiple SQL keywords map to the same conceptual type (DEC/DECIMAL, INT/INTEGER), the parser must track the original keyword used to preserve round-trip serialization.
+- **Pattern X: Token as Expression Boundary** - Tokens like `:` that have special meaning in specific contexts (function arguments) should be treated as expression boundaries in general expression parsing by adding them to the break list in `ParseExprWithPrecedence()`.
+
+---
 
 ### April 7, 2026 - COLLATE and String Literal Concatenation
 
@@ -1410,11 +1440,11 @@ go build ./...                      # Build everything
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 5, 2026  
+**Last Updated:** April 7, 2026  
 **Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total ~339/813 (~42%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines  
-- Go Source: 68,201 lines (101% of Rust - data types added)  
+- Go Source: 68,233 lines (101% of Rust - data types added)  
 - Go Tests: 14,131 lines  
 - Rust Tests: 49,886 lines
