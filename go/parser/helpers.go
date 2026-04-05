@@ -385,8 +385,8 @@ func (ep *ExpressionParser) parseCastExpr(kind expr.CastKind) (expr.Expr, error)
 		return nil, fmt.Errorf("expected AS in CAST expression")
 	}
 
-	// Parse data type (for now as identifier)
-	dtype, err := ep.parseIdentifier()
+	// Parse data type using the proper data type parser
+	dataType, err := ep.parser.ParseDataType()
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func (ep *ExpressionParser) parseCastExpr(kind expr.CastKind) (expr.Expr, error)
 		SpanVal:  mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
 		Kind:     kind,
 		Expr:     castExpr,
-		DataType: dtype.Value,
+		DataType: dataType.String(),
 		Array:    isArray,
 		Format:   format,
 	}, nil
@@ -613,30 +613,56 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 }
 
 // parsePositionExpr parses a POSITION expression
+// Following the Rust implementation, if the special POSITION(expr IN expr) syntax
+// doesn't parse correctly, it falls back to treating POSITION as a regular function.
 func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.Span) (expr.Expr, error) {
+	// Save position for potential backtracking
+	startIndex := ep.parser.GetCurrentIndex()
+
 	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
-	// Parse expression (the substring)
+	// Try to parse the special POSITION(substr IN str) syntax
 	betweenPrec := ep.getPrecedence(parseriface.PrecedenceBetween)
 	substrExpr, err := ep.ParseExprWithPrecedence(betweenPrec)
 	if err != nil {
-		return nil, err
+		// Backtrack and try as regular function
+		ep.parser.SetCurrentIndex(startIndex)
+		return ep.parseFunctionWithName(&expr.ObjectName{
+			SpanVal: span,
+			Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(&word, span)}},
+		})
 	}
 
+	// Check for IN keyword - if not found, this might be Snowflake-style function call
 	if !ep.parser.ParseKeyword("IN") {
-		return nil, fmt.Errorf("expected IN in POSITION expression")
+		// Backtrack and parse as regular function
+		ep.parser.SetCurrentIndex(startIndex)
+		return ep.parseFunctionWithName(&expr.ObjectName{
+			SpanVal: span,
+			Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(&word, span)}},
+		})
 	}
 
 	// Parse the string to search in
 	inExpr, err := ep.ParseExpr()
 	if err != nil {
-		return nil, err
+		// Backtrack and parse as regular function
+		ep.parser.SetCurrentIndex(startIndex)
+		return ep.parseFunctionWithName(&expr.ObjectName{
+			SpanVal: span,
+			Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(&word, span)}},
+		})
 	}
 
 	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-		return nil, err
+		// Backtrack and parse as regular function
+		ep.parser.SetCurrentIndex(startIndex)
+		return ep.parseFunctionWithName(&expr.ObjectName{
+			SpanVal: span,
+			Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(&word, span)}},
+		})
 	}
 
 	return &expr.PositionExpr{

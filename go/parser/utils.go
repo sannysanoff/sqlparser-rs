@@ -134,6 +134,12 @@ func (p *Parser) GetCurrentIndex() int {
 	return p.index - 1
 }
 
+// SetCurrentIndex sets the parser index to a specific position.
+// This is used for backtracking during parsing.
+func (p *Parser) SetCurrentIndex(index int) {
+	p.index = index
+}
+
 // PrevToken seeks back the last one non-whitespace token.
 // Must be called after NextToken(), otherwise might panic.
 // OK to call after NextToken() indicates an EOF.

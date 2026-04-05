@@ -870,7 +870,7 @@ Always check the Rust reference when implementing identifier parsing.
 
 ## Current Status
 
-**Overall Progress: ~42% Test Pass Rate** (~474/813 tests failing)
+**Overall Progress: ~42% Test Pass Rate** (~473+ tests failing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -885,11 +885,11 @@ Always check the Rust reference when implementing identifier parsing.
 
 **Line Counts:**
 
-- Rust Source (src/ + tests/): 117,231 lines
-- Go Source (go/): 81,931 lines (70% of Rust)
-- Go Tests (go/tests): 14,112 lines
+- Rust Source: 67,345 lines
+- Go Source: 68,201 lines (101% of Rust - added data types)
+- Go Tests: 14,131 lines
 
-**Recent Focus:** COLLATE expressions and string literal concatenation (4+ tests now passing)
+**Recent Focus:** CAST expressions with complex data types, table-valued functions, and data type completeness
 
 ---
 
@@ -922,6 +922,53 @@ Implemented comprehensive support for COLLATE expressions and string literal con
 - **Pattern V: Quoted String Identifiers** - `parseIdentifier()` must accept `TokenSingleQuotedString` and `TokenDoubleQuotedString` as valid identifiers (not just `TokenWord`), following Rust `parse_identifier()` in `src/parser/mod.rs:12926`.
 
 **Result:** +4 tests now passing (COLLATE and string concatenation)
+
+---
+
+### April 5, 2026 - CAST Expression, Data Types, and Table-Valued Functions
+
+Implemented major parser fixes for CAST expressions, added comprehensive data type support, and fixed table-valued function parsing:
+
+1. **CAST Expression Fix** (parser/helpers.go):
+   - Fixed `parseCastExpr()` to use `ParseDataType()` instead of `parseIdentifier()`
+   - This enables parsing complex types like `NVARCHAR(50)`, `CLOB(100)`, etc.
+   - **Critical fix**: CAST now properly handles parameterized data types
+
+2. **Extended Data Type Support** (parser/parser.go, ast/datatype/datatype.go):
+   - Added `NVARCHAR`, `NCHAR`, `VARCHAR2`, `NVARCHAR2` character types
+   - Added `CLOB`, `BLOB` large object types  
+   - Added `BINARY`, `VARBINARY` binary types
+   - Added `TIME` with optional precision and `WITH TIME ZONE` clause
+   - Added `NcharType`, `Varchar2Type`, `Nvarchar2Type` structs to datatype package
+   - All new types properly handle optional length/precision parameters
+
+3. **Table-Valued Function Support** (parser/query.go):
+   - Added support for table-valued functions in FROM clause: `SELECT * FROM fn()`
+   - Updated `parseTableName()` to detect `(` after table name and parse as function
+   - Added `parseTableFunctionArgs()` helper for parsing function arguments
+   - Reference: `src/parser/mod.rs:15730-15735` for Rust implementation pattern
+
+4. **Parser Backtracking Support** (parser/utils.go, parseriface/parser.go):
+   - Added `SetCurrentIndex()` method to Parser interface for token position restoration
+   - Enables proper backtracking when trying alternative parsing strategies
+   - Used by `parsePositionExpr()` for Snowflake-style POSITION function handling
+
+5. **POSITION Expression Fix** (parser/helpers.go):
+   - Implemented backtracking in `parsePositionExpr()` for Snowflake 3-arg syntax
+   - When special `POSITION(substr IN str)` syntax fails, falls back to function call
+   - Uses `SavePosition()` pattern from Rust's `maybe_parse`
+
+**Key Pattern Documentation:**
+- **Pattern W: CAST Data Type Parsing** - CAST expressions must use `ParseDataType()` not `parseIdentifier()` to handle complex types like `NVARCHAR(50)` or `DECIMAL(10,2)`.
+- **Pattern X: Table-Valued Functions** - After parsing a table name, check for `(` to detect table-valued functions. Reference: `src/parser/mod.rs:15730-15735`.
+- **Pattern Y: Parser Backtracking** - Use `SavePosition()` or `GetCurrentIndex()/SetCurrentIndex()` to implement backtracking. This is the Go equivalent of Rust's `maybe_parse`.
+
+**Result:** Table-valued functions now parsing correctly. CAST with complex data types working. +1 test passing (TestParseNullaryTableValuedFunction).
+
+**Line Counts (Updated):**
+- Rust Source: 67,345 lines
+- Go Source: 68,201 lines (101% of Rust - increased due to type additions)
+- Go Tests: 14,131 lines
 
 ---
 
@@ -1363,10 +1410,11 @@ go build ./...                      # Build everything
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 6, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total 473/1207 (39%)**
+**Last Updated:** April 5, 2026  
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total ~339/813 (~42%)**
 
 **Line Counts:**
-- Rust Source: 67,345 lines
-- Go Source: 67,514 lines (100% of Rust)
-- Go Tests: 14,112 lines
+- Rust Source: 67,345 lines  
+- Go Source: 68,201 lines (101% of Rust - data types added)  
+- Go Tests: 14,131 lines  
+- Rust Tests: 49,886 lines

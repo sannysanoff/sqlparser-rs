@@ -1132,11 +1132,32 @@ func isSubqueryStart(p *Parser) bool {
 	return false
 }
 
-// parseTableName parses a simple table name
+// parseTableName parses a simple table name or table-valued function
+// Reference: src/parser/mod.rs:15712-15805
 func parseTableName(p *Parser) (query.TableFactor, error) {
 	name, err := p.ParseObjectName()
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for table-valued function: fn() or schema.fn()
+	// Reference: src/parser/mod.rs:15731-15735
+	if p.ConsumeToken(token.TokenLParen{}) {
+		// This is a table-valued function
+		args, err := parseTableFunctionArgs(p)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for alias
+		alias, _ := tryParseTableAlias(p)
+
+		return &query.FunctionTableFactor{
+			Lateral: false,
+			Name:    astObjectNameToQuery(name),
+			Args:    args,
+			Alias:   alias,
+		}, nil
 	}
 
 	// Check for alias
@@ -1146,6 +1167,44 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		Name:  astObjectNameToQuery(name),
 		Alias: alias,
 	}, nil
+}
+
+// parseTableFunctionArgs parses the arguments for a table-valued function
+// Handles both empty args () and non-empty args (arg1, arg2, ...)
+func parseTableFunctionArgs(p *Parser) ([]query.FunctionArg, error) {
+	var args []query.FunctionArg
+
+	// Check for empty args: )
+	if p.ConsumeToken(token.TokenRParen{}) {
+		return args, nil
+	}
+
+	// Parse non-empty argument list
+	ep := NewExpressionParser(p)
+	for {
+		argExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, query.FunctionArg{Expr: exprToQueryExpr(argExpr)})
+
+		// Check for comma or closing paren
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if p.ConsumeToken(token.TokenRParen{}) {
+			break
+		}
+		return nil, fmt.Errorf("expected comma or closing parenthesis in function argument list")
+	}
+
+	return args, nil
+}
+
+// exprToQueryExpr converts an expr.Expr to a query.Expr
+// This is a helper to bridge the two expression types
+func exprToQueryExpr(e expr.Expr) query.Expr {
+	return &queryExprWrapper{expr: e}
 }
 
 // parseDerivedTable parses a subquery in parentheses

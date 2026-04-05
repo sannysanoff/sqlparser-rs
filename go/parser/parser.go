@@ -1328,14 +1328,22 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 		return &datatype.TextType{SpanVal: tok.Span}, nil
 	case "VARCHAR":
 		return parseVarcharType(p, tok.Span)
+	case "NVARCHAR":
+		return parseNvarcharType(p, tok.Span)
 	case "CHAR", "CHARACTER":
 		return parseCharType(p, tok.Span)
+	case "NCHAR":
+		return parseNcharType(p, tok.Span)
+	case "VARCHAR2":
+		return parseVarchar2Type(p, tok.Span)
+	case "NVARCHAR2":
+		return parseNvarchar2Type(p, tok.Span)
 	case "BOOL", "BOOLEAN":
 		return &datatype.BooleanType{SpanVal: tok.Span}, nil
 	case "DATE":
 		return &datatype.DateType{SpanVal: tok.Span}, nil
 	case "TIME":
-		return &datatype.TimeType{SpanVal: tok.Span}, nil
+		return parseTimeType(p, tok.Span)
 	case "TIMESTAMP":
 		return parseTimestampType(p, tok.Span)
 	case "DATETIME":
@@ -1358,6 +1366,14 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 		return &datatype.JSONBType{SpanVal: tok.Span}, nil
 	case "UUID":
 		return &datatype.UuidType{SpanVal: tok.Span}, nil
+	case "CLOB":
+		return parseClobType(p, tok.Span)
+	case "BLOB":
+		return parseBlobType(p, tok.Span)
+	case "BINARY":
+		return parseBinaryType(p, tok.Span)
+	case "VARBINARY":
+		return parseVarbinaryType(p, tok.Span)
 	default:
 		// For unknown types, return a custom type
 		return &datatype.CustomType{
@@ -1417,6 +1433,146 @@ func parseCharType(p *Parser, spanVal token.Span) (*datatype.CharType, error) {
 			}
 		} else {
 			return nil, fmt.Errorf("expected number in CHAR length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseNvarcharType parses NVARCHAR [(n)]
+func parseNvarcharType(p *Parser, spanVal token.Span) (*datatype.NvarcharType, error) {
+	result := &datatype.NvarcharType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional size specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid NVARCHAR length: %w", err)
+			}
+			result.Length = &datatype.CharacterLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in NVARCHAR length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseNcharType parses NCHAR [(n)]
+func parseNcharType(p *Parser, spanVal token.Span) (*datatype.NcharType, error) {
+	result := &datatype.NcharType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional size specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid NCHAR length: %w", err)
+			}
+			result.Length = &datatype.CharacterLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in NCHAR length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseVarchar2Type parses VARCHAR2 [(n)] (Oracle-specific)
+func parseVarchar2Type(p *Parser, spanVal token.Span) (*datatype.Varchar2Type, error) {
+	result := &datatype.Varchar2Type{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional size specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid VARCHAR2 length: %w", err)
+			}
+			result.Length = &datatype.CharacterLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in VARCHAR2 length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseNvarchar2Type parses NVARCHAR2 [(n)] (Oracle-specific)
+func parseNvarchar2Type(p *Parser, spanVal token.Span) (*datatype.Nvarchar2Type, error) {
+	result := &datatype.Nvarchar2Type{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional size specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid NVARCHAR2 length: %w", err)
+			}
+			result.Length = &datatype.CharacterLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in NVARCHAR2 length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseTimeType parses TIME [WITH TIME ZONE]
+func parseTimeType(p *Parser, spanVal token.Span) (*datatype.TimeType, error) {
+	result := &datatype.TimeType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional precision
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			precision, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid TIME precision: %w", err)
+			}
+			result.Precision = &precision
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Check for WITH TIME ZONE
+	if p.ParseKeyword("WITH") {
+		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+			result.TimezoneInfo = datatype.WithTimeZone
 		}
 	}
 
@@ -1758,6 +1914,114 @@ func parseDatetimeType(p *Parser, spanVal token.Span) (*datatype.DatetimeType, e
 			}
 		} else {
 			return nil, fmt.Errorf("expected number in DATETIME precision specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseClobType parses CLOB [(n)]
+func parseClobType(p *Parser, spanVal token.Span) (*datatype.ClobType, error) {
+	result := &datatype.ClobType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional length specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CLOB length: %w", err)
+			}
+			result.Length = &length
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in CLOB length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseBlobType parses BLOB [(n)]
+func parseBlobType(p *Parser, spanVal token.Span) (*datatype.BlobType, error) {
+	result := &datatype.BlobType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional length specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid BLOB length: %w", err)
+			}
+			result.Length = &length
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in BLOB length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseBinaryType parses BINARY [(n)]
+func parseBinaryType(p *Parser, spanVal token.Span) (*datatype.BinaryType, error) {
+	result := &datatype.BinaryType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional length specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid BINARY length: %w", err)
+			}
+			result.Length = &length
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in BINARY length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseVarbinaryType parses VARBINARY [(n)]
+func parseVarbinaryType(p *Parser, spanVal token.Span) (*datatype.VarbinaryType, error) {
+	result := &datatype.VarbinaryType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional length specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid VARBINARY length: %w", err)
+			}
+			result.Length = &datatype.BinaryLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in VARBINARY length specification")
 		}
 	}
 

@@ -523,7 +523,7 @@ type TableType struct {
 }
 
 func (t *TableType) Span() token.Span { return t.SpanVal }
-func (t *TableType) dataTypeNode()   {}
+func (t *TableType) dataTypeNode()    {}
 func (t *TableType) String() string {
 	if !t.HasFields {
 		return "TABLE"
@@ -543,7 +543,7 @@ type NamedTableType struct {
 }
 
 func (t *NamedTableType) Span() token.Span { return t.SpanVal }
-func (t *NamedTableType) dataTypeNode()   {}
+func (t *NamedTableType) dataTypeNode()    {}
 func (t *NamedTableType) String() string {
 	cols := make([]string, len(t.Columns))
 	for i, col := range t.Columns {
@@ -559,7 +559,7 @@ type CharacterType struct {
 }
 
 func (t *CharacterType) Span() token.Span { return t.SpanVal }
-func (t *CharacterType) dataTypeNode()   {}
+func (t *CharacterType) dataTypeNode()    {}
 func (t *CharacterType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHARACTER(%s)", t.Length.String())
@@ -574,7 +574,7 @@ type CharType struct {
 }
 
 func (t *CharType) Span() token.Span { return t.SpanVal }
-func (t *CharType) dataTypeNode()   {}
+func (t *CharType) dataTypeNode()    {}
 func (t *CharType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHAR(%s)", t.Length.String())
@@ -589,7 +589,7 @@ type CharacterVaryingType struct {
 }
 
 func (t *CharacterVaryingType) Span() token.Span { return t.SpanVal }
-func (t *CharacterVaryingType) dataTypeNode()   {}
+func (t *CharacterVaryingType) dataTypeNode()    {}
 func (t *CharacterVaryingType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHARACTER VARYING(%s)", t.Length.String())
@@ -604,7 +604,7 @@ type CharVaryingType struct {
 }
 
 func (t *CharVaryingType) Span() token.Span { return t.SpanVal }
-func (t *CharVaryingType) dataTypeNode()   {}
+func (t *CharVaryingType) dataTypeNode()    {}
 func (t *CharVaryingType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHAR VARYING(%s)", t.Length.String())
@@ -619,7 +619,7 @@ type VarcharType struct {
 }
 
 func (t *VarcharType) Span() token.Span { return t.SpanVal }
-func (t *VarcharType) dataTypeNode()   {}
+func (t *VarcharType) dataTypeNode()    {}
 func (t *VarcharType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("VARCHAR(%s)", t.Length.String())
@@ -634,12 +634,57 @@ type NvarcharType struct {
 }
 
 func (t *NvarcharType) Span() token.Span { return t.SpanVal }
-func (t *NvarcharType) dataTypeNode()   {}
+func (t *NvarcharType) dataTypeNode()    {}
 func (t *NvarcharType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("NVARCHAR(%s)", t.Length.String())
 	}
 	return "NVARCHAR"
+}
+
+// NcharType represents a fixed-length national character type, e.g. NCHAR(10).
+type NcharType struct {
+	SpanVal token.Span
+	Length  *CharacterLength
+}
+
+func (t *NcharType) Span() token.Span { return t.SpanVal }
+func (t *NcharType) dataTypeNode()    {}
+func (t *NcharType) String() string {
+	if t.Length != nil {
+		return fmt.Sprintf("NCHAR(%s)", t.Length.String())
+	}
+	return "NCHAR"
+}
+
+// Varchar2Type represents Oracle's VARCHAR2 type, e.g. VARCHAR2(10).
+type Varchar2Type struct {
+	SpanVal token.Span
+	Length  *CharacterLength
+}
+
+func (t *Varchar2Type) Span() token.Span { return t.SpanVal }
+func (t *Varchar2Type) dataTypeNode()    {}
+func (t *Varchar2Type) String() string {
+	if t.Length != nil {
+		return fmt.Sprintf("VARCHAR2(%s)", t.Length.String())
+	}
+	return "VARCHAR2"
+}
+
+// Nvarchar2Type represents Oracle's NVARCHAR2 type, e.g. NVARCHAR2(10).
+type Nvarchar2Type struct {
+	SpanVal token.Span
+	Length  *CharacterLength
+}
+
+func (t *Nvarchar2Type) Span() token.Span { return t.SpanVal }
+func (t *Nvarchar2Type) dataTypeNode()    {}
+func (t *Nvarchar2Type) String() string {
+	if t.Length != nil {
+		return fmt.Sprintf("NVARCHAR2(%s)", t.Length.String())
+	}
+	return "NVARCHAR2"
 }
 
 // UuidType represents a UUID type.
@@ -648,8 +693,8 @@ type UuidType struct {
 }
 
 func (t *UuidType) Span() token.Span { return t.SpanVal }
-func (t *UuidType) dataTypeNode()   {}
-func (t *UuidType) String() string  { return "UUID" }
+func (t *UuidType) dataTypeNode()    {}
+func (t *UuidType) String() string   { return "UUID" }
 
 // CharacterLargeObjectType represents a large character object type.
 type CharacterLargeObjectType struct {
@@ -658,7 +703,7 @@ type CharacterLargeObjectType struct {
 }
 
 func (t *CharacterLargeObjectType) Span() token.Span { return t.SpanVal }
-func (t *CharacterLargeObjectType) dataTypeNode()   {}
+func (t *CharacterLargeObjectType) dataTypeNode()    {}
 func (t *CharacterLargeObjectType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHARACTER LARGE OBJECT(%d)", *t.Length)
@@ -673,7 +718,7 @@ type CharLargeObjectType struct {
 }
 
 func (t *CharLargeObjectType) Span() token.Span { return t.SpanVal }
-func (t *CharLargeObjectType) dataTypeNode()   {}
+func (t *CharLargeObjectType) dataTypeNode()    {}
 func (t *CharLargeObjectType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CHAR LARGE OBJECT(%d)", *t.Length)
@@ -688,7 +733,7 @@ type ClobType struct {
 }
 
 func (t *ClobType) Span() token.Span { return t.SpanVal }
-func (t *ClobType) dataTypeNode()   {}
+func (t *ClobType) dataTypeNode()    {}
 func (t *ClobType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("CLOB(%d)", *t.Length)
@@ -703,7 +748,7 @@ type BinaryType struct {
 }
 
 func (t *BinaryType) Span() token.Span { return t.SpanVal }
-func (t *BinaryType) dataTypeNode()   {}
+func (t *BinaryType) dataTypeNode()    {}
 func (t *BinaryType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("BINARY(%d)", *t.Length)
@@ -718,7 +763,7 @@ type VarbinaryType struct {
 }
 
 func (t *VarbinaryType) Span() token.Span { return t.SpanVal }
-func (t *VarbinaryType) dataTypeNode()   {}
+func (t *VarbinaryType) dataTypeNode()    {}
 func (t *VarbinaryType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("VARBINARY(%s)", t.Length.String())
@@ -733,7 +778,7 @@ type BlobType struct {
 }
 
 func (t *BlobType) Span() token.Span { return t.SpanVal }
-func (t *BlobType) dataTypeNode()   {}
+func (t *BlobType) dataTypeNode()    {}
 func (t *BlobType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("BLOB(%d)", *t.Length)
@@ -747,8 +792,8 @@ type TinyBlobType struct {
 }
 
 func (t *TinyBlobType) Span() token.Span { return t.SpanVal }
-func (t *TinyBlobType) dataTypeNode()   {}
-func (t *TinyBlobType) String() string  { return "TINYBLOB" }
+func (t *TinyBlobType) dataTypeNode()    {}
+func (t *TinyBlobType) String() string   { return "TINYBLOB" }
 
 // MediumBlobType represents a MySQL medium blob type.
 type MediumBlobType struct {
@@ -756,8 +801,8 @@ type MediumBlobType struct {
 }
 
 func (t *MediumBlobType) Span() token.Span { return t.SpanVal }
-func (t *MediumBlobType) dataTypeNode()   {}
-func (t *MediumBlobType) String() string  { return "MEDIUMBLOB" }
+func (t *MediumBlobType) dataTypeNode()    {}
+func (t *MediumBlobType) String() string   { return "MEDIUMBLOB" }
 
 // LongBlobType represents a MySQL long blob type.
 type LongBlobType struct {
@@ -765,8 +810,8 @@ type LongBlobType struct {
 }
 
 func (t *LongBlobType) Span() token.Span { return t.SpanVal }
-func (t *LongBlobType) dataTypeNode()   {}
-func (t *LongBlobType) String() string  { return "LONGBLOB" }
+func (t *LongBlobType) dataTypeNode()    {}
+func (t *LongBlobType) String() string   { return "LONGBLOB" }
 
 // BytesType represents a variable-length binary data type (BigQuery).
 type BytesType struct {
@@ -775,7 +820,7 @@ type BytesType struct {
 }
 
 func (t *BytesType) Span() token.Span { return t.SpanVal }
-func (t *BytesType) dataTypeNode()   {}
+func (t *BytesType) dataTypeNode()    {}
 func (t *BytesType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("BYTES(%d)", *t.Length)
@@ -790,8 +835,8 @@ type NumericType struct {
 }
 
 func (t *NumericType) Span() token.Span { return t.SpanVal }
-func (t *NumericType) dataTypeNode()   {}
-func (t *NumericType) String() string  { return "NUMERIC" + t.Info.String() }
+func (t *NumericType) dataTypeNode()    {}
+func (t *NumericType) String() string   { return "NUMERIC" + t.Info.String() }
 
 // DecimalType represents a decimal type with optional precision and scale.
 type DecimalType struct {
@@ -800,8 +845,8 @@ type DecimalType struct {
 }
 
 func (t *DecimalType) Span() token.Span { return t.SpanVal }
-func (t *DecimalType) dataTypeNode()   {}
-func (t *DecimalType) String() string  { return "DECIMAL" + t.Info.String() }
+func (t *DecimalType) dataTypeNode()    {}
+func (t *DecimalType) String() string   { return "DECIMAL" + t.Info.String() }
 
 // DecimalUnsignedType represents a MySQL unsigned decimal type.
 type DecimalUnsignedType struct {
@@ -810,8 +855,8 @@ type DecimalUnsignedType struct {
 }
 
 func (t *DecimalUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *DecimalUnsignedType) dataTypeNode()   {}
-func (t *DecimalUnsignedType) String() string  { return "DECIMAL" + t.Info.String() + " UNSIGNED" }
+func (t *DecimalUnsignedType) dataTypeNode()    {}
+func (t *DecimalUnsignedType) String() string   { return "DECIMAL" + t.Info.String() + " UNSIGNED" }
 
 // DecType represents a dec type with optional precision and scale.
 type DecType struct {
@@ -820,8 +865,8 @@ type DecType struct {
 }
 
 func (t *DecType) Span() token.Span { return t.SpanVal }
-func (t *DecType) dataTypeNode()   {}
-func (t *DecType) String() string  { return "DEC" + t.Info.String() }
+func (t *DecType) dataTypeNode()    {}
+func (t *DecType) String() string   { return "DEC" + t.Info.String() }
 
 // DecUnsignedType represents a MySQL unsigned dec type.
 type DecUnsignedType struct {
@@ -830,8 +875,8 @@ type DecUnsignedType struct {
 }
 
 func (t *DecUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *DecUnsignedType) dataTypeNode()   {}
-func (t *DecUnsignedType) String() string  { return "DEC" + t.Info.String() + " UNSIGNED" }
+func (t *DecUnsignedType) dataTypeNode()    {}
+func (t *DecUnsignedType) String() string   { return "DEC" + t.Info.String() + " UNSIGNED" }
 
 // BigNumericType represents a BigQuery BigNumeric type.
 type BigNumericType struct {
@@ -840,8 +885,8 @@ type BigNumericType struct {
 }
 
 func (t *BigNumericType) Span() token.Span { return t.SpanVal }
-func (t *BigNumericType) dataTypeNode()   {}
-func (t *BigNumericType) String() string  { return "BIGNUMERIC" + t.Info.String() }
+func (t *BigNumericType) dataTypeNode()    {}
+func (t *BigNumericType) String() string   { return "BIGNUMERIC" + t.Info.String() }
 
 // BigDecimalType represents a BigQuery BigDecimal type.
 type BigDecimalType struct {
@@ -850,8 +895,8 @@ type BigDecimalType struct {
 }
 
 func (t *BigDecimalType) Span() token.Span { return t.SpanVal }
-func (t *BigDecimalType) dataTypeNode()   {}
-func (t *BigDecimalType) String() string  { return "BIGDECIMAL" + t.Info.String() }
+func (t *BigDecimalType) dataTypeNode()    {}
+func (t *BigDecimalType) String() string   { return "BIGDECIMAL" + t.Info.String() }
 
 // FloatType represents a floating point type with optional precision and scale.
 type FloatType struct {
@@ -860,8 +905,8 @@ type FloatType struct {
 }
 
 func (t *FloatType) Span() token.Span { return t.SpanVal }
-func (t *FloatType) dataTypeNode()   {}
-func (t *FloatType) String() string  { return "FLOAT" + t.Info.String() }
+func (t *FloatType) dataTypeNode()    {}
+func (t *FloatType) String() string   { return "FLOAT" + t.Info.String() }
 
 // FloatUnsignedType represents a MySQL unsigned float type.
 type FloatUnsignedType struct {
@@ -870,8 +915,8 @@ type FloatUnsignedType struct {
 }
 
 func (t *FloatUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *FloatUnsignedType) dataTypeNode()   {}
-func (t *FloatUnsignedType) String() string  { return "FLOAT" + t.Info.String() + " UNSIGNED" }
+func (t *FloatUnsignedType) dataTypeNode()    {}
+func (t *FloatUnsignedType) String() string   { return "FLOAT" + t.Info.String() + " UNSIGNED" }
 
 // TinyIntType represents a tiny integer with optional display width.
 type TinyIntType struct {
@@ -880,7 +925,7 @@ type TinyIntType struct {
 }
 
 func (t *TinyIntType) Span() token.Span { return t.SpanVal }
-func (t *TinyIntType) dataTypeNode()   {}
+func (t *TinyIntType) dataTypeNode()    {}
 func (t *TinyIntType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("TINYINT(%d)", *t.DisplayWidth)
@@ -895,7 +940,7 @@ type TinyIntUnsignedType struct {
 }
 
 func (t *TinyIntUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *TinyIntUnsignedType) dataTypeNode()   {}
+func (t *TinyIntUnsignedType) dataTypeNode()    {}
 func (t *TinyIntUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("TINYINT(%d) UNSIGNED", *t.DisplayWidth)
@@ -909,8 +954,8 @@ type UTinyIntType struct {
 }
 
 func (t *UTinyIntType) Span() token.Span { return t.SpanVal }
-func (t *UTinyIntType) dataTypeNode()   {}
-func (t *UTinyIntType) String() string  { return "UTINYINT" }
+func (t *UTinyIntType) dataTypeNode()    {}
+func (t *UTinyIntType) String() string   { return "UTINYINT" }
 
 // Int2Type represents an Int2 alias for SmallInt in PostgreSQL.
 type Int2Type struct {
@@ -919,7 +964,7 @@ type Int2Type struct {
 }
 
 func (t *Int2Type) Span() token.Span { return t.SpanVal }
-func (t *Int2Type) dataTypeNode()   {}
+func (t *Int2Type) dataTypeNode()    {}
 func (t *Int2Type) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT2(%d)", *t.DisplayWidth)
@@ -934,7 +979,7 @@ type Int2UnsignedType struct {
 }
 
 func (t *Int2UnsignedType) Span() token.Span { return t.SpanVal }
-func (t *Int2UnsignedType) dataTypeNode()   {}
+func (t *Int2UnsignedType) dataTypeNode()    {}
 func (t *Int2UnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT2(%d) UNSIGNED", *t.DisplayWidth)
@@ -949,7 +994,7 @@ type SmallIntType struct {
 }
 
 func (t *SmallIntType) Span() token.Span { return t.SpanVal }
-func (t *SmallIntType) dataTypeNode()   {}
+func (t *SmallIntType) dataTypeNode()    {}
 func (t *SmallIntType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("SMALLINT(%d)", *t.DisplayWidth)
@@ -964,7 +1009,7 @@ type SmallIntUnsignedType struct {
 }
 
 func (t *SmallIntUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *SmallIntUnsignedType) dataTypeNode()   {}
+func (t *SmallIntUnsignedType) dataTypeNode()    {}
 func (t *SmallIntUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("SMALLINT(%d) UNSIGNED", *t.DisplayWidth)
@@ -978,8 +1023,8 @@ type USmallIntType struct {
 }
 
 func (t *USmallIntType) Span() token.Span { return t.SpanVal }
-func (t *USmallIntType) dataTypeNode()   {}
-func (t *USmallIntType) String() string  { return "USMALLINT" }
+func (t *USmallIntType) dataTypeNode()    {}
+func (t *USmallIntType) String() string   { return "USMALLINT" }
 
 // MediumIntType represents a MySQL medium integer with optional display width.
 type MediumIntType struct {
@@ -988,7 +1033,7 @@ type MediumIntType struct {
 }
 
 func (t *MediumIntType) Span() token.Span { return t.SpanVal }
-func (t *MediumIntType) dataTypeNode()   {}
+func (t *MediumIntType) dataTypeNode()    {}
 func (t *MediumIntType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("MEDIUMINT(%d)", *t.DisplayWidth)
@@ -1003,7 +1048,7 @@ type MediumIntUnsignedType struct {
 }
 
 func (t *MediumIntUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *MediumIntUnsignedType) dataTypeNode()   {}
+func (t *MediumIntUnsignedType) dataTypeNode()    {}
 func (t *MediumIntUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("MEDIUMINT(%d) UNSIGNED", *t.DisplayWidth)
@@ -1018,7 +1063,7 @@ type IntType struct {
 }
 
 func (t *IntType) Span() token.Span { return t.SpanVal }
-func (t *IntType) dataTypeNode()   {}
+func (t *IntType) dataTypeNode()    {}
 func (t *IntType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT(%d)", *t.DisplayWidth)
@@ -1033,7 +1078,7 @@ type Int4Type struct {
 }
 
 func (t *Int4Type) Span() token.Span { return t.SpanVal }
-func (t *Int4Type) dataTypeNode()   {}
+func (t *Int4Type) dataTypeNode()    {}
 func (t *Int4Type) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT4(%d)", *t.DisplayWidth)
@@ -1048,7 +1093,7 @@ type Int8Type struct {
 }
 
 func (t *Int8Type) Span() token.Span { return t.SpanVal }
-func (t *Int8Type) dataTypeNode()   {}
+func (t *Int8Type) dataTypeNode()    {}
 func (t *Int8Type) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT8(%d)", *t.DisplayWidth)
@@ -1062,8 +1107,8 @@ type Int16Type struct {
 }
 
 func (t *Int16Type) Span() token.Span { return t.SpanVal }
-func (t *Int16Type) dataTypeNode()   {}
-func (t *Int16Type) String() string  { return "Int16" }
+func (t *Int16Type) dataTypeNode()    {}
+func (t *Int16Type) String() string   { return "Int16" }
 
 // Int32Type represents a ClickHouse Int32 type.
 type Int32Type struct {
@@ -1071,8 +1116,8 @@ type Int32Type struct {
 }
 
 func (t *Int32Type) Span() token.Span { return t.SpanVal }
-func (t *Int32Type) dataTypeNode()   {}
-func (t *Int32Type) String() string  { return "Int32" }
+func (t *Int32Type) dataTypeNode()    {}
+func (t *Int32Type) String() string   { return "Int32" }
 
 // Int64Type represents a BigQuery/ClickHouse Int64 type.
 type Int64Type struct {
@@ -1080,8 +1125,8 @@ type Int64Type struct {
 }
 
 func (t *Int64Type) Span() token.Span { return t.SpanVal }
-func (t *Int64Type) dataTypeNode()   {}
-func (t *Int64Type) String() string  { return "INT64" }
+func (t *Int64Type) dataTypeNode()    {}
+func (t *Int64Type) String() string   { return "INT64" }
 
 // Int128Type represents a ClickHouse Int128 type.
 type Int128Type struct {
@@ -1089,8 +1134,8 @@ type Int128Type struct {
 }
 
 func (t *Int128Type) Span() token.Span { return t.SpanVal }
-func (t *Int128Type) dataTypeNode()   {}
-func (t *Int128Type) String() string  { return "Int128" }
+func (t *Int128Type) dataTypeNode()    {}
+func (t *Int128Type) String() string   { return "Int128" }
 
 // Int256Type represents a ClickHouse Int256 type.
 type Int256Type struct {
@@ -1098,8 +1143,8 @@ type Int256Type struct {
 }
 
 func (t *Int256Type) Span() token.Span { return t.SpanVal }
-func (t *Int256Type) dataTypeNode()   {}
-func (t *Int256Type) String() string  { return "Int256" }
+func (t *Int256Type) dataTypeNode()    {}
+func (t *Int256Type) String() string   { return "Int256" }
 
 // IntegerType represents an integer with optional display width.
 type IntegerType struct {
@@ -1108,7 +1153,7 @@ type IntegerType struct {
 }
 
 func (t *IntegerType) Span() token.Span { return t.SpanVal }
-func (t *IntegerType) dataTypeNode()   {}
+func (t *IntegerType) dataTypeNode()    {}
 func (t *IntegerType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INTEGER(%d)", *t.DisplayWidth)
@@ -1123,7 +1168,7 @@ type IntUnsignedType struct {
 }
 
 func (t *IntUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *IntUnsignedType) dataTypeNode()   {}
+func (t *IntUnsignedType) dataTypeNode()    {}
 func (t *IntUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT(%d) UNSIGNED", *t.DisplayWidth)
@@ -1138,7 +1183,7 @@ type Int4UnsignedType struct {
 }
 
 func (t *Int4UnsignedType) Span() token.Span { return t.SpanVal }
-func (t *Int4UnsignedType) dataTypeNode()   {}
+func (t *Int4UnsignedType) dataTypeNode()    {}
 func (t *Int4UnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT4(%d) UNSIGNED", *t.DisplayWidth)
@@ -1153,7 +1198,7 @@ type IntegerUnsignedType struct {
 }
 
 func (t *IntegerUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *IntegerUnsignedType) dataTypeNode()   {}
+func (t *IntegerUnsignedType) dataTypeNode()    {}
 func (t *IntegerUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INTEGER(%d) UNSIGNED", *t.DisplayWidth)
@@ -1167,8 +1212,8 @@ type HugeIntType struct {
 }
 
 func (t *HugeIntType) Span() token.Span { return t.SpanVal }
-func (t *HugeIntType) dataTypeNode()   {}
-func (t *HugeIntType) String() string  { return "HUGEINT" }
+func (t *HugeIntType) dataTypeNode()    {}
+func (t *HugeIntType) String() string   { return "HUGEINT" }
 
 // UHugeIntType represents an unsigned 128-bit integer type.
 type UHugeIntType struct {
@@ -1176,8 +1221,8 @@ type UHugeIntType struct {
 }
 
 func (t *UHugeIntType) Span() token.Span { return t.SpanVal }
-func (t *UHugeIntType) dataTypeNode()   {}
-func (t *UHugeIntType) String() string  { return "UHUGEINT" }
+func (t *UHugeIntType) dataTypeNode()    {}
+func (t *UHugeIntType) String() string   { return "UHUGEINT" }
 
 // UInt8Type represents a ClickHouse UInt8 type.
 type UInt8Type struct {
@@ -1185,8 +1230,8 @@ type UInt8Type struct {
 }
 
 func (t *UInt8Type) Span() token.Span { return t.SpanVal }
-func (t *UInt8Type) dataTypeNode()   {}
-func (t *UInt8Type) String() string  { return "UInt8" }
+func (t *UInt8Type) dataTypeNode()    {}
+func (t *UInt8Type) String() string   { return "UInt8" }
 
 // UInt16Type represents a ClickHouse UInt16 type.
 type UInt16Type struct {
@@ -1194,8 +1239,8 @@ type UInt16Type struct {
 }
 
 func (t *UInt16Type) Span() token.Span { return t.SpanVal }
-func (t *UInt16Type) dataTypeNode()   {}
-func (t *UInt16Type) String() string  { return "UInt16" }
+func (t *UInt16Type) dataTypeNode()    {}
+func (t *UInt16Type) String() string   { return "UInt16" }
 
 // UInt32Type represents a ClickHouse UInt32 type.
 type UInt32Type struct {
@@ -1203,8 +1248,8 @@ type UInt32Type struct {
 }
 
 func (t *UInt32Type) Span() token.Span { return t.SpanVal }
-func (t *UInt32Type) dataTypeNode()   {}
-func (t *UInt32Type) String() string  { return "UInt32" }
+func (t *UInt32Type) dataTypeNode()    {}
+func (t *UInt32Type) String() string   { return "UInt32" }
 
 // UInt64Type represents a ClickHouse UInt64 type.
 type UInt64Type struct {
@@ -1212,8 +1257,8 @@ type UInt64Type struct {
 }
 
 func (t *UInt64Type) Span() token.Span { return t.SpanVal }
-func (t *UInt64Type) dataTypeNode()   {}
-func (t *UInt64Type) String() string  { return "UInt64" }
+func (t *UInt64Type) dataTypeNode()    {}
+func (t *UInt64Type) String() string   { return "UInt64" }
 
 // UInt128Type represents a ClickHouse UInt128 type.
 type UInt128Type struct {
@@ -1221,8 +1266,8 @@ type UInt128Type struct {
 }
 
 func (t *UInt128Type) Span() token.Span { return t.SpanVal }
-func (t *UInt128Type) dataTypeNode()   {}
-func (t *UInt128Type) String() string  { return "UInt128" }
+func (t *UInt128Type) dataTypeNode()    {}
+func (t *UInt128Type) String() string   { return "UInt128" }
 
 // UInt256Type represents a ClickHouse UInt256 type.
 type UInt256Type struct {
@@ -1230,8 +1275,8 @@ type UInt256Type struct {
 }
 
 func (t *UInt256Type) Span() token.Span { return t.SpanVal }
-func (t *UInt256Type) dataTypeNode()   {}
-func (t *UInt256Type) String() string  { return "UInt256" }
+func (t *UInt256Type) dataTypeNode()    {}
+func (t *UInt256Type) String() string   { return "UInt256" }
 
 // BigIntType represents a big integer with optional display width.
 type BigIntType struct {
@@ -1240,7 +1285,7 @@ type BigIntType struct {
 }
 
 func (t *BigIntType) Span() token.Span { return t.SpanVal }
-func (t *BigIntType) dataTypeNode()   {}
+func (t *BigIntType) dataTypeNode()    {}
 func (t *BigIntType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("BIGINT(%d)", *t.DisplayWidth)
@@ -1255,7 +1300,7 @@ type BigIntUnsignedType struct {
 }
 
 func (t *BigIntUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *BigIntUnsignedType) dataTypeNode()   {}
+func (t *BigIntUnsignedType) dataTypeNode()    {}
 func (t *BigIntUnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("BIGINT(%d) UNSIGNED", *t.DisplayWidth)
@@ -1269,8 +1314,8 @@ type UBigIntType struct {
 }
 
 func (t *UBigIntType) Span() token.Span { return t.SpanVal }
-func (t *UBigIntType) dataTypeNode()   {}
-func (t *UBigIntType) String() string  { return "UBIGINT" }
+func (t *UBigIntType) dataTypeNode()    {}
+func (t *UBigIntType) String() string   { return "UBIGINT" }
 
 // Int8UnsignedType represents a MySQL unsigned Int8.
 type Int8UnsignedType struct {
@@ -1279,7 +1324,7 @@ type Int8UnsignedType struct {
 }
 
 func (t *Int8UnsignedType) Span() token.Span { return t.SpanVal }
-func (t *Int8UnsignedType) dataTypeNode()   {}
+func (t *Int8UnsignedType) dataTypeNode()    {}
 func (t *Int8UnsignedType) String() string {
 	if t.DisplayWidth != nil {
 		return fmt.Sprintf("INT8(%d) UNSIGNED", *t.DisplayWidth)
@@ -1293,8 +1338,8 @@ type SignedType struct {
 }
 
 func (t *SignedType) Span() token.Span { return t.SpanVal }
-func (t *SignedType) dataTypeNode()   {}
-func (t *SignedType) String() string  { return "SIGNED" }
+func (t *SignedType) dataTypeNode()    {}
+func (t *SignedType) String() string   { return "SIGNED" }
 
 // SignedIntegerType represents a signed integer with INTEGER suffix.
 type SignedIntegerType struct {
@@ -1302,8 +1347,8 @@ type SignedIntegerType struct {
 }
 
 func (t *SignedIntegerType) Span() token.Span { return t.SpanVal }
-func (t *SignedIntegerType) dataTypeNode()   {}
-func (t *SignedIntegerType) String() string  { return "SIGNED INTEGER" }
+func (t *SignedIntegerType) dataTypeNode()    {}
+func (t *SignedIntegerType) String() string   { return "SIGNED INTEGER" }
 
 // UnsignedType represents an unsigned integer as used in MySQL CAST target types.
 type UnsignedType struct {
@@ -1311,8 +1356,8 @@ type UnsignedType struct {
 }
 
 func (t *UnsignedType) Span() token.Span { return t.SpanVal }
-func (t *UnsignedType) dataTypeNode()   {}
-func (t *UnsignedType) String() string  { return "UNSIGNED" }
+func (t *UnsignedType) dataTypeNode()    {}
+func (t *UnsignedType) String() string   { return "UNSIGNED" }
 
 // UnsignedIntegerType represents an unsigned integer with INTEGER suffix.
 type UnsignedIntegerType struct {
@@ -1320,8 +1365,8 @@ type UnsignedIntegerType struct {
 }
 
 func (t *UnsignedIntegerType) Span() token.Span { return t.SpanVal }
-func (t *UnsignedIntegerType) dataTypeNode()   {}
-func (t *UnsignedIntegerType) String() string  { return "UNSIGNED INTEGER" }
+func (t *UnsignedIntegerType) dataTypeNode()    {}
+func (t *UnsignedIntegerType) String() string   { return "UNSIGNED INTEGER" }
 
 // RealType represents a floating point type.
 type RealType struct {
@@ -1329,8 +1374,8 @@ type RealType struct {
 }
 
 func (t *RealType) Span() token.Span { return t.SpanVal }
-func (t *RealType) dataTypeNode()   {}
-func (t *RealType) String() string  { return "REAL" }
+func (t *RealType) dataTypeNode()    {}
+func (t *RealType) String() string   { return "REAL" }
 
 // RealUnsignedType represents a MySQL unsigned real type.
 type RealUnsignedType struct {
@@ -1338,8 +1383,8 @@ type RealUnsignedType struct {
 }
 
 func (t *RealUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *RealUnsignedType) dataTypeNode()   {}
-func (t *RealUnsignedType) String() string  { return "REAL UNSIGNED" }
+func (t *RealUnsignedType) dataTypeNode()    {}
+func (t *RealUnsignedType) String() string   { return "REAL UNSIGNED" }
 
 // Float4Type represents a PostgreSQL Float4 alias for Real.
 type Float4Type struct {
@@ -1347,8 +1392,8 @@ type Float4Type struct {
 }
 
 func (t *Float4Type) Span() token.Span { return t.SpanVal }
-func (t *Float4Type) dataTypeNode()   {}
-func (t *Float4Type) String() string  { return "FLOAT4" }
+func (t *Float4Type) dataTypeNode()    {}
+func (t *Float4Type) String() string   { return "FLOAT4" }
 
 // Float32Type represents a ClickHouse Float32 type.
 type Float32Type struct {
@@ -1356,8 +1401,8 @@ type Float32Type struct {
 }
 
 func (t *Float32Type) Span() token.Span { return t.SpanVal }
-func (t *Float32Type) dataTypeNode()   {}
-func (t *Float32Type) String() string  { return "Float32" }
+func (t *Float32Type) dataTypeNode()    {}
+func (t *Float32Type) String() string   { return "Float32" }
 
 // Float64Type represents a BigQuery/ClickHouse Float64 type.
 type Float64Type struct {
@@ -1365,8 +1410,8 @@ type Float64Type struct {
 }
 
 func (t *Float64Type) Span() token.Span { return t.SpanVal }
-func (t *Float64Type) dataTypeNode()   {}
-func (t *Float64Type) String() string  { return "FLOAT64" }
+func (t *Float64Type) dataTypeNode()    {}
+func (t *Float64Type) String() string   { return "FLOAT64" }
 
 // Float8Type represents a PostgreSQL Float8 alias for Double.
 type Float8Type struct {
@@ -1374,8 +1419,8 @@ type Float8Type struct {
 }
 
 func (t *Float8Type) Span() token.Span { return t.SpanVal }
-func (t *Float8Type) dataTypeNode()   {}
-func (t *Float8Type) String() string  { return "FLOAT8" }
+func (t *Float8Type) dataTypeNode()    {}
+func (t *Float8Type) String() string   { return "FLOAT8" }
 
 // DoubleType represents a double type with optional precision.
 type DoubleType struct {
@@ -1384,8 +1429,8 @@ type DoubleType struct {
 }
 
 func (t *DoubleType) Span() token.Span { return t.SpanVal }
-func (t *DoubleType) dataTypeNode()   {}
-func (t *DoubleType) String() string  { return "DOUBLE" + t.Info.String() }
+func (t *DoubleType) dataTypeNode()    {}
+func (t *DoubleType) String() string   { return "DOUBLE" + t.Info.String() }
 
 // DoubleUnsignedType represents a MySQL unsigned double type.
 type DoubleUnsignedType struct {
@@ -1394,8 +1439,8 @@ type DoubleUnsignedType struct {
 }
 
 func (t *DoubleUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *DoubleUnsignedType) dataTypeNode()   {}
-func (t *DoubleUnsignedType) String() string  { return "DOUBLE" + t.Info.String() + " UNSIGNED" }
+func (t *DoubleUnsignedType) dataTypeNode()    {}
+func (t *DoubleUnsignedType) String() string   { return "DOUBLE" + t.Info.String() + " UNSIGNED" }
 
 // DoublePrecisionType represents a double precision type.
 type DoublePrecisionType struct {
@@ -1403,8 +1448,8 @@ type DoublePrecisionType struct {
 }
 
 func (t *DoublePrecisionType) Span() token.Span { return t.SpanVal }
-func (t *DoublePrecisionType) dataTypeNode()   {}
-func (t *DoublePrecisionType) String() string  { return "DOUBLE PRECISION" }
+func (t *DoublePrecisionType) dataTypeNode()    {}
+func (t *DoublePrecisionType) String() string   { return "DOUBLE PRECISION" }
 
 // DoublePrecisionUnsignedType represents a MySQL unsigned double precision type.
 type DoublePrecisionUnsignedType struct {
@@ -1412,8 +1457,8 @@ type DoublePrecisionUnsignedType struct {
 }
 
 func (t *DoublePrecisionUnsignedType) Span() token.Span { return t.SpanVal }
-func (t *DoublePrecisionUnsignedType) dataTypeNode()   {}
-func (t *DoublePrecisionUnsignedType) String() string  { return "DOUBLE PRECISION UNSIGNED" }
+func (t *DoublePrecisionUnsignedType) dataTypeNode()    {}
+func (t *DoublePrecisionUnsignedType) String() string   { return "DOUBLE PRECISION UNSIGNED" }
 
 // BoolType represents a boolean type (PostgreSQL alias).
 type BoolType struct {
@@ -1421,8 +1466,8 @@ type BoolType struct {
 }
 
 func (t *BoolType) Span() token.Span { return t.SpanVal }
-func (t *BoolType) dataTypeNode()   {}
-func (t *BoolType) String() string  { return "BOOL" }
+func (t *BoolType) dataTypeNode()    {}
+func (t *BoolType) String() string   { return "BOOL" }
 
 // BooleanType represents a boolean type.
 type BooleanType struct {
@@ -1430,8 +1475,8 @@ type BooleanType struct {
 }
 
 func (t *BooleanType) Span() token.Span { return t.SpanVal }
-func (t *BooleanType) dataTypeNode()   {}
-func (t *BooleanType) String() string  { return "BOOLEAN" }
+func (t *BooleanType) dataTypeNode()    {}
+func (t *BooleanType) String() string   { return "BOOLEAN" }
 
 // DateType represents a date type.
 type DateType struct {
@@ -1439,8 +1484,8 @@ type DateType struct {
 }
 
 func (t *DateType) Span() token.Span { return t.SpanVal }
-func (t *DateType) dataTypeNode()   {}
-func (t *DateType) String() string  { return "DATE" }
+func (t *DateType) dataTypeNode()    {}
+func (t *DateType) String() string   { return "DATE" }
 
 // Date32Type represents a ClickHouse Date32 type.
 type Date32Type struct {
@@ -1448,8 +1493,8 @@ type Date32Type struct {
 }
 
 func (t *Date32Type) Span() token.Span { return t.SpanVal }
-func (t *Date32Type) dataTypeNode()   {}
-func (t *Date32Type) String() string  { return "Date32" }
+func (t *Date32Type) dataTypeNode()    {}
+func (t *Date32Type) String() string   { return "Date32" }
 
 // TimeType represents a time type with optional precision and time zone.
 type TimeType struct {
@@ -1459,7 +1504,7 @@ type TimeType struct {
 }
 
 func (t *TimeType) Span() token.Span { return t.SpanVal }
-func (t *TimeType) dataTypeNode()   {}
+func (t *TimeType) dataTypeNode()    {}
 func (t *TimeType) String() string {
 	var sb strings.Builder
 	sb.WriteString("TIME")
@@ -1486,7 +1531,7 @@ type DatetimeType struct {
 }
 
 func (t *DatetimeType) Span() token.Span { return t.SpanVal }
-func (t *DatetimeType) dataTypeNode()   {}
+func (t *DatetimeType) dataTypeNode()    {}
 func (t *DatetimeType) String() string {
 	if t.Precision != nil {
 		return fmt.Sprintf("DATETIME(%d)", *t.Precision)
@@ -1502,7 +1547,7 @@ type Datetime64Type struct {
 }
 
 func (t *Datetime64Type) Span() token.Span { return t.SpanVal }
-func (t *Datetime64Type) dataTypeNode()   {}
+func (t *Datetime64Type) dataTypeNode()    {}
 func (t *Datetime64Type) String() string {
 	if t.Timezone != nil {
 		return fmt.Sprintf("DateTime64(%d, '%s')", t.Precision, *t.Timezone)
@@ -1518,7 +1563,7 @@ type TimestampType struct {
 }
 
 func (t *TimestampType) Span() token.Span { return t.SpanVal }
-func (t *TimestampType) dataTypeNode()   {}
+func (t *TimestampType) dataTypeNode()    {}
 func (t *TimestampType) String() string {
 	var sb strings.Builder
 	sb.WriteString("TIMESTAMP")
@@ -1545,7 +1590,7 @@ type TimestampNtzType struct {
 }
 
 func (t *TimestampNtzType) Span() token.Span { return t.SpanVal }
-func (t *TimestampNtzType) dataTypeNode()   {}
+func (t *TimestampNtzType) dataTypeNode()    {}
 func (t *TimestampNtzType) String() string {
 	if t.Precision != nil {
 		return fmt.Sprintf("TIMESTAMP_NTZ(%d)", *t.Precision)
@@ -1561,7 +1606,7 @@ type IntervalType struct {
 }
 
 func (t *IntervalType) Span() token.Span { return t.SpanVal }
-func (t *IntervalType) dataTypeNode()   {}
+func (t *IntervalType) dataTypeNode()    {}
 func (t *IntervalType) String() string {
 	var sb strings.Builder
 	sb.WriteString("INTERVAL")
@@ -1581,8 +1626,8 @@ type JSONType struct {
 }
 
 func (t *JSONType) Span() token.Span { return t.SpanVal }
-func (t *JSONType) dataTypeNode()   {}
-func (t *JSONType) String() string  { return "JSON" }
+func (t *JSONType) dataTypeNode()    {}
+func (t *JSONType) String() string   { return "JSON" }
 
 // JSONBType represents a binary JSON type.
 type JSONBType struct {
@@ -1590,8 +1635,8 @@ type JSONBType struct {
 }
 
 func (t *JSONBType) Span() token.Span { return t.SpanVal }
-func (t *JSONBType) dataTypeNode()   {}
-func (t *JSONBType) String() string  { return "JSONB" }
+func (t *JSONBType) dataTypeNode()    {}
+func (t *JSONBType) String() string   { return "JSONB" }
 
 // RegclassType represents a PostgreSQL regclass type.
 type RegclassType struct {
@@ -1599,8 +1644,8 @@ type RegclassType struct {
 }
 
 func (t *RegclassType) Span() token.Span { return t.SpanVal }
-func (t *RegclassType) dataTypeNode()   {}
-func (t *RegclassType) String() string  { return "REGCLASS" }
+func (t *RegclassType) dataTypeNode()    {}
+func (t *RegclassType) String() string   { return "REGCLASS" }
 
 // TextType represents a text type.
 type TextType struct {
@@ -1608,8 +1653,8 @@ type TextType struct {
 }
 
 func (t *TextType) Span() token.Span { return t.SpanVal }
-func (t *TextType) dataTypeNode()   {}
-func (t *TextType) String() string  { return "TEXT" }
+func (t *TextType) dataTypeNode()    {}
+func (t *TextType) String() string   { return "TEXT" }
 
 // TinyTextType represents a MySQL tiny text type.
 type TinyTextType struct {
@@ -1617,8 +1662,8 @@ type TinyTextType struct {
 }
 
 func (t *TinyTextType) Span() token.Span { return t.SpanVal }
-func (t *TinyTextType) dataTypeNode()   {}
-func (t *TinyTextType) String() string  { return "TINYTEXT" }
+func (t *TinyTextType) dataTypeNode()    {}
+func (t *TinyTextType) String() string   { return "TINYTEXT" }
 
 // MediumTextType represents a MySQL medium text type.
 type MediumTextType struct {
@@ -1626,8 +1671,8 @@ type MediumTextType struct {
 }
 
 func (t *MediumTextType) Span() token.Span { return t.SpanVal }
-func (t *MediumTextType) dataTypeNode()   {}
-func (t *MediumTextType) String() string  { return "MEDIUMTEXT" }
+func (t *MediumTextType) dataTypeNode()    {}
+func (t *MediumTextType) String() string   { return "MEDIUMTEXT" }
 
 // LongTextType represents a MySQL long text type.
 type LongTextType struct {
@@ -1635,8 +1680,8 @@ type LongTextType struct {
 }
 
 func (t *LongTextType) Span() token.Span { return t.SpanVal }
-func (t *LongTextType) dataTypeNode()   {}
-func (t *LongTextType) String() string  { return "LONGTEXT" }
+func (t *LongTextType) dataTypeNode()    {}
+func (t *LongTextType) String() string   { return "LONGTEXT" }
 
 // StringType represents a string type with optional length.
 type StringType struct {
@@ -1645,7 +1690,7 @@ type StringType struct {
 }
 
 func (t *StringType) Span() token.Span { return t.SpanVal }
-func (t *StringType) dataTypeNode()   {}
+func (t *StringType) dataTypeNode()    {}
 func (t *StringType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("STRING(%d)", *t.Length)
@@ -1660,7 +1705,7 @@ type FixedStringType struct {
 }
 
 func (t *FixedStringType) Span() token.Span { return t.SpanVal }
-func (t *FixedStringType) dataTypeNode()   {}
+func (t *FixedStringType) dataTypeNode()    {}
 func (t *FixedStringType) String() string {
 	return fmt.Sprintf("FixedString(%d)", t.Length)
 }
@@ -1671,8 +1716,8 @@ type ByteaType struct {
 }
 
 func (t *ByteaType) Span() token.Span { return t.SpanVal }
-func (t *ByteaType) dataTypeNode()   {}
-func (t *ByteaType) String() string  { return "BYTEA" }
+func (t *ByteaType) dataTypeNode()    {}
+func (t *ByteaType) String() string   { return "BYTEA" }
 
 // BitType represents a bit string type.
 type BitType struct {
@@ -1681,7 +1726,7 @@ type BitType struct {
 }
 
 func (t *BitType) Span() token.Span { return t.SpanVal }
-func (t *BitType) dataTypeNode()   {}
+func (t *BitType) dataTypeNode()    {}
 func (t *BitType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("BIT(%d)", *t.Length)
@@ -1696,7 +1741,7 @@ type BitVaryingType struct {
 }
 
 func (t *BitVaryingType) Span() token.Span { return t.SpanVal }
-func (t *BitVaryingType) dataTypeNode()   {}
+func (t *BitVaryingType) dataTypeNode()    {}
 func (t *BitVaryingType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("BIT VARYING(%d)", *t.Length)
@@ -1711,7 +1756,7 @@ type VarBitType struct {
 }
 
 func (t *VarBitType) Span() token.Span { return t.SpanVal }
-func (t *VarBitType) dataTypeNode()   {}
+func (t *VarBitType) dataTypeNode()    {}
 func (t *VarBitType) String() string {
 	if t.Length != nil {
 		return fmt.Sprintf("VARBIT(%d)", *t.Length)
@@ -1727,7 +1772,7 @@ type CustomType struct {
 }
 
 func (t *CustomType) Span() token.Span { return t.SpanVal }
-func (t *CustomType) dataTypeNode()   {}
+func (t *CustomType) dataTypeNode()    {}
 func (t *CustomType) String() string {
 	if len(t.Modifiers) > 0 {
 		return fmt.Sprintf("%s(%s)", t.Name.String(), strings.Join(t.Modifiers, ", "))
@@ -1742,8 +1787,8 @@ type ArrayType struct {
 }
 
 func (t *ArrayType) Span() token.Span { return t.SpanVal }
-func (t *ArrayType) dataTypeNode()   {}
-func (t *ArrayType) String() string  { return t.ElemDef.String() }
+func (t *ArrayType) dataTypeNode()    {}
+func (t *ArrayType) String() string   { return t.ElemDef.String() }
 
 // MapType represents a ClickHouse Map type.
 type MapType struct {
@@ -1753,7 +1798,7 @@ type MapType struct {
 }
 
 func (t *MapType) Span() token.Span { return t.SpanVal }
-func (t *MapType) dataTypeNode()   {}
+func (t *MapType) dataTypeNode()    {}
 func (t *MapType) String() string {
 	return fmt.Sprintf("Map(%s, %s)", t.KeyType.String(), t.ValueType.String())
 }
@@ -1765,7 +1810,7 @@ type TupleType struct {
 }
 
 func (t *TupleType) Span() token.Span { return t.SpanVal }
-func (t *TupleType) dataTypeNode()   {}
+func (t *TupleType) dataTypeNode()    {}
 func (t *TupleType) String() string {
 	fields := make([]string, len(t.Fields))
 	for i, f := range t.Fields {
@@ -1781,7 +1826,7 @@ type NestedType struct {
 }
 
 func (t *NestedType) Span() token.Span { return t.SpanVal }
-func (t *NestedType) dataTypeNode()   {}
+func (t *NestedType) dataTypeNode()    {}
 func (t *NestedType) String() string {
 	cols := make([]string, len(t.Columns))
 	for i, col := range t.Columns {
@@ -1798,7 +1843,7 @@ type EnumType struct {
 }
 
 func (t *EnumType) Span() token.Span { return t.SpanVal }
-func (t *EnumType) dataTypeNode()   {}
+func (t *EnumType) dataTypeNode()    {}
 func (t *EnumType) String() string {
 	var sb strings.Builder
 	if t.Bits != nil {
@@ -1822,7 +1867,7 @@ type SetType struct {
 }
 
 func (t *SetType) Span() token.Span { return t.SpanVal }
-func (t *SetType) dataTypeNode()   {}
+func (t *SetType) dataTypeNode()    {}
 func (t *SetType) String() string {
 	values := make([]string, len(t.Values))
 	for i, v := range t.Values {
@@ -1839,7 +1884,7 @@ type StructType struct {
 }
 
 func (t *StructType) Span() token.Span { return t.SpanVal }
-func (t *StructType) dataTypeNode()   {}
+func (t *StructType) dataTypeNode()    {}
 func (t *StructType) String() string {
 	if len(t.Fields) == 0 {
 		return "STRUCT"
@@ -1863,7 +1908,7 @@ type UnionType struct {
 }
 
 func (t *UnionType) Span() token.Span { return t.SpanVal }
-func (t *UnionType) dataTypeNode()   {}
+func (t *UnionType) dataTypeNode()    {}
 func (t *UnionType) String() string {
 	fields := make([]string, len(t.Fields))
 	for i, f := range t.Fields {
@@ -1879,7 +1924,7 @@ type NullableType struct {
 }
 
 func (t *NullableType) Span() token.Span { return t.SpanVal }
-func (t *NullableType) dataTypeNode()   {}
+func (t *NullableType) dataTypeNode()    {}
 func (t *NullableType) String() string {
 	return fmt.Sprintf("Nullable(%s)", t.InnerType.String())
 }
@@ -1891,7 +1936,7 @@ type FixedStringDefType struct {
 }
 
 func (t *FixedStringDefType) Span() token.Span { return t.SpanVal }
-func (t *FixedStringDefType) dataTypeNode()   {}
+func (t *FixedStringDefType) dataTypeNode()    {}
 func (t *FixedStringDefType) String() string {
 	return fmt.Sprintf("FixedString(%d)", t.Length)
 }
@@ -1903,7 +1948,7 @@ type LowCardinalityType struct {
 }
 
 func (t *LowCardinalityType) Span() token.Span { return t.SpanVal }
-func (t *LowCardinalityType) dataTypeNode()   {}
+func (t *LowCardinalityType) dataTypeNode()    {}
 func (t *LowCardinalityType) String() string {
 	return fmt.Sprintf("LowCardinality(%s)", t.InnerType.String())
 }
@@ -1914,8 +1959,8 @@ type UnspecifiedType struct {
 }
 
 func (t *UnspecifiedType) Span() token.Span { return t.SpanVal }
-func (t *UnspecifiedType) dataTypeNode()   {}
-func (t *UnspecifiedType) String() string  { return "" }
+func (t *UnspecifiedType) dataTypeNode()    {}
+func (t *UnspecifiedType) String() string   { return "" }
 
 // TriggerType represents a PostgreSQL trigger data type.
 type TriggerType struct {
@@ -1923,8 +1968,8 @@ type TriggerType struct {
 }
 
 func (t *TriggerType) Span() token.Span { return t.SpanVal }
-func (t *TriggerType) dataTypeNode()   {}
-func (t *TriggerType) String() string  { return "TRIGGER" }
+func (t *TriggerType) dataTypeNode()    {}
+func (t *TriggerType) String() string   { return "TRIGGER" }
 
 // AnyType represents a BigQuery ANY TYPE for UDF definitions.
 type AnyType struct {
@@ -1932,8 +1977,8 @@ type AnyType struct {
 }
 
 func (t *AnyType) Span() token.Span { return t.SpanVal }
-func (t *AnyType) dataTypeNode()   {}
-func (t *AnyType) String() string  { return "ANY TYPE" }
+func (t *AnyType) dataTypeNode()    {}
+func (t *AnyType) String() string   { return "ANY TYPE" }
 
 // GeometricType represents a PostgreSQL geometric type.
 type GeometricType struct {
@@ -1942,8 +1987,8 @@ type GeometricType struct {
 }
 
 func (t *GeometricType) Span() token.Span { return t.SpanVal }
-func (t *GeometricType) dataTypeNode()   {}
-func (t *GeometricType) String() string  { return t.Kind.String() }
+func (t *GeometricType) dataTypeNode()    {}
+func (t *GeometricType) String() string   { return t.Kind.String() }
 
 // TsVectorType represents a PostgreSQL text search vector type.
 type TsVectorType struct {
@@ -1951,8 +1996,8 @@ type TsVectorType struct {
 }
 
 func (t *TsVectorType) Span() token.Span { return t.SpanVal }
-func (t *TsVectorType) dataTypeNode()   {}
-func (t *TsVectorType) String() string  { return "TSVECTOR" }
+func (t *TsVectorType) dataTypeNode()    {}
+func (t *TsVectorType) String() string   { return "TSVECTOR" }
 
 // TsQueryType represents a PostgreSQL text search query type.
 type TsQueryType struct {
@@ -1960,5 +2005,5 @@ type TsQueryType struct {
 }
 
 func (t *TsQueryType) Span() token.Span { return t.SpanVal }
-func (t *TsQueryType) dataTypeNode()   {}
-func (t *TsQueryType) String() string  { return "TSQUERY" }
+func (t *TsQueryType) dataTypeNode()    {}
+func (t *TsQueryType) String() string   { return "TSQUERY" }

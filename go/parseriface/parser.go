@@ -51,6 +51,7 @@ type Parser interface {
 	PrevToken()
 	GetCurrentToken() *token.TokenWithSpan
 	GetCurrentIndex() int
+	SetCurrentIndex(index int)
 
 	// Token consumption
 	ConsumeToken(expected token.Token) bool
