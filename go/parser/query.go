@@ -815,8 +815,43 @@ func parseTableFactor(p *Parser) (query.TableFactor, error) {
 		}
 	}
 
-	// Otherwise, it's a table name
-	return parseTableName(p)
+	// Otherwise, it's a table name (possibly with PIVOT/UNPIVOT)
+	return parseTableNameWithPivot(p)
+}
+
+// parseTableNameWithPivot parses a table name followed by optional PIVOT/UNPIVOT
+// Reference: src/parser/mod.rs:15522-15531
+func parseTableNameWithPivot(p *Parser) (query.TableFactor, error) {
+	table, err := parseTableName(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for PIVOT/UNPIVOT operations after table name
+	for {
+		tok := p.PeekToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			kw := strings.ToUpper(string(word.Word.Keyword))
+			if kw == "PIVOT" {
+				p.AdvanceToken()
+				table, err = parsePivotTableFactor(p, table)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			} else if kw == "UNPIVOT" {
+				p.AdvanceToken()
+				table, err = parseUnpivotTableFactor(p, table)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
+		break
+	}
+
+	return table, nil
 }
 
 // isParenthesizedStart checks if next token is a left paren
@@ -903,6 +938,7 @@ func isSubqueryStartAfterParen(p *Parser) bool {
 }
 
 // parseDerivedTableAfterParen parses (SELECT ...) or (WITH ... SELECT ...) when we've already consumed '('
+// Reference: src/parser/mod.rs:15515-15533
 func parseDerivedTableAfterParen(p *Parser) (query.TableFactor, error) {
 	// Parse the subquery
 	subquery, err := parseQuery(p)
@@ -920,10 +956,37 @@ func parseDerivedTableAfterParen(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
-	return &query.DerivedTableFactor{
+	var table query.TableFactor = &query.DerivedTableFactor{
 		Subquery: wrapQueryAsQuery(subquery),
 		Alias:    alias,
-	}, nil
+	}
+
+	// Check for PIVOT/UNPIVOT operations after derived table
+	// Reference: src/parser/mod.rs:15522-15531
+	for {
+		tok := p.PeekToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			kw := strings.ToUpper(string(word.Word.Keyword))
+			if kw == "PIVOT" {
+				p.AdvanceToken()
+				table, err = parsePivotTableFactor(p, table)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			} else if kw == "UNPIVOT" {
+				p.AdvanceToken()
+				table, err = parseUnpivotTableFactor(p, table)
+				if err != nil {
+					return nil, err
+				}
+				continue
+			}
+		}
+		break
+	}
+
+	return table, nil
 }
 
 // parseTableAndJoins parses a table factor followed by optional joins
@@ -943,6 +1006,339 @@ func parseTableAndJoins(p *Parser) (*query.TableWithJoins, error) {
 		Relation: relation,
 		Joins:    joins,
 	}, nil
+}
+
+// parsePivotTableFactor parses a PIVOT table factor (ClickHouse/Oracle style)
+// Reference: src/parser/mod.rs:16590-16644
+func parsePivotTableFactor(p *Parser, table query.TableFactor) (query.TableFactor, error) {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse comma-separated aggregate functions
+	aggregateFunctions, err := parseCommaSeparatedPivotAggregates(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.ExpectKeywordIs("FOR"); err != nil {
+		return nil, err
+	}
+
+	// Parse value column(s) - can be single expr or parenthesized list
+	var valueColumns []query.Expr
+	tok := p.PeekToken()
+	if _, ok := tok.Token.(token.TokenLParen); ok {
+		// Parenthesized list of value columns
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		valueColumns, err = parseCommaSeparatedQueryExprs(p)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	} else {
+		// Single value column
+		ep := NewExpressionParser(p)
+		expr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		valueColumns = []query.Expr{exprToQueryExpr(expr)}
+	}
+
+	if err := p.ExpectKeywordIs("IN"); err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse value source: ANY, subquery, or list of expressions
+	valueSource, err := parsePivotValueSource(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for DEFAULT ON NULL clause
+	var defaultOnNull query.Expr
+	if p.ParseKeyword("DEFAULT") {
+		if err := p.ExpectKeywordIs("ON"); err != nil {
+			return nil, err
+		}
+		if err := p.ExpectKeywordIs("NULL"); err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		ep := NewExpressionParser(p)
+		expr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		defaultOnNull = exprToQueryExpr(expr)
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.PivotTableFactor{
+		Table:              table,
+		AggregateFunctions: aggregateFunctions,
+		ValueColumn:        valueColumns,
+		ValueSource:        valueSource,
+		DefaultOnNull:      defaultOnNull,
+		Alias:              alias,
+	}, nil
+}
+
+// parseUnpivotTableFactor parses an UNPIVOT table factor
+// Reference: src/parser/mod.rs:16647-16678
+func parseUnpivotTableFactor(p *Parser, table query.TableFactor) (query.TableFactor, error) {
+	// Parse optional INCLUDE/EXCLUDE NULLS
+	var nullInclusion *query.NullInclusion
+	if p.ParseKeyword("INCLUDE") {
+		if err := p.ExpectKeywordIs("NULLS"); err != nil {
+			return nil, err
+		}
+		inc := query.IncludeNulls
+		nullInclusion = &inc
+	} else if p.ParseKeyword("EXCLUDE") {
+		if err := p.ExpectKeywordIs("NULLS"); err != nil {
+			return nil, err
+		}
+		exc := query.ExcludeNulls
+		nullInclusion = &exc
+	}
+
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse value expression
+	ep := NewExpressionParser(p)
+	value, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.ExpectKeywordIs("FOR"); err != nil {
+		return nil, err
+	}
+
+	// Parse name identifier
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.ExpectKeywordIs("IN"); err != nil {
+		return nil, err
+	}
+
+	// Parse parenthesized column list with optional aliases
+	columns, err := parseParenthesizedExprWithAliasList(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.UnpivotTableFactor{
+		Table:         table,
+		Value:         exprToQueryExpr(value),
+		Name:          query.Ident{Value: name.Value},
+		Columns:       columns,
+		NullInclusion: nullInclusion,
+		Alias:         alias,
+	}, nil
+}
+
+// parseCommaSeparatedPivotAggregates parses comma-separated aggregate functions with optional aliases
+func parseCommaSeparatedPivotAggregates(p *Parser) ([]query.ExprWithAlias, error) {
+	var aggregates []query.ExprWithAlias
+	for {
+		agg, err := parsePivotAggregateFunction(p)
+		if err != nil {
+			return nil, err
+		}
+		aggregates = append(aggregates, agg)
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return aggregates, nil
+}
+
+// parsePivotAggregateFunction parses a single aggregate function with optional alias for PIVOT
+// Reference: src/parser/mod.rs:16573-16587
+func parsePivotAggregateFunction(p *Parser) (query.ExprWithAlias, error) {
+	// Use ExpressionParser to parse the aggregate function call
+	// The expression parser already knows how to handle function calls
+	ep := NewExpressionParser(p)
+	exprVal, err := ep.ParseExpr()
+	if err != nil {
+		return query.ExprWithAlias{}, err
+	}
+
+	// Parse optional alias
+	// For PIVOT, the alias must not be "FOR" keyword
+	var alias *query.Ident
+	if p.ParseKeyword("AS") {
+		ident, err := p.ParseIdentifier()
+		if err == nil && strings.ToUpper(ident.Value) != "FOR" {
+			alias = &query.Ident{Value: ident.Value}
+		}
+	} else {
+		// Try implicit alias (not FOR keyword)
+		tok := p.PeekToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			kw := strings.ToUpper(string(word.Word.Keyword))
+			if kw != "FOR" && !isReservedForTableAlias(kw) {
+				p.AdvanceToken()
+				alias = &query.Ident{Value: word.Word.Value}
+			}
+		}
+	}
+
+	return query.ExprWithAlias{
+		Expr:  exprToQueryExpr(exprVal),
+		Alias: alias,
+	}, nil
+}
+
+// parsePivotValueSource parses the IN clause value source for PIVOT
+func parsePivotValueSource(p *Parser) (query.PivotValueSource, error) {
+	// Check for ANY keyword (Snowflake)
+	if p.ParseKeyword("ANY") {
+		var orderBy []query.OrderByExpr
+		if p.ParseKeyword("ORDER") {
+			if err := p.ExpectKeywordIs("BY"); err != nil {
+				return nil, err
+			}
+			// Parse comma-separated ORDER BY expressions
+			for {
+				ep := NewExpressionParser(p)
+				expr, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				orderBy = append(orderBy, query.OrderByExpr{
+					Expr: exprToQueryExpr(expr),
+				})
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+		}
+		return &query.PivotValueAny{OrderBy: orderBy}, nil
+	}
+
+	// Check for subquery
+	tok := p.PeekToken()
+	if _, ok := tok.Token.(token.TokenLParen); ok {
+		// Could be subquery or expression list - peek ahead
+		nextTok := p.PeekNthToken(1)
+		if word, ok := nextTok.Token.(token.TokenWord); ok {
+			kw := strings.ToUpper(string(word.Word.Keyword))
+			if kw == "SELECT" || kw == "WITH" {
+				// It's a subquery
+				subquery, err := parseQuery(p)
+				if err != nil {
+					return nil, err
+				}
+				return &query.PivotValueSubquery{Query: wrapQueryAsQuery(subquery)}, nil
+			}
+		}
+	}
+
+	// Parse as expression list with optional aliases
+	values, err := parseCommaSeparatedExprWithAlias(p)
+	if err != nil {
+		return nil, err
+	}
+
+	return &query.PivotValueList{Values: values}, nil
+}
+
+// parseCommaSeparatedExprWithAlias parses comma-separated expressions with optional aliases
+func parseCommaSeparatedExprWithAlias(p *Parser) ([]query.ExprWithAlias, error) {
+	var values []query.ExprWithAlias
+	for {
+		ep := NewExpressionParser(p)
+		expr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for optional alias
+		var alias *query.Ident
+		if p.ParseKeyword("AS") {
+			ident, err := p.ParseIdentifier()
+			if err == nil {
+				alias = &query.Ident{Value: ident.Value}
+			}
+		} else {
+			// Try implicit alias
+			tok := p.PeekToken()
+			if word, ok := tok.Token.(token.TokenWord); ok {
+				if !isReservedForTableAlias(string(word.Word.Keyword)) {
+					p.AdvanceToken()
+					alias = &query.Ident{Value: word.Word.Value}
+				}
+			}
+		}
+
+		values = append(values, query.ExprWithAlias{
+			Expr:  exprToQueryExpr(expr),
+			Alias: alias,
+		})
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return values, nil
+}
+
+// parseParenthesizedExprWithAliasList parses (expr [AS alias], ...)
+func parseParenthesizedExprWithAliasList(p *Parser) ([]query.ExprWithAlias, error) {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	values, err := parseCommaSeparatedExprWithAlias(p)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return values, nil
 }
 
 // parseJoins parses zero or more JOIN clauses
@@ -1400,6 +1796,7 @@ func isReservedForTableAlias(keyword string) bool {
 		"RIGHT": true, "FULL": true, "ON": true, "USING": true,
 		"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true,
 		"WINDOW": true, "QUALIFY": true, "SET": true,
+		"PIVOT": true, "UNPIVOT": true, "MATCH_RECOGNIZE": true, "SEMANTIC_VIEW": true,
 	}
 	return reserved[keyword]
 }

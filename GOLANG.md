@@ -1642,12 +1642,56 @@ go build ./...                      # Build everything
 
 ---
 
+### April 5, 2026 - PIVOT and UNPIVOT Table Factor Implementation
+
+Implemented major missing parser chunks for PIVOT and UNPIVOT table operations following Rust reference (src/parser/mod.rs:16589-16678):
+
+1. **PIVOT Table Factor Parser** (parser/query.go):
+   - Implemented `parsePivotTableFactor()` for ClickHouse/Oracle-style PIVOT
+   - Supports: `table PIVOT (agg_func FOR col IN (values))`
+   - Handles multiple aggregate functions with optional aliases
+   - Supports value columns (single or parenthesized list)
+   - Supports three value source types:
+     - Static value list: `IN ('JAN', 'FEB')`
+     - Subquery: `IN (SELECT col FROM table)`
+     - ANY with ORDER BY (Snowflake): `IN (ANY ORDER BY col)`
+   - Supports DEFAULT ON NULL clause: `DEFAULT ON NULL (0)`
+   - Properly handles table aliases after PIVOT operation
+
+2. **UNPIVOT Table Factor Parser** (parser/query.go):
+   - Implemented `parseUnpivotTableFactor()` for standard SQL UNPIVOT
+   - Supports: `table UNPIVOT (value FOR name IN (cols))`
+   - Handles optional INCLUDE/EXCLUDE NULLS modifier
+   - Properly parses value expression and column list with optional aliases
+
+3. **Integration with Table Factor Parsing**:
+   - Added `parseTableNameWithPivot()` wrapper to check for PIVOT/UNPIVOT after table names
+   - Updated `parseDerivedTableAfterParen()` to handle PIVOT/UNPIVOT after subqueries
+   - Updated `isReservedForTableAlias()` to prevent PIVOT/UNPIVOT being parsed as table aliases
+   - PIVOT/UNPIVOT operations can be chained: `table UNPIVOT (...) PIVOT (...)`
+
+4. **Helper Functions Added**:
+   - `parseCommaSeparatedPivotAggregates()` - parses comma-separated aggregate functions
+   - `parsePivotAggregateFunction()` - parses single aggregate with optional alias
+   - `parsePivotValueSource()` - handles ANY, subquery, or value list
+   - `parseCommaSeparatedExprWithAlias()` - parses expressions with optional AS aliases
+   - `parseParenthesizedExprWithAliasList()` - parses parenthesized expression list
+
+**Key Pattern Documentation:**
+- **Pattern AC: PIVOT Aggregate Parsing** - Use ExpressionParser to parse aggregate functions like SUM(amount) rather than manual function parsing. The expression parser already handles function calls correctly.
+- **Pattern AD: Reserved Keywords for Table Aliases** - When PIVOT/UNPIVOT follows a table name, they must NOT be treated as table aliases. Add them to `isReservedForTableAlias()` to prevent incorrect parsing.
+- **Pattern AE: Chained Table Operations** - PIVOT and UNPIVOT can chain: `(SELECT ...) PIVOT (...)`. The loop in `parseTableNameWithPivot()` and `parseDerivedTableAfterParen()` handles multiple operations.
+
+**Result:** +1 test passing (TestParseUnpivotTable). PIVOT partially working - core parsing complete but Snowflake-specific features (subquery values, complex aggregates) need refinement.
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
-**Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~356/813 (~44%)**
+**Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~496/1207 (~41%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines  
-- Go Source: 83,251 lines (123% of Rust - AST types and interfaces added)  
+- Go Source: 69,517 lines (103% of Rust)  
 - Go Tests: 14,131 lines (28%)  
 - Rust Tests: 49,886 lines
