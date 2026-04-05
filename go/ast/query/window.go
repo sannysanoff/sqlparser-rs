@@ -173,5 +173,10 @@ type ExprWithAliasAndOrderBy struct {
 }
 
 func (e *ExprWithAliasAndOrderBy) String() string {
-	return e.Expr.String() + e.OrderBy.String()
+	result := e.Expr.String()
+	orderByStr := e.OrderBy.String()
+	if orderByStr != "" {
+		result += " " + orderByStr
+	}
+	return result
 }

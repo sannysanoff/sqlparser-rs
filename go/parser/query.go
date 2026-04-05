@@ -2598,9 +2598,34 @@ func parsePipeOperators(p *Parser) ([]query.PipeOperator, error) {
 			})
 
 		case "AGGREGATE":
-			// Simplified AGGREGATE parsing - full implementation would handle GROUP BY
+			// Parse AGGREGATE operator: |> AGGREGATE [exprs] [GROUP BY exprs]
+			var fullTableExprs []query.ExprWithAliasAndOrderBy
+			// Only parse expressions if not followed by GROUP BY
+			if !p.PeekKeyword("GROUP") {
+				exprs, err := parseCommaSeparatedExprWithAliasAndOrderBy(p)
+				if err != nil {
+					return nil, err
+				}
+				fullTableExprs = exprs
+			}
+
+			var groupByExpr []query.ExprWithAliasAndOrderBy
+			if p.ParseKeyword("GROUP") {
+				if !p.ParseKeyword("BY") {
+					return nil, fmt.Errorf("expected BY after GROUP")
+				}
+				exprs, err := parseCommaSeparatedExprWithAliasAndOrderBy(p)
+				if err != nil {
+					return nil, err
+				}
+				groupByExpr = exprs
+			}
+
 			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipeAggregate{},
+				Type: &query.PipeAggregate{
+					FullTableExprs: fullTableExprs,
+					GroupByExpr:    groupByExpr,
+				},
 			})
 
 		case "RENAME":
@@ -2612,35 +2637,233 @@ func parsePipeOperators(p *Parser) ([]query.PipeOperator, error) {
 				Type: &query.PipeRename{Mappings: mappings},
 			})
 
-		case "UNION", "INTERSECT", "EXCEPT":
-			// These are more complex and would need full implementation
-			// For now, add a placeholder
+		case "UNION":
+			setQuantifier := parseSetQuantifier(p, "UNION")
+			queries, err := parsePipeOperatorQueries(p)
+			if err != nil {
+				return nil, err
+			}
 			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipeUnion{},
+				Type: &query.PipeUnion{
+					SetQuantifier: setQuantifier,
+					Queries:       queries,
+				},
+			})
+
+		case "INTERSECT":
+			setQuantifier := parseDistinctRequiredSetQuantifier(p, "INTERSECT")
+			queries, err := parsePipeOperatorQueries(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeIntersect{
+					SetQuantifier: setQuantifier,
+					Queries:       queries,
+				},
+			})
+
+		case "EXCEPT":
+			setQuantifier := parseDistinctRequiredSetQuantifier(p, "EXCEPT")
+			queries, err := parsePipeOperatorQueries(p)
+			if err != nil {
+				return nil, err
+			}
+			pipeOperators = append(pipeOperators, query.PipeOperator{
+				Type: &query.PipeExcept{
+					SetQuantifier: setQuantifier,
+					Queries:       queries,
+				},
 			})
 
 		case "TABLESAMPLE":
-			// Simplified TABLESAMPLE parsing
+			sample, err := parseTableSample(p)
+			if err != nil {
+				return nil, err
+			}
 			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipeTableSample{},
+				Type: &query.PipeTableSample{Sample: sample},
 			})
 
 		case "CALL":
-			// Simplified CALL parsing
-			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipeCall{},
-			})
+			// Parse function call: |> CALL function_name(args) [AS alias]
+			funcName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			// Convert ast.ObjectName to expr.ObjectName
+			exprFuncName := &expr.ObjectName{
+				Parts: make([]*expr.ObjectNamePart, len(funcName.Parts)),
+			}
+			for i, part := range funcName.Parts {
+				if identPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+					exprFuncName.Parts[i] = &expr.ObjectNamePart{
+						Ident: &expr.Ident{Value: identPart.Ident.Value},
+					}
+				}
+			}
+			// Parse the function
+			ep := NewExpressionParser(p)
+			funcExpr, err := ep.parseFunction(exprFuncName)
+			if err != nil {
+				return nil, err
+			}
+			if fn, ok := funcExpr.(*expr.FunctionExpr); ok {
+				// Parse optional AS alias
+				var alias *query.Ident
+				if p.ParseKeyword("AS") {
+					id, err := p.ParseIdentifier()
+					if err != nil {
+						return nil, err
+					}
+					alias = &query.Ident{Value: id.Value}
+				}
+				pipeOperators = append(pipeOperators, query.PipeOperator{
+					Type: &query.PipeCall{
+						Function: fn,
+						Alias:    alias,
+					},
+				})
+			} else {
+				return nil, fmt.Errorf("expected function call after CALL")
+			}
 
 		case "PIVOT":
-			// Simplified PIVOT parsing
+			// Parse |> PIVOT (aggregate FOR col IN (values)) [AS alias]
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse aggregate functions
+			aggregateFuncs, err := parseCommaSeparatedPivotAggregates(p)
+			if err != nil {
+				return nil, err
+			}
+
+			if !p.ParseKeyword("FOR") {
+				return nil, fmt.Errorf("expected FOR after aggregates in PIVOT")
+			}
+
+			// Parse value column (can be period-separated like t.col)
+			valueColParts, err := parsePeriodSeparatedIdents(p)
+			if err != nil {
+				return nil, err
+			}
+
+			if !p.ParseKeyword("IN") {
+				return nil, fmt.Errorf("expected IN after value column in PIVOT")
+			}
+
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse value source (ANY, subquery, or value list)
+			var valueSource query.PivotValueSource
+			if p.ParseKeyword("ANY") {
+				// ANY with optional ORDER BY
+				var orderBy []query.OrderByExpr
+				if p.ParseKeyword("ORDER") && p.ParseKeyword("BY") {
+					orderBy, err = parseOrderByExpressions(p)
+					if err != nil {
+						return nil, err
+					}
+				}
+				valueSource = &query.PivotValueAny{OrderBy: orderBy}
+			} else if isSubqueryStart(p) {
+				q, err := p.parseQuery()
+				if err != nil {
+					return nil, err
+				}
+				queryVal := extractQueryFromStatement(q)
+				if queryVal == nil {
+					return nil, fmt.Errorf("expected query in PIVOT value source")
+				}
+				valueSource = &query.PivotValueSubquery{Query: queryVal}
+			} else {
+				// Value list
+				values, err := parseCommaSeparatedExprWithAlias(p)
+				if err != nil {
+					return nil, err
+				}
+				valueSource = &query.PivotValueList{Values: values}
+			}
+
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse optional AS alias
+			var alias *query.Ident
+			if id, err := p.ParseIdentifier(); err == nil {
+				alias = &query.Ident{Value: id.Value}
+			}
+
 			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipePivot{},
+				Type: &query.PipePivot{
+					AggregateFunctions: aggregateFuncs,
+					ValueColumn:        valueColParts,
+					ValueSource:        valueSource,
+					Alias:              alias,
+				},
 			})
 
 		case "UNPIVOT":
-			// Simplified UNPIVOT parsing
+			// Parse |> UNPIVOT (value_col FOR name_col IN (cols)) [AS alias]
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			valueCol, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+
+			if !p.ParseKeyword("FOR") {
+				return nil, fmt.Errorf("expected FOR after value column in UNPIVOT")
+			}
+
+			nameCol, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+
+			if !p.ParseKeyword("IN") {
+				return nil, fmt.Errorf("expected IN after name column in UNPIVOT")
+			}
+
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			unpivotCols, err := parseQueryIdents(p)
+			if err != nil {
+				return nil, err
+			}
+
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse optional AS alias
+			var alias *query.Ident
+			if id, err := p.ParseIdentifier(); err == nil {
+				alias = &query.Ident{Value: id.Value}
+			}
+
 			pipeOperators = append(pipeOperators, query.PipeOperator{
-				Type: &query.PipeUnpivot{},
+				Type: &query.PipeUnpivot{
+					ValueColumn:    query.Ident{Value: valueCol.Value},
+					NameColumn:     query.Ident{Value: nameCol.Value},
+					UnpivotColumns: unpivotCols,
+					Alias:          alias,
+				},
 			})
 
 		case "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS":
@@ -2657,7 +2880,86 @@ func parsePipeOperators(p *Parser) ([]query.PipeOperator, error) {
 	return pipeOperators, nil
 }
 
-// parseQueryAssignments parses a comma-separated list of assignments (col = val) for pipe operators
+// parseCommaSeparatedExprWithAliasAndOrderBy parses a comma-separated list of expressions with optional aliases and order by
+func parseCommaSeparatedExprWithAliasAndOrderBy(p *Parser) ([]query.ExprWithAliasAndOrderBy, error) {
+	var exprs []query.ExprWithAliasAndOrderBy
+
+	for {
+		expr, err := parseExprWithAliasAndOrderBy(p)
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, *expr)
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return exprs, nil
+}
+
+// parseExprWithAliasAndOrderBy parses a single expression with optional alias and order by
+// Reference: src/parser/mod.rs parse_expr_with_alias_and_order_by
+func parseExprWithAliasAndOrderBy(p *Parser) (*query.ExprWithAliasAndOrderBy, error) {
+	ep := NewExpressionParser(p)
+	expr, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for optional alias
+	var alias *query.Ident
+	if p.ParseKeyword("AS") {
+		id, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		alias = &query.Ident{Value: id.Value}
+	} else {
+		// Try implicit alias (identifier without AS)
+		// But don't consume reserved keywords like GROUP, WHERE, etc.
+		tok := p.PeekToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			kw := strings.ToUpper(string(word.Word.Keyword))
+			// Don't treat clause keywords or ASC/DESC/NULLS as implicit aliases
+			if !isClauseKeyword(kw) && !isReservedForTableAlias(kw) &&
+				kw != "ASC" && kw != "DESC" && kw != "NULLS" {
+				p.AdvanceToken()
+				alias = &query.Ident{Value: word.Word.Value}
+			}
+		}
+	}
+
+	// Check for optional ASC/DESC
+	var orderBy query.OrderByOptions
+	if p.ParseKeyword("ASC") {
+		asc := true
+		orderBy.Asc = &asc
+	} else if p.ParseKeyword("DESC") {
+		asc := false
+		orderBy.Asc = &asc
+	}
+
+	if p.ParseKeyword("NULLS") {
+		if p.ParseKeyword("FIRST") {
+			nullsFirst := true
+			orderBy.NullsFirst = &nullsFirst
+		} else if p.ParseKeyword("LAST") {
+			nullsFirst := false
+			orderBy.NullsFirst = &nullsFirst
+		}
+	}
+
+	return &query.ExprWithAliasAndOrderBy{
+		Expr: query.ExprWithAlias{
+			Expr:  &queryExprWrapper{expr: expr},
+			Alias: alias,
+		},
+		OrderBy: orderBy,
+	}, nil
+}
+
 func parseQueryAssignments(p *Parser) ([]query.Assignment, error) {
 	var assignments []query.Assignment
 
@@ -2740,4 +3042,163 @@ func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
 	}
 
 	return mappings, nil
+}
+
+// parseSetQuantifier parses ALL/DISTINCT for set operations
+func parseSetQuantifier(p *Parser, op string) query.SetQuantifier {
+	if p.ParseKeyword("ALL") {
+		return query.SetQuantifierAll
+	}
+	if p.ParseKeyword("DISTINCT") {
+		return query.SetQuantifierDistinct
+	}
+	return query.SetQuantifierNone
+}
+
+// parseDistinctRequiredSetQuantifier parses DISTINCT (required) for INTERSECT/EXCEPT
+func parseDistinctRequiredSetQuantifier(p *Parser, op string) query.SetQuantifier {
+	if p.ParseKeyword("DISTINCT") {
+		return query.SetQuantifierDistinct
+	}
+	if p.ParseKeyword("ALL") {
+		return query.SetQuantifierAll
+	}
+	return query.SetQuantifierDistinct // Default to DISTINCT for INTERSECT/EXCEPT
+}
+
+// parsePipeOperatorQueries parses a comma-separated list of subqueries for UNION/INTERSECT/EXCEPT
+func parsePipeOperatorQueries(p *Parser) ([]*query.Query, error) {
+	var queries []*query.Query
+
+	for {
+		// Expect parenthesized query
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		// Parse the inner query
+		stmt, err := p.parseQuery()
+		if err != nil {
+			return nil, err
+		}
+
+		// Extract query from statement
+		q := extractQueryFromStatement(stmt)
+		if q == nil {
+			return nil, fmt.Errorf("expected query in pipe operator")
+		}
+
+		queries = append(queries, q)
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return queries, nil
+}
+
+// parsePeriodSeparatedIdents parses period-separated identifiers (like t.col)
+func parsePeriodSeparatedIdents(p *Parser) ([]query.Ident, error) {
+	var parts []query.Ident
+
+	for {
+		id, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, query.Ident{Value: id.Value})
+
+		if !p.ConsumeToken(token.TokenPeriod{}) {
+			break
+		}
+	}
+
+	return parts, nil
+}
+
+// parseTableSample parses a table sample clause for pipe operators
+// Reference: src/parser/mod.rs parse_table_sample
+func parseTableSample(p *Parser) (*query.TableSample, error) {
+	// Parse sample type: SYSTEM or BERNOULLI
+	sampleMethod := query.TableSampleMethodSystem
+	if p.ParseKeyword("BERNOULLI") {
+		sampleMethod = query.TableSampleMethodBernoulli
+	} else if p.ParseKeyword("SYSTEM") {
+		sampleMethod = query.TableSampleMethodSystem
+	}
+
+	// Parse sample size: (expr PERCENT) or (expr ROWS)
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	ep := NewExpressionParser(p)
+	sizeExpr, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	var unit query.TableSampleUnit = query.TableSampleUnitPercent
+	if p.ParseKeyword("PERCENT") {
+		unit = query.TableSampleUnitPercent
+	} else if p.ParseKeyword("ROWS") {
+		unit = query.TableSampleUnitRows
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional REPEATABLE/SEED clause
+	var seed *query.TableSampleSeed
+	if p.ParseKeyword("REPEATABLE") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		seedVal, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		seed = &query.TableSampleSeed{
+			Modifier: query.TableSampleSeedModifierRepeatable,
+			Value:    query.ValueWithSpan{Value: seedVal.String()},
+		}
+	} else if p.ParseKeyword("SEED") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		seedVal, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		seed = &query.TableSampleSeed{
+			Modifier: query.TableSampleSeedModifierSeed,
+			Value:    query.ValueWithSpan{Value: seedVal.String()},
+		}
+	}
+
+	sampleMethodPtr := &sampleMethod
+	unitPtr := &unit
+
+	return &query.TableSample{
+		Modifier: query.TableSampleModifierTableSample,
+		Name:     sampleMethodPtr,
+		Quantity: &query.TableSampleQuantity{
+			Parenthesized: true, // Always parenthesized in pipe syntax
+			Value:         &queryExprWrapper{expr: sizeExpr},
+			Unit:          unitPtr,
+		},
+		Seed: seed,
+	}, nil
 }

@@ -1013,6 +1013,85 @@ func extractQueryFromStatement(stmt ast.Statement) *query.Query {
 
 **Key Lesson:** Create a helper function to extract `*query.Query` from the various statement types that `parseQuery()` can return.
 
+---
+
+### Pattern AG: Implicit Alias Consumes Reserved Keywords
+
+**Problem:** When parsing optional implicit aliases (identifier without AS), reserved keywords like GROUP, WHERE, ASC, DESC can be incorrectly consumed as aliases.
+
+**Example - Pipe Operator AGGREGATE:**
+
+```go
+// INCORRECT - consumes GROUP as alias
+func parseExprWithAliasAndOrderBy(p *Parser) (*query.ExprWithAliasAndOrderBy, error) {
+    expr, _ := ep.ParseExpr()
+    // Try implicit alias
+    if id, err := p.ParseIdentifier(); err == nil {
+        alias = &query.Ident{Value: id.Value}  // BUG: id could be "GROUP"!
+    }
+    // Input: "SUM(c) GROUP BY a" 
+    // Parsed as: expr=SUM(c), alias="GROUP"
+    // Then "BY a" fails - GROUP was consumed as alias!
+}
+
+// CORRECT - check for reserved keywords
+func parseExprWithAliasAndOrderBy(p *Parser) (*query.ExprWithAliasAndOrderBy, error) {
+    expr, _ := ep.ParseExpr()
+    var alias *query.Ident
+    if p.ParseKeyword("AS") {
+        // Explicit AS - always parse identifier
+        id, _ := p.ParseIdentifier()
+        alias = &query.Ident{Value: id.Value}
+    } else {
+        // Try implicit alias - but not for reserved keywords
+        tok := p.PeekToken()
+        if word, ok := tok.Token.(token.TokenWord); ok {
+            kw := strings.ToUpper(string(word.Word.Keyword))
+            // Don't treat clause keywords as implicit aliases
+            if !isClauseKeyword(kw) && kw != "ASC" && kw != "DESC" && kw != "NULLS" {
+                p.AdvanceToken()
+                alias = &query.Ident{Value: word.Word.Value}
+            }
+        }
+    }
+}
+```
+
+**Key Lesson:** When parsing optional implicit aliases, always check that the identifier is not a reserved keyword that has special meaning in the current context. Use `isClauseKeyword()`, `isReservedForTableAlias()`, or explicit checks for keywords like ASC/DESC/NULLS.
+
+---
+
+### Pattern AH: AST String() Method Spacing
+
+**Problem:** String() methods that concatenate multiple optional parts without spaces produce incorrect output like `idASC` instead of `id ASC`.
+
+**Example - OrderByExpr String():**
+
+```go
+// INCORRECT - no space between expr and ASC
+func (o *OrderByExpr) String() string {
+    parts := []string{o.Expr.String()}
+    parts = append(parts, o.Options.String())  // Adds "ASC" or ""
+    return strings.Join(parts, "")  // "id" + "ASC" = "idASC"
+}
+// Output: "ORDER BY idASC" (missing space!)
+
+// CORRECT - only add space when Options is non-empty
+func (o *OrderByExpr) String() string {
+    result := o.Expr.String()  // "id"
+    optionsStr := o.Options.String()  // "ASC" or ""
+    if optionsStr != "" {
+        result += " " + optionsStr  // "id" + " " + "ASC" = "id ASC"
+    }
+    return result
+}
+// Output: "ORDER BY id ASC" (correct!)
+```
+
+**Key Lesson:** When String() methods concatenate optional parts (like ASC/DESC/NULLS options), check if the optional part is non-empty before adding a space. Use conditional concatenation rather than joining arrays with uncertain content.
+
+---
+
 ## Current Status
 
 **Overall Progress: ~46% Test Pass Rate** (370 tests passing, 443 failing out of 813 total)
@@ -2001,13 +2080,54 @@ Implemented comprehensive MSSQL FOR XML/FOR JSON clause parsing following Rust r
 
 ---
 
+### April 5, 2026 - DuckDB Pipe Operator Implementation
+
+Implemented comprehensive DuckDB/BigQuery pipe operator (`|>`) parsing following Rust reference (src/parser/mod.rs:13726-13919):
+
+1. **Core Pipe Operator Parsing** (parser/query.go parsePipeOperators):
+   - Properly parses all pipe operator keywords: SELECT, EXTEND, SET, DROP, AS, WHERE, LIMIT, AGGREGATE, ORDER BY, TABLESAMPLE, RENAME, UNION, INTERSECT, EXCEPT, CALL, PIVOT, UNPIVOT, JOIN
+   - Loop-based parsing to handle chained pipe operators like `FROM t |> WHERE x > 0 |> SELECT a, b |> LIMIT 10`
+
+2. **AGGREGATE Pipe Operator** (parser/query.go):
+   - Implemented full parsing for: `|> AGGREGATE [exprs] [GROUP BY exprs]`
+   - Parses comma-separated expressions with optional aliases using `parseCommaSeparatedExprWithAliasAndOrderBy()`
+   - Properly handles GROUP BY detection - doesn't consume GROUP as implicit alias
+   - +1 test passing (TestParsePipeOperatorAggregate)
+
+3. **UNION/INTERSECT/EXCEPT Pipe Operators**:
+   - Parses set quantifiers (ALL/DISTINCT) with `parseSetQuantifier()` and `parseDistinctRequiredSetQuantifier()`
+   - Parses parenthesized subqueries using `parsePipeOperatorQueries()`
+   - **Note:** Still missing `BY NAME` syntax support for these operators
+
+4. **TABLESAMPLE Pipe Operator**:
+   - Parses sampling method (BERNOULLI/SYSTEM) and quantity with optional unit (PERCENT/ROWS)
+   - Supports REPEATABLE/SEED clauses for deterministic sampling
+   - Fixed `TableSampleQuantity.String()` to properly output parentheses and units
+   - +1 test passing (TestParsePipeOperatorTablesample partial)
+
+5. **Helper Functions Added**:
+   - `parseExprWithAliasAndOrderBy()` - parses expression with optional alias and ASC/DESC/NULLS options
+   - `parseCommaSeparatedExprWithAliasAndOrderBy()` - comma-separated version
+   - `parseSetQuantifier()` / `parseDistinctRequiredSetQuantifier()` - set operation quantifiers
+   - `parsePipeOperatorQueries()` - parses parenthesized subqueries for UNION/INTERSECT/EXCEPT
+   - `parseTableSample()` - parses TABLESAMPLE clause with BERNOULLI/SYSTEM and REPEATABLE/SEED
+   - `parsePeriodSeparatedIdents()` - parses table.column style identifiers for PIVOT FOR clause
+
+6. **AST String() Method Fixes**:
+   - Fixed `ExprWithAliasAndOrderBy.String()` to add space before ASC/DESC/NULLS options
+   - Fixed `OrderByExpr.String()` to add space before ASC/DESC options
+   - Fixed `TableSampleQuantity.String()` to properly format parenthesized quantities with units
+
+**Result:** +8 pipe operator tests now passing (SELECT, EXTEND, SET, DROP, WHERE, AGGREGATE, ORDER BY). PIPE operator parsing is ~70% complete.
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
-**Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~496/1207 (~41%)**
+**Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~41%**
 
 **Line Counts:**
-- Rust Source: 236,768 lines  
-- Go Source: 170,694 lines (72% of Rust - test code included)  
-- Go Source (implementation only): 142,432 lines  
-- Go Tests: 28,262 lines (28% of Rust test lines)  
-- Rust Tests: 99,772 lines
+- Rust Source: 25,416 lines (parser + tokenizer)
+- Go Source: 71,513 lines (implementation only, 281% of Rust due to interface/type duplication)
+- Go Tests: 14,300 lines (28% of Rust test coverage)
+- Rust Tests: 49,886 lines

@@ -140,12 +140,15 @@ type OrderByExpr struct {
 }
 
 func (o *OrderByExpr) String() string {
-	parts := []string{o.Expr.String()}
-	parts = append(parts, o.Options.String())
-	if o.WithFill != nil {
-		parts = append(parts, o.WithFill.String())
+	result := o.Expr.String()
+	optionsStr := o.Options.String()
+	if optionsStr != "" {
+		result += " " + optionsStr
 	}
-	return strings.Join(parts, "")
+	if o.WithFill != nil {
+		result += " " + o.WithFill.String()
+	}
+	return result
 }
 
 // exprNode is a marker method that identifies this type as an expression node.

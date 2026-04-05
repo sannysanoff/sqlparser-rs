@@ -363,17 +363,14 @@ type TableSampleQuantity struct {
 
 func (t *TableSampleQuantity) String() string {
 	var parts []string
-	if t.Parenthesized {
-		parts = append(parts, "(")
-	}
 	parts = append(parts, t.Value.String())
 	if t.Unit != nil {
 		parts = append(parts, t.Unit.String())
 	}
 	if t.Parenthesized {
-		parts = append(parts, ")")
+		return "(" + strings.Join(parts, " ") + ")"
 	}
-	return strings.Join(parts, "")
+	return strings.Join(parts, " ")
 }
 
 // TableSampleUnit represents rows or percent
