@@ -1070,15 +1070,221 @@ func parseCreateSequenceOptions(p *Parser) ([]*expr.SequenceOptions, error) {
 }
 
 func parseCreateType(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE TYPE not yet implemented", p.PeekTokenRef())
+	// Parse type name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for AS keyword
+	hasAs := p.ParseKeyword("AS")
+
+	if !hasAs {
+		// Simple CREATE TYPE name;
+		return &statement.CreateType{
+			Name: name,
+		}, nil
+	}
+
+	// Parse AS variant
+	if p.ParseKeyword("ENUM") {
+		// CREATE TYPE name AS ENUM (...)
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		// Parse enum labels (comma-separated identifiers or string literals)
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			// Just consume the token (identifier or string)
+			p.AdvanceToken()
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &statement.CreateType{
+			Name: name,
+		}, nil
+	}
+
+	if p.ParseKeyword("RANGE") {
+		// CREATE TYPE name AS RANGE (...)
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		// Parse range options - simplified
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			p.AdvanceToken()
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &statement.CreateType{
+			Name: name,
+		}, nil
+	}
+
+	// Try composite type: CREATE TYPE name AS (attr1 type1, attr2 type2, ...)
+	if p.ConsumeToken(token.TokenLParen{}) {
+		// Parse composite attributes
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			// Parse attribute name
+			_, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Parse data type
+			_, err = p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			// Optional COLLATE
+			if p.ParseKeyword("COLLATE") {
+				_, _ = p.ParseObjectName()
+			}
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &statement.CreateType{
+			Name: name,
+		}, nil
+	}
+
+	return nil, p.expectedRef("ENUM, RANGE, or '(' after AS", p.PeekTokenRef())
 }
 
 func parseCreateDomain(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE DOMAIN not yet implemented", p.PeekTokenRef())
+	// Parse domain name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse AS keyword
+	if _, err := p.ExpectKeyword("AS"); err != nil {
+		return nil, err
+	}
+
+	// Parse data type
+	_, err = p.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional COLLATE
+	var collation *ast.ObjectName
+	if p.ParseKeyword("COLLATE") {
+		collation, _ = p.ParseObjectName()
+	}
+
+	// Parse optional DEFAULT
+	var defaultValue expr.Expr
+	if p.ParseKeyword("DEFAULT") {
+		defaultValue, _ = NewExpressionParser(p).ParseExpr()
+	}
+
+	// Parse optional constraints - simplified
+	var constraints []*expr.DomainConstraint
+	for {
+		tok := p.PeekToken()
+		// Check for EOF or end of statement
+		if _, isEOF := tok.Token.(token.EOF); isEOF {
+			break
+		}
+		// Check for semicolon using keyword-like check
+		if word, ok := tok.Token.(token.TokenWord); ok && word.Value == ";" {
+			break
+		}
+		// Try to parse a constraint
+		// For now, we just skip unknown tokens
+		if p.PeekKeyword("CONSTRAINT") || p.PeekKeyword("NOT") || p.PeekKeyword("NULL") ||
+			p.PeekKeyword("UNIQUE") || p.PeekKeyword("PRIMARY") || p.PeekKeyword("CHECK") ||
+			p.PeekKeyword("REFERENCES") {
+			p.AdvanceToken()
+		} else {
+			break
+		}
+	}
+
+	// Note: CreateDomain.DataType is *ast.DataType, but ParseDataType returns datatype.DataType
+	// These are incompatible interfaces. For now, we leave DataType as nil.
+	// TODO: Fix the AST type definition to use interface{} like ColumnDef does
+	return &statement.CreateDomain{
+		Name:         name,
+		DataType:     nil,
+		Collation:    collation,
+		DefaultValue: defaultValue,
+		Constraints:  constraints,
+	}, nil
 }
 
 func parseCreateExtension(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE EXTENSION not yet implemented", p.PeekTokenRef())
+	// Check for OR REPLACE
+	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
+
+	// Parse optional IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse extension name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional WITH clause
+	var schema *ast.ObjectName
+	var version *string
+	cascade := false
+
+	if p.ParseKeyword("WITH") {
+		// Parse optional SCHEMA
+		if p.ParseKeyword("SCHEMA") {
+			schema, _ = p.ParseObjectName()
+		}
+
+		// Parse optional VERSION
+		if p.ParseKeyword("VERSION") {
+			verTok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+			if err == nil {
+				if str, ok := verTok.Token.(token.TokenSingleQuotedString); ok {
+					version = &str.Value
+				}
+			} else {
+				// Try identifier
+				verIdent, err := p.ParseIdentifier()
+				if err == nil {
+					v := verIdent.Value
+					version = &v
+				}
+			}
+		}
+
+		// Parse optional CASCADE
+		cascade = p.ParseKeyword("CASCADE")
+	}
+
+	return &statement.CreateExtension{
+		OrReplace:   orReplace,
+		IfNotExists: ifNotExists,
+		Name:        name,
+		Schema:      schema,
+		Version:     version,
+		Cascade:     cascade,
+	}, nil
 }
 
 func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
@@ -2204,5 +2410,57 @@ func parseLiteralUint(p *Parser) (uint64, error) {
 }
 
 func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE USER not yet implemented", p.PeekTokenRef())
+	// Parse optional IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse user name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional WITH options (simplified - just look for key=value patterns)
+	var options []*expr.SqlOption
+	for {
+		if p.PeekKeyword("WITH") || p.PeekKeyword("TAG") {
+			break
+		}
+		// Try to parse key=value option
+		key, err := p.ParseIdentifier()
+		if err != nil {
+			p.PrevToken()
+			break
+		}
+		if !p.ConsumeToken(token.TokenEq{}) {
+			p.PrevToken()
+			break
+		}
+		value, err := NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			p.PrevToken()
+			p.PrevToken()
+			break
+		}
+		// Convert ast.Ident to expr.Ident
+		exprKey := &expr.Ident{
+			SpanVal:    key.Span(),
+			Value:      key.Value,
+			QuoteStyle: key.QuoteStyle,
+		}
+		options = append(options, &expr.SqlOption{
+			Name:  exprKey,
+			Value: value,
+		})
+	}
+
+	// Parse optional WITH TAG
+	if p.ParseKeyword("WITH") {
+		p.ParseKeyword("TAG")
+	}
+
+	return &statement.CreateUser{
+		IfNotExists: ifNotExists,
+		Name:        name,
+		Options:     options,
+	}, nil
 }

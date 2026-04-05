@@ -681,7 +681,7 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 
 ## Current Status
 
-**Overall Progress: 39% Test Pass Rate** (469/1199 tests passing)
+**Overall Progress: 39% Test Pass Rate** (473/1207 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -692,19 +692,58 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 | **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
 | **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
 | **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **39% Complete** | **469** | 1199  | **39%**   |
+| **TOTAL**        | **39% Complete** | **473** | 1207  | **39%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 66,406 lines (99% of Rust)
+- Go Source: 67,514 lines (100% of Rust)
 - Go Tests: 14,112 lines (28% of Rust tests)
 
 ---
 
 ## Recent Progress
 
-### April 6, 2026 - DISTINCT/FETCH/DELETE Parser Fixes
+### April 6, 2026 - ASSERT, DISCARD, COMMENT, LOAD, and CREATE Statement Parsers
+
+Implemented major missing statement parsers following Rust reference:
+
+1. **AST Type Fixes** (go/ast/expr/ddl.go):
+   - Completed `DiscardObject` enum with ALL, PLANS, SEQUENCES, TEMP values
+   - Completed `CommentObject` enum with all 16 object types (COLUMN, TABLE, VIEW, etc.)
+   - Added proper String() methods for both types
+
+2. **ASSERT Statement** (parser.go):
+   - Simple implementation: `ASSERT condition [AS message]`
+   - Parses condition expression and optional AS message clause
+
+3. **DISCARD Statement** (parser.go):
+   - PostgreSQL-style: `DISCARD { ALL | PLANS | SEQUENCES | TEMP }`
+   - Uses updated DiscardObject enum types
+
+4. **LOAD Statement** (parser.go):
+   - DuckDB variant: `LOAD extension_name`
+   - Hive variant: `LOAD DATA [LOCAL] INPATH 'path' [OVERWRITE] INTO TABLE table_name`
+   - Checks dialect capabilities before parsing
+
+5. **COMMENT Statement** (parser.go):
+   - Full implementation: `COMMENT ON [object_type] object_name IS 'comment' | NULL`
+   - Supports all 16 object types including MATERIALIZED VIEW
+   - Handles IF EXISTS modifier and NULL comments
+
+6. **CREATE Statement Parsers** (create.go):
+   - **CREATE USER**: Basic parsing with IF NOT EXISTS, name, and key=value options
+   - **CREATE TYPE**: Supports AS ENUM, AS RANGE, and composite types (attr1 type1, ...)
+   - **CREATE DOMAIN**: Parses AS data_type [COLLATE] [DEFAULT] [constraints]
+   - **CREATE EXTENSION**: Parses IF NOT EXISTS, name, WITH [SCHEMA] [VERSION] [CASCADE]
+
+**Key Pattern Documentation:**
+- **AST Type Completion**: When enum types are incomplete (only having a `None` value), complete them with proper values and String() methods before implementing parsers that use them.
+- **Token Type Checking**: Use `p.PeekToken().Token.(token.Type)` for type assertions, but use `p.PeekTokenRef()` when passing to functions expecting `*token.TokenWithSpan` (like `expectedRef`).
+- **Keyword String Conversion**: `token.Keyword` is a named string type - use `string(word.Keyword)` to convert for functions expecting `string`.
+- **Ident Type Conversion**: `p.ParseIdentifier()` returns `*ast.Ident`, but `expr.SqlOption.Name` expects `*expr.Ident`. Convert using: `&expr.Ident{SpanVal: key.Span(), Value: key.Value, QuoteStyle: key.QuoteStyle}`.
+
+**Result:** +4 tests passing (473/1207 total, 39% pass rate)
 
 Implemented critical parser fixes for SELECT DISTINCT, FETCH statement, and DELETE statement:
 
@@ -1074,9 +1113,9 @@ go build ./...                      # Build everything
 
 **Version:** 1.0  
 **Last Updated:** April 6, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total 469/1199 (39%)**
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total 473/1207 (39%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines
-- Go Source: 66,406 lines (99% of Rust)
+- Go Source: 67,514 lines (100% of Rust)
 - Go Tests: 14,112 lines

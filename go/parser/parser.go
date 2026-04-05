@@ -671,7 +671,66 @@ func (p *Parser) parseOptimize() (ast.Statement, error) {
 }
 
 func (p *Parser) parseLoad() (ast.Statement, error) {
-	return nil, p.expectedRef("LOAD not yet implemented", p.PeekTokenRef())
+	// Check for DuckDB LOAD extension syntax: LOAD extension_name
+	if p.dialect.SupportsLoadExtension() {
+		extensionName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		return &statement.Load{
+			ExtensionName: extensionName,
+		}, nil
+	}
+
+	// Check for Hive LOAD DATA syntax: LOAD DATA [LOCAL] INPATH 'path' [OVERWRITE] INTO TABLE table_name
+	if p.ParseKeyword("DATA") && p.dialect.SupportsLoadData() {
+		// Parse optional LOCAL
+		local := p.ParseKeyword("LOCAL")
+
+		// Parse INPATH
+		if _, err := p.ExpectKeyword("INPATH"); err != nil {
+			return nil, err
+		}
+
+		// Parse path string
+		pathTok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+		if err != nil {
+			return nil, err
+		}
+		path := ""
+		if str, ok := pathTok.Token.(token.TokenSingleQuotedString); ok {
+			path = str.Value
+		}
+
+		// Parse optional OVERWRITE
+		overwrite := p.ParseKeyword("OVERWRITE")
+
+		// Parse INTO TABLE
+		if _, err := p.ExpectKeyword("INTO"); err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectKeyword("TABLE"); err != nil {
+			return nil, err
+		}
+
+		// Parse table name
+		tableName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		// For simplicity, skip partition and table_format parsing for now
+		// TODO: Implement partition and table_format parsing for full Hive support
+
+		return &statement.LoadData{
+			Local:     local,
+			Inpath:    path,
+			Overwrite: overwrite,
+			TableName: tableName,
+		}, nil
+	}
+
+	return nil, p.expectedRef("extension name or DATA", p.PeekTokenRef())
 }
 
 func (p *Parser) parseInstall() (ast.Statement, error) {
@@ -691,7 +750,176 @@ func (p *Parser) parseDetach() (ast.Statement, error) {
 }
 
 func (p *Parser) parseComment() (ast.Statement, error) {
-	return nil, p.expectedRef("COMMENT not yet implemented", p.PeekTokenRef())
+	// Parse optional IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse ON keyword
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, err
+	}
+
+	// Parse object type
+	tok := p.PeekToken()
+	var objectType expr.CommentObject
+	var objectName *ast.ObjectName
+
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		switch strings.ToUpper(string(word.Keyword)) {
+		case "COLUMN":
+			objectType = expr.CommentColumn
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "DATABASE":
+			objectType = expr.CommentDatabase
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "DOMAIN":
+			objectType = expr.CommentDomain
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "EXTENSION":
+			objectType = expr.CommentExtension
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "FUNCTION":
+			objectType = expr.CommentFunction
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "INDEX":
+			objectType = expr.CommentIndex
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "MATERIALIZED":
+			p.AdvanceToken()
+			if _, err := p.ExpectKeyword("VIEW"); err != nil {
+				return nil, err
+			}
+			objectType = expr.CommentMaterializedView
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "PROCEDURE":
+			objectType = expr.CommentProcedure
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "ROLE":
+			objectType = expr.CommentRole
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "SCHEMA":
+			objectType = expr.CommentSchema
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "SEQUENCE":
+			objectType = expr.CommentSequence
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "TABLE":
+			objectType = expr.CommentTable
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "TYPE":
+			objectType = expr.CommentType
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "USER":
+			objectType = expr.CommentUser
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		case "VIEW":
+			objectType = expr.CommentView
+			p.AdvanceToken()
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			objectName = name
+		default:
+			return nil, p.expectedRef("comment object type (COLUMN, TABLE, VIEW, etc.)", p.PeekTokenRef())
+		}
+	} else {
+		return nil, p.expectedRef("comment object type", p.PeekTokenRef())
+	}
+
+	// Parse IS keyword
+	if _, err := p.ExpectKeyword("IS"); err != nil {
+		return nil, err
+	}
+
+	// Parse comment value (string literal or NULL)
+	var comment *string
+	if p.ParseKeyword("NULL") {
+		comment = nil
+	} else {
+		tok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+		if err != nil {
+			return nil, err
+		}
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			comment = &str.Value
+		}
+	}
+
+	return &statement.Comment{
+		ObjectType: objectType,
+		ObjectName: objectName,
+		Comment:    comment,
+		IfExists:   ifExists,
+	}, nil
 }
 
 func (p *Parser) parseListen() (ast.Statement, error) {
@@ -814,7 +1042,25 @@ func (p *Parser) parsePragmaValue() (expr.Expr, error) {
 }
 
 func (p *Parser) parseAssert() (ast.Statement, error) {
-	return nil, p.expectedRef("ASSERT not yet implemented", p.PeekTokenRef())
+	// Parse condition expression
+	condition, err := NewExpressionParser(p).ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional AS message
+	var message expr.Expr
+	if p.ParseKeyword("AS") {
+		message, err = NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.Assert{
+		Condition: condition,
+		Message:   message,
+	}, nil
 }
 
 func (p *Parser) parseSavepoint() (ast.Statement, error) {
@@ -842,7 +1088,33 @@ func (p *Parser) parseReset() (ast.Statement, error) {
 }
 
 func (p *Parser) parseDiscard() (ast.Statement, error) {
-	return nil, p.expectedRef("DISCARD not yet implemented", p.PeekTokenRef())
+	// Parse discard object type: ALL, PLANS, SEQUENCES, or TEMP
+	var objectType expr.DiscardObject
+
+	if word, ok := p.PeekTokenRef().Token.(token.TokenWord); ok {
+		switch strings.ToUpper(word.Value) {
+		case "ALL":
+			objectType = expr.DiscardAll
+			p.AdvanceToken()
+		case "PLANS":
+			objectType = expr.DiscardPlans
+			p.AdvanceToken()
+		case "SEQUENCES":
+			objectType = expr.DiscardSequences
+			p.AdvanceToken()
+		case "TEMP", "TEMPORARY":
+			objectType = expr.DiscardTemp
+			p.AdvanceToken()
+		default:
+			return nil, p.expectedRef("ALL, PLANS, SEQUENCES, or TEMP", p.PeekTokenRef())
+		}
+	} else {
+		return nil, p.expectedRef("ALL, PLANS, SEQUENCES, or TEMP", p.PeekTokenRef())
+	}
+
+	return &statement.Discard{
+		ObjectType: objectType,
+	}, nil
 }
 
 func (p *Parser) parseExport() (ast.Statement, error) {

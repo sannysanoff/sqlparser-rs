@@ -2904,9 +2904,26 @@ type DiscardObject int
 
 const (
 	DiscardObjectNone DiscardObject = iota
+	DiscardAll
+	DiscardPlans
+	DiscardSequences
+	DiscardTemp
 )
 
-func (d DiscardObject) String() string { return "" }
+func (d DiscardObject) String() string {
+	switch d {
+	case DiscardAll:
+		return "ALL"
+	case DiscardPlans:
+		return "PLANS"
+	case DiscardSequences:
+		return "SEQUENCES"
+	case DiscardTemp:
+		return "TEMP"
+	default:
+		return ""
+	}
+}
 
 // ShowStatementInClause represents the clause type for SHOW ... IN/FROM
 type ShowStatementInClause int
@@ -3168,9 +3185,59 @@ type CommentObject int
 
 const (
 	CommentObjectNone CommentObject = iota
+	CommentColumn
+	CommentDatabase
+	CommentDomain
+	CommentExtension
+	CommentFunction
+	CommentIndex
+	CommentMaterializedView
+	CommentProcedure
+	CommentRole
+	CommentSchema
+	CommentSequence
+	CommentTable
+	CommentType
+	CommentUser
+	CommentView
 )
 
-func (c CommentObject) String() string { return "" }
+func (c CommentObject) String() string {
+	switch c {
+	case CommentColumn:
+		return "COLUMN"
+	case CommentDatabase:
+		return "DATABASE"
+	case CommentDomain:
+		return "DOMAIN"
+	case CommentExtension:
+		return "EXTENSION"
+	case CommentFunction:
+		return "FUNCTION"
+	case CommentIndex:
+		return "INDEX"
+	case CommentMaterializedView:
+		return "MATERIALIZED VIEW"
+	case CommentProcedure:
+		return "PROCEDURE"
+	case CommentRole:
+		return "ROLE"
+	case CommentSchema:
+		return "SCHEMA"
+	case CommentSequence:
+		return "SEQUENCE"
+	case CommentTable:
+		return "TABLE"
+	case CommentType:
+		return "TYPE"
+	case CommentUser:
+		return "USER"
+	case CommentView:
+		return "VIEW"
+	default:
+		return ""
+	}
+}
 
 // ExprWithAlias represents expression with alias.
 type ExprWithAlias struct {
