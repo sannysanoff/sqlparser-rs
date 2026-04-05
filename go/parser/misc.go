@@ -22,6 +22,7 @@ import (
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/token"
 )
@@ -931,21 +932,6 @@ func parseCall(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("CALL statement parsing not yet fully implemented")
 }
 
-// parseCache parses CACHE statements
-func parseCache(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("CACHE statement parsing not yet fully implemented")
-}
-
-// parseUncache parses UNCACHE statements
-func parseUncache(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("UNCACHE statement parsing not yet fully implemented")
-}
-
-// parseMsck parses MSCK statements
-func parseMsck(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("MSCK statement parsing not yet fully implemented")
-}
-
 // parseFlush parses FLUSH statements
 func parseFlush(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("FLUSH statement parsing not yet fully implemented")
@@ -987,18 +973,555 @@ func parseDetach(p *Parser) (ast.Statement, error) {
 }
 
 // parseComment parses COMMENT statements
+// Reference: src/parser/mod.rs:898
 func parseComment(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("COMMENT statement parsing not yet fully implemented")
+	p.ExpectKeyword("ON")
+
+	// Parse the object type
+	var objectType expr.CommentObject
+	switch {
+	case p.ParseKeyword("TABLE"):
+		objectType = expr.CommentTable
+	case p.ParseKeyword("VIEW"):
+		objectType = expr.CommentView
+	case p.ParseKeyword("COLUMN"):
+		objectType = expr.CommentColumn
+	case p.ParseKeyword("SCHEMA"):
+		objectType = expr.CommentSchema
+	case p.ParseKeyword("DATABASE"):
+		objectType = expr.CommentDatabase
+	case p.ParseKeyword("INDEX"):
+		objectType = expr.CommentIndex
+	case p.ParseKeyword("SEQUENCE"):
+		objectType = expr.CommentSequence
+	case p.ParseKeyword("MATERIALIZED") && p.ParseKeyword("VIEW"):
+		objectType = expr.CommentMaterializedView
+	case p.ParseKeyword("TYPE"):
+		objectType = expr.CommentType
+	case p.ParseKeyword("DOMAIN"):
+		objectType = expr.CommentDomain
+	case p.ParseKeyword("FUNCTION"):
+		objectType = expr.CommentFunction
+	case p.ParseKeyword("PROCEDURE"):
+		objectType = expr.CommentProcedure
+	case p.ParseKeyword("ROLE"):
+		objectType = expr.CommentRole
+	default:
+		return nil, fmt.Errorf("unexpected object type for COMMENT")
+	}
+
+	// Parse object name
+	objName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect IS keyword
+	p.ExpectKeyword("IS")
+
+	// Parse comment value (can be string literal or NULL)
+	var comment *string
+	nextTok := p.PeekToken()
+	if word, ok := nextTok.Token.(token.TokenWord); ok && word.Word.Keyword == "NULL" {
+		p.AdvanceToken()
+		comment = nil
+	} else {
+		ep := NewExpressionParser(p)
+		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		// Extract string value from the expression
+		if val, ok := e.(*expr.ValueExpr); ok {
+			if str, ok := val.Value.(string); ok {
+				comment = &str
+			}
+		}
+	}
+
+	return &statement.Comment{
+		ObjectType: objectType,
+		ObjectName: objName,
+		Comment:    comment,
+	}, nil
 }
 
 // parseDeclare parses DECLARE statements
+// Reference: src/parser/mod.rs:7486
 func parseDeclare(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("DECLARE statement parsing not yet fully implemented")
+	dialect := p.GetDialect()
+	dialectName := dialect.Dialect()
+
+	// Dispatch to dialect-specific parsers
+	if dialectName == "bigquery" {
+		return parseBigQueryDeclare(p)
+	}
+	if dialectName == "snowflake" {
+		return parseSnowflakeDeclare(p)
+	}
+	if dialectName == "mssql" {
+		return parseMssqlDeclare(p)
+	}
+
+	// Standard SQL cursor declaration (PostgreSQL-style)
+	// DECLARE name [ BINARY ] [ ASENSITIVE | INSENSITIVE ] [ [ NO ] SCROLL ]
+	//     CURSOR [ { WITH | WITHOUT } HOLD ] FOR query
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional BINARY
+	var binary *bool
+	if p.ParseKeyword("BINARY") {
+		b := true
+		binary = &b
+	}
+
+	// Parse ASENSITIVE | INSENSITIVE
+	var sensitive *bool
+	if p.ParseKeyword("INSENSITIVE") {
+		s := true
+		sensitive = &s
+	} else if p.ParseKeyword("ASENSITIVE") {
+		s := false
+		sensitive = &s
+	}
+
+	// Parse [ NO ] SCROLL
+	var scroll *bool
+	if p.ParseKeyword("SCROLL") {
+		s := true
+		scroll = &s
+	} else if p.ParseKeywords([]string{"NO", "SCROLL"}) {
+		s := false
+		scroll = &s
+	}
+
+	// Expect CURSOR
+	p.ExpectKeyword("CURSOR")
+	declareType := expr.DeclareTypeCursor
+
+	// Parse { WITH | WITHOUT } HOLD
+	var hold *bool
+	if p.ParseKeyword("WITH") {
+		p.ExpectKeyword("HOLD")
+		h := true
+		hold = &h
+	} else if p.ParseKeyword("WITHOUT") {
+		p.ExpectKeyword("HOLD")
+		h := false
+		hold = &h
+	}
+
+	// Expect FOR
+	p.ExpectKeyword("FOR")
+
+	// Parse query
+	stmt, err := p.parseQuery()
+	if err != nil {
+		return nil, err
+	}
+	q := extractQueryFromStatement(stmt)
+
+	return &statement.Declare{
+		Stmts: []*expr.Declare{{
+			Names:       []*expr.Ident{exprFromAstIdent(name)},
+			DeclareType: &declareType,
+			Binary:      binary,
+			Sensitive:   sensitive,
+			Scroll:      scroll,
+			Hold:        hold,
+			ForQuery:    q,
+		}},
+	}, nil
+}
+
+// parseBigQueryDeclare parses BigQuery DECLARE statements
+// Reference: src/parser/mod.rs:7559
+// Syntax: DECLARE variable_name[, ...] [{ <variable_type> | <DEFAULT expression> }];
+func parseBigQueryDeclare(p *Parser) (ast.Statement, error) {
+	// Parse comma-separated variable names
+	names, err := parseCommaSeparatedIdents(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for data type or DEFAULT
+	var dataType interface{}
+	nextTok := p.PeekToken()
+	if word, ok := nextTok.Token.(token.TokenWord); !ok || word.Word.Keyword != "DEFAULT" {
+		// Parse data type
+		dt, err := p.ParseDataType()
+		if err != nil {
+			return nil, err
+		}
+		dataType = dt
+	}
+
+	// Check for DEFAULT expression
+	var assignment expr.Expr
+	var assignType expr.DeclareAssignment
+	if dataType != nil && p.ParseKeyword("DEFAULT") {
+		ep := NewExpressionParser(p)
+		assignment, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		assignType = expr.DeclareAssignmentDefault
+	} else if dataType == nil {
+		// No data type - DEFAULT expression is required
+		p.ExpectKeyword("DEFAULT")
+		ep := NewExpressionParser(p)
+		assignment, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		assignType = expr.DeclareAssignmentDefault
+	}
+
+	return &statement.Declare{
+		Stmts: []*expr.Declare{{
+			Names:          exprIdentsFromAstIdents(names),
+			DataType:       dataType,
+			Assignment:     assignment,
+			AssignmentType: assignType,
+		}},
+	}, nil
+}
+
+// parseSnowflakeDeclare parses Snowflake DECLARE statements
+// Reference: src/parser/mod.rs:7619
+func parseSnowflakeDeclare(p *Parser) (ast.Statement, error) {
+	var stmts []*expr.Declare
+
+	for {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		var (
+			declareType *expr.DeclareType
+			forQuery    *query.Query
+			assignment  expr.Expr
+			assignType  expr.DeclareAssignment
+			dataType    interface{}
+		)
+
+		// Check for CURSOR
+		if p.ParseKeyword("CURSOR") {
+			dt := expr.DeclareTypeCursor
+			declareType = &dt
+			p.ExpectKeyword("FOR")
+			// Check if it's a SELECT query or a result set variable
+			nextTok := p.PeekToken()
+			if word, ok := nextTok.Token.(token.TokenWord); ok && word.Word.Keyword == "SELECT" {
+				stmt, err := p.parseQuery()
+				if err != nil {
+					return nil, err
+				}
+				forQuery = extractQueryFromStatement(stmt)
+			} else {
+				// It's a reference to a result set variable
+				ep := NewExpressionParser(p)
+				assignment, err = ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				assignType = expr.DeclareAssignmentFor
+			}
+		} else if p.ParseKeyword("RESULTSET") {
+			// Result set declaration
+			dt := expr.DeclareTypeResultSet
+			declareType = &dt
+			// Optional DEFAULT or := followed by ( query )
+			if p.ParseKeyword("DEFAULT") || p.ParseKeyword(":=") {
+				p.ExpectToken(token.TokenLParen{})
+				stmt, err := p.parseQuery()
+				if err != nil {
+					return nil, err
+				}
+				forQuery = extractQueryFromStatement(stmt)
+				p.ExpectToken(token.TokenRParen{})
+				if assignType == expr.DeclareAssignmentDuckAssignment {
+					assignType = expr.DeclareAssignmentDuckAssignment
+				} else {
+					assignType = expr.DeclareAssignmentDefault
+				}
+			}
+		} else if p.ParseKeyword("EXCEPTION") {
+			// Exception declaration
+			dt := expr.DeclareTypeException
+			declareType = &dt
+			// Optional ( exception_number, 'exception_message' )
+			if p.ConsumeToken(token.TokenLParen{}) {
+				// Skip exception number for now
+				ep := NewExpressionParser(p)
+				_, err = ep.ParseExpr() // exception number
+				if err != nil {
+					return nil, err
+				}
+				p.ExpectToken(token.TokenComma{})
+				// exception message
+				_, err = ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				p.ExpectToken(token.TokenRParen{})
+			}
+		} else {
+			// Variable declaration with optional type and default
+			nextTok := p.PeekToken()
+			if word, ok := nextTok.Token.(token.TokenWord); ok {
+				// Check if it's a type keyword
+				if isDataTypeKeyword(string(word.Word.Keyword)) {
+					dt, err := p.ParseDataType()
+					if err != nil {
+						return nil, err
+					}
+					dataType = dt
+				}
+			}
+
+			// Check for assignment
+			if p.ParseKeyword("DEFAULT") {
+				ep := NewExpressionParser(p)
+				assignment, err = ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				assignType = expr.DeclareAssignmentDefault
+			} else if p.ConsumeToken(token.TokenEq{}) {
+				// Snowflake uses := not =
+				p.ExpectToken(token.TokenEq{})
+				ep := NewExpressionParser(p)
+				assignment, err = ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				assignType = expr.DeclareAssignmentDuckAssignment
+			}
+		}
+
+		stmts = append(stmts, &expr.Declare{
+			Names:          []*expr.Ident{exprFromAstIdent(name)},
+			DataType:       dataType,
+			Assignment:     assignment,
+			AssignmentType: assignType,
+			DeclareType:    declareType,
+			ForQuery:       forQuery,
+		})
+
+		// Check for semicolon separator (Snowflake uses ; between declarations)
+		if !p.ConsumeToken(token.TokenSemiColon{}) {
+			break
+		}
+
+		// Check if next token is an identifier for another declaration
+		nextTok := p.PeekToken()
+		if _, ok := nextTok.Token.(token.TokenWord); !ok {
+			break
+		}
+	}
+
+	return &statement.Declare{Stmts: stmts}, nil
+}
+
+// parseMssqlDeclare parses MSSQL DECLARE statements
+// Reference: src/parser/mod.rs:7722
+func parseMssqlDeclare(p *Parser) (ast.Statement, error) {
+	// MSSQL DECLARE can have multiple variables: DECLARE @a INT, @b VARCHAR(50)
+	var stmts []*expr.Declare
+
+	for {
+		// Expect @variable_name
+		tok := p.PeekToken()
+		if _, ok := tok.Token.(token.TokenAtSign); !ok {
+			// Not a variable, might be cursor declaration
+			break
+		}
+		p.AdvanceToken() // consume @
+
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		// Prepend @ to name
+		name.Value = "@" + name.Value
+
+		var dataType interface{}
+		var assignment expr.Expr
+		var assignType expr.DeclareAssignment
+
+		// Check for AS keyword followed by data type
+		if p.ParseKeyword("AS") {
+			dt, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			dataType = dt
+		} else {
+			// Try to parse data type directly
+			nextTok := p.PeekToken()
+			if word, ok := nextTok.Token.(token.TokenWord); ok && isDataTypeKeyword(string(word.Word.Keyword)) {
+				dt, err := p.ParseDataType()
+				if err != nil {
+					return nil, err
+				}
+				dataType = dt
+			}
+		}
+
+		// Check for assignment = expression
+		if p.ConsumeToken(token.TokenEq{}) {
+			ep := NewExpressionParser(p)
+			assignment, err = ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			assignType = expr.DeclareAssignmentMsSqlAssignment
+		}
+
+		stmts = append(stmts, &expr.Declare{
+			Names:          []*expr.Ident{exprFromAstIdent(name)},
+			DataType:       dataType,
+			Assignment:     assignment,
+			AssignmentType: assignType,
+		})
+
+		// Check for comma separator
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// If no variable declarations parsed, try cursor declaration
+	if len(stmts) == 0 {
+		return parseMssqlCursorDeclare(p)
+	}
+
+	return &statement.Declare{Stmts: stmts}, nil
+}
+
+// parseMssqlCursorDeclare parses MSSQL cursor declaration
+func parseMssqlCursorDeclare(p *Parser) (ast.Statement, error) {
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for CURSOR keyword
+	if !p.ParseKeyword("CURSOR") {
+		return nil, fmt.Errorf("expected CURSOR in MSSQL DECLARE statement")
+	}
+
+	declareType := expr.DeclareTypeCursor
+
+	// Parse optional cursor options
+	var scroll *bool
+	if p.ParseKeyword("SCROLL") {
+		s := true
+		scroll = &s
+	}
+
+	// Expect FOR
+	p.ExpectKeyword("FOR")
+
+	// Parse query
+	stmt, err := p.parseQuery()
+	if err != nil {
+		return nil, err
+	}
+	q := extractQueryFromStatement(stmt)
+
+	return &statement.Declare{
+		Stmts: []*expr.Declare{{
+			Names:       []*expr.Ident{exprFromAstIdent(name)},
+			DeclareType: &declareType,
+			Scroll:      scroll,
+			ForQuery:    q,
+		}},
+	}, nil
+}
+
+// extractQueryFromStatement extracts a *query.Query from an ast.Statement
+func extractQueryFromStatement(stmt ast.Statement) *query.Query {
+	if stmt == nil {
+		return nil
+	}
+	switch s := stmt.(type) {
+	case *QueryStatement:
+		return s.Query
+	case *ValuesStatement:
+		return s.Query
+	case *SelectStatement:
+		// Wrap Select in a Query
+		return &query.Query{
+			Body: &s.Select,
+		}
+	default:
+		return nil
+	}
+}
+
+// isDataTypeKeyword checks if a keyword is a data type
+func isDataTypeKeyword(keyword string) bool {
+	dataTypes := []string{
+		"INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT",
+		"VARCHAR", "NVARCHAR", "CHAR", "NCHAR", "TEXT",
+		"DECIMAL", "NUMERIC", "FLOAT", "REAL", "DOUBLE",
+		"DATE", "TIME", "TIMESTAMP", "DATETIME", "BOOLEAN",
+		"ARRAY", "STRUCT", "VARIANT", "OBJECT", "VARIANT",
+	}
+	for _, dt := range dataTypes {
+		if keyword == dt {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to convert ast.Ident to expr.Ident
+func exprFromAstIdent(ident *ast.Ident) *expr.Ident {
+	return &expr.Ident{
+		SpanVal:    ident.Span(),
+		Value:      ident.Value,
+		QuoteStyle: ident.QuoteStyle,
+	}
+}
+
+// Helper function to convert []*ast.Ident to []*expr.Ident
+func exprIdentsFromAstIdents(idents []*ast.Ident) []*expr.Ident {
+	result := make([]*expr.Ident, len(idents))
+	for i, ident := range idents {
+		result[i] = exprFromAstIdent(ident)
+	}
+	return result
 }
 
 // parseClose parses CLOSE statements
+// Reference: src/parser/mod.rs:parse_close
 func parseClose(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("CLOSE statement parsing not yet fully implemented")
+	var cursor *expr.CloseCursor
+
+	if p.ParseKeyword("ALL") {
+		cursor = &expr.CloseCursor{
+			Kind: expr.CloseCursorAll,
+		}
+	} else {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		cursor = &expr.CloseCursor{
+			Kind: expr.CloseCursorSpecific,
+			Name: exprFromAstIdent(name),
+		}
+	}
+
+	return &statement.Close{Cursor: cursor}, nil
 }
 
 // parseFetch parses FETCH statements
@@ -1098,4 +1621,162 @@ func parseFetch(p *Parser) (ast.Statement, error) {
 		Position:  position,
 		Into:      into,
 	}, nil
+}
+
+// parseCache parses CACHE TABLE statements
+// Reference: src/parser/mod.rs:5277
+func parseCache(p *Parser) (ast.Statement, error) {
+	var tableFlag *ast.ObjectName
+	var options []*expr.SqlOption
+	hasAs := false
+	var q *query.Query
+
+	// Check for optional TABLE keyword
+	hasTableKeyword := p.ParseKeyword("TABLE")
+
+	if hasTableKeyword {
+		// CACHE TABLE table_name ...
+		tableName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse optional OPTIONS
+		if p.ParseKeyword("OPTIONS") {
+			p.ExpectToken(token.TokenLParen{})
+			for {
+				key, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, err
+				}
+				p.ExpectToken(token.TokenEq{})
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				options = append(options, &expr.SqlOption{
+					Name:  exprFromAstIdent(key),
+					Value: val,
+				})
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			p.ExpectToken(token.TokenRParen{})
+		}
+
+		// Parse optional AS query
+		nextTok := p.PeekToken()
+		if _, ok := nextTok.Token.(token.EOF); !ok {
+			if p.ParseKeyword("AS") {
+				hasAs = true
+				stmt, err := p.parseQuery()
+				if err != nil {
+					return nil, err
+				}
+				q = extractQueryFromStatement(stmt)
+			}
+		}
+
+		return &statement.Cache{
+			TableFlag: tableFlag,
+			TableName: tableName,
+			HasAs:     hasAs,
+			Options:   options,
+			Query:     q,
+		}, nil
+	}
+
+	// CACHE table_name TABLE table_name ... (rare syntax)
+	tf, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+	tableFlag = tf
+
+	if !p.ParseKeyword("TABLE") {
+		return nil, fmt.Errorf("expected TABLE after table flag in CACHE statement")
+	}
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Cache{
+		TableFlag: tableFlag,
+		TableName: tableName,
+		HasAs:     hasAs,
+		Options:   options,
+		Query:     q,
+	}, nil
+}
+
+// parseUncache parses UNCACHE TABLE statements
+// Reference: src/parser/mod.rs: parse_uncache_table (around line 5335)
+func parseUncache(p *Parser) (ast.Statement, error) {
+	p.ExpectKeyword("TABLE")
+
+	// Parse optional IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Uncache{
+		TableName: tableName,
+		IfExists:  ifExists,
+	}, nil
+}
+
+// parseMsck parses MSCK REPAIR TABLE statements (Hive)
+// Reference: src/parser/mod.rs:1063
+func parseMsck(p *Parser) (ast.Statement, error) {
+	msck := &statement.Msck{}
+
+	// Parse optional REPAIR
+	if p.ParseKeyword("REPAIR") {
+		msck.RepairPartitions = true
+	}
+
+	// Check for ADD/DROP/SYNC PARTITIONS
+	if p.ParseKeyword("ADD") {
+		msck.AddPartitions = true
+	} else if p.ParseKeyword("DROP") {
+		msck.DropPartitions = true
+	} else if p.ParseKeyword("SYNC") {
+		msck.SyncPartitions = true
+	}
+
+	// Expect TABLE
+	p.ExpectKeyword("TABLE")
+
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+	msck.TableName = tableName
+
+	// Parse optional partition specification
+	if p.ConsumeToken(token.TokenLParen{}) {
+		var partitionSpec []expr.Expr
+		for {
+			ep := NewExpressionParser(p)
+			expr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			partitionSpec = append(partitionSpec, expr)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+		msck.PartitionSpec = partitionSpec
+	}
+
+	return msck, nil
 }

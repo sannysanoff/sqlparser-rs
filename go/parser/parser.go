@@ -597,15 +597,15 @@ func (p *Parser) parseClose() (ast.Statement, error) {
 }
 
 func (p *Parser) parseCache() (ast.Statement, error) {
-	return nil, p.expectedRef("CACHE not yet implemented", p.PeekTokenRef())
+	return parseCache(p)
 }
 
 func (p *Parser) parseUncache() (ast.Statement, error) {
-	return nil, p.expectedRef("UNCACHE not yet implemented", p.PeekTokenRef())
+	return parseUncache(p)
 }
 
 func (p *Parser) parseMsck() (ast.Statement, error) {
-	return nil, p.expectedRef("MSCK not yet implemented", p.PeekTokenRef())
+	return parseMsck(p)
 }
 
 func (p *Parser) parseFlush() (ast.Statement, error) {

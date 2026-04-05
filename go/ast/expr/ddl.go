@@ -2822,19 +2822,217 @@ func (s *StageLoadSelectItemWrapper) String() string {
 	return ""
 }
 
-// CloseCursor represents CLOSE CURSOR.
-type CloseCursor struct{}
+// CloseCursorKind represents which cursor(s) to close.
+type CloseCursorKind int
 
-func (c *CloseCursor) exprNode()        {}
-func (c *CloseCursor) Span() token.Span { return token.Span{} }
-func (c *CloseCursor) String() string   { return "" }
+const (
+	// CloseCursorAll closes all cursors.
+	CloseCursorAll CloseCursorKind = iota
+	// CloseCursorSpecific closes a specific cursor by name.
+	CloseCursorSpecific
+)
 
-// Declare represents DECLARE statement.
-type Declare struct{}
+// CloseCursor represents which cursor(s) to close.
+type CloseCursor struct {
+	Kind CloseCursorKind
+	Name *Ident // Only set when Kind is CloseCursorSpecific
+}
 
-func (d *Declare) exprNode()        {}
-func (d *Declare) Span() token.Span { return token.Span{} }
-func (d *Declare) String() string   { return "" }
+func (c *CloseCursor) exprNode() {}
+
+// Span returns the source span for this expression.
+func (c *CloseCursor) Span() token.Span {
+	if c.Name != nil {
+		return c.Name.Span()
+	}
+	return token.Span{}
+}
+
+// String returns the SQL representation.
+func (c *CloseCursor) String() string {
+	switch c.Kind {
+	case CloseCursorAll:
+		return "ALL"
+	case CloseCursorSpecific:
+		if c.Name != nil {
+			return c.Name.String()
+		}
+	}
+	return ""
+}
+
+// DeclareType represents the type of a DECLARE statement.
+type DeclareType int
+
+const (
+	// DeclareTypeCursor is for cursor variable type. e.g. Snowflake, PostgreSQL, MsSql
+	DeclareTypeCursor DeclareType = iota
+	// DeclareTypeResultSet is for result set variable type (Snowflake)
+	DeclareTypeResultSet
+	// DeclareTypeException is for exception declaration syntax (Snowflake)
+	DeclareTypeException
+)
+
+func (d DeclareType) String() string {
+	switch d {
+	case DeclareTypeCursor:
+		return "CURSOR"
+	case DeclareTypeResultSet:
+		return "RESULTSET"
+	case DeclareTypeException:
+		return "EXCEPTION"
+	}
+	return ""
+}
+
+// DeclareAssignment represents the assignment type for DECLARE variables.
+type DeclareAssignment int
+
+const (
+	// DeclareAssignmentExpr is a plain expression specified.
+	DeclareAssignmentExpr DeclareAssignment = iota
+	// DeclareAssignmentDefault is expression assigned via the DEFAULT keyword.
+	DeclareAssignmentDefault
+	// DeclareAssignmentDuckAssignment is expression assigned via the := syntax.
+	DeclareAssignmentDuckAssignment
+	// DeclareAssignmentFor is expression via the FOR keyword.
+	DeclareAssignmentFor
+	// DeclareAssignmentMsSqlAssignment is expression via the = syntax (MSSQL).
+	DeclareAssignmentMsSqlAssignment
+)
+
+func (d DeclareAssignment) String() string {
+	switch d {
+	case DeclareAssignmentExpr:
+		return ""
+	case DeclareAssignmentDefault:
+		return "DEFAULT"
+	case DeclareAssignmentDuckAssignment:
+		return ":="
+	case DeclareAssignmentFor:
+		return "FOR"
+	case DeclareAssignmentMsSqlAssignment:
+		return "="
+	}
+	return ""
+}
+
+// Declare represents a single DECLARE statement item.
+// A DECLARE statement can contain multiple declarations (e.g., Snowflake).
+type Declare struct {
+	// Names being declared. Can be multiple for BigQuery style: DECLARE a, b, c DEFAULT 42;
+	Names []*Ident
+	// DataType assigned to the declared variable (optional)
+	// Using interface{} to avoid import cycle - actually stores datatype.DataType
+	DataType interface{}
+	// Assignment is the expression being assigned to the declared variable
+	Assignment Expr
+	// AssignmentType indicates how the assignment was made (DEFAULT, :=, =, etc.)
+	AssignmentType DeclareAssignment
+	// DeclareType represents the type of the declared variable (Cursor, ResultSet, Exception)
+	DeclareType *DeclareType
+	// Binary causes the cursor to return data in binary rather than in text format
+	Binary *bool
+	// Sensitive: None = Not specified, Some(true) = INSENSITIVE, Some(false) = ASENSITIVE
+	Sensitive *bool
+	// Scroll: None = Not specified, Some(true) = SCROLL, Some(false) = NO SCROLL
+	Scroll *bool
+	// Hold: None = Not specified, Some(true) = WITH HOLD, Some(false) = WITHOUT HOLD
+	Hold *bool
+	// ForQuery is the FOR <query> clause in a CURSOR declaration
+	ForQuery *query.Query
+	// SpanVal is the source span
+	SpanVal token.Span
+}
+
+func (d *Declare) exprNode() {}
+
+// Span returns the source span for this expression.
+func (d *Declare) Span() token.Span {
+	return d.SpanVal
+}
+
+// String returns the SQL representation.
+func (d *Declare) String() string {
+	if d == nil {
+		return ""
+	}
+	var sb strings.Builder
+
+	// Write names (comma-separated for multiple)
+	for i, name := range d.Names {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(name.String())
+	}
+
+	// Write binary option
+	if d.Binary != nil {
+		if *d.Binary {
+			sb.WriteString(" BINARY")
+		}
+	}
+
+	// Write sensitive option
+	if d.Sensitive != nil {
+		if *d.Sensitive {
+			sb.WriteString(" INSENSITIVE")
+		} else {
+			sb.WriteString(" ASENSITIVE")
+		}
+	}
+
+	// Write scroll option
+	if d.Scroll != nil {
+		if *d.Scroll {
+			sb.WriteString(" SCROLL")
+		} else {
+			sb.WriteString(" NO SCROLL")
+		}
+	}
+
+	// Write declare type
+	if d.DeclareType != nil {
+		sb.WriteString(" ")
+		sb.WriteString(d.DeclareType.String())
+	}
+
+	// Write hold option
+	if d.Hold != nil {
+		if *d.Hold {
+			sb.WriteString(" WITH HOLD")
+		} else {
+			sb.WriteString(" WITHOUT HOLD")
+		}
+	}
+
+	// Write data type
+	if d.DataType != nil {
+		sb.WriteString(" ")
+		if s, ok := d.DataType.(fmt.Stringer); ok {
+			sb.WriteString(s.String())
+		}
+	}
+
+	// Write assignment
+	if d.Assignment != nil {
+		if d.AssignmentType != DeclareAssignmentExpr {
+			sb.WriteString(" ")
+			sb.WriteString(d.AssignmentType.String())
+		}
+		sb.WriteString(" ")
+		sb.WriteString(d.Assignment.String())
+	}
+
+	// Write FOR query
+	if d.ForQuery != nil {
+		sb.WriteString(" FOR ")
+		sb.WriteString(d.ForQuery.String())
+	}
+
+	return sb.String()
+}
 
 // FetchDirection represents FETCH direction.
 type FetchDirection struct {
