@@ -50,8 +50,14 @@ func parseDrop(p *Parser) (ast.Statement, error) {
 		return parseDropSequence(p)
 	case p.PeekKeyword("FUNCTION"):
 		return parseDropFunction(p)
+	case p.PeekKeyword("TRIGGER"):
+		return parseDropTrigger(p)
+	case p.PeekKeyword("OPERATOR"):
+		return parseDropOperator(p)
+	case p.PeekKeyword("STAGE"):
+		return parseDropStage(p)
 	default:
-		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, or FUNCTION after DROP", p.PeekTokenRef())
+		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, or STAGE after DROP", p.PeekTokenRef())
 	}
 }
 
@@ -460,5 +466,131 @@ func parseTruncate(p *Parser) (ast.Statement, error) {
 		TableNames: tableNames,
 		Partitions: partitions,
 		OnCluster:  onCluster,
+	}, nil
+}
+
+// parseDropTrigger parses DROP TRIGGER
+// Reference: src/parser/mod.rs parse_drop_trigger
+func parseDropTrigger(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("TRIGGER"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse trigger name
+	triggerName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional ON table_name
+	var tableName *ast.ObjectName
+	if p.ParseKeyword("ON") {
+		tn, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		tableName = tn
+	}
+
+	return &statement.DropTrigger{
+		IfExists:  ifExists,
+		Name:      triggerName,
+		TableName: tableName,
+	}, nil
+}
+
+// parseDropOperator parses DROP OPERATOR
+// Reference: src/parser/mod.rs parse_drop_operator
+func parseDropOperator(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("OPERATOR"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated operator signatures
+	var signatures []*expr.DropOperatorSignature
+	for {
+		// Parse operator name
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse operator signature: (type1 [, type2])
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		var argTypes []string
+		for {
+			if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
+				break
+			}
+			// Parse data type as identifier
+			dt, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			argTypes = append(argTypes, dt.Value)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		signatures = append(signatures, &expr.DropOperatorSignature{
+			Name:     name,
+			ArgTypes: argTypes,
+		})
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// Parse optional CASCADE/RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		cascade := expr.DropBehaviorCascade
+		dropBehavior = &cascade
+	} else if p.ParseKeyword("RESTRICT") {
+		restrict := expr.DropBehaviorRestrict
+		dropBehavior = &restrict
+	}
+
+	return &statement.DropOperator{
+		IfExists:     ifExists,
+		Names:        signatures,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropStage parses DROP STAGE (Snowflake-specific)
+// Reference: Snowflake documentation
+func parseDropStage(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("STAGE"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse stage name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DropStage{
+		IfExists: ifExists,
+		Name:     name,
 	}, nil
 }

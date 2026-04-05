@@ -2016,11 +2016,26 @@ func (a *AttachDuckDBDatabaseOption) Span() token.Span { return token.Span{} }
 func (a *AttachDuckDBDatabaseOption) String() string   { return "" }
 
 // DropOperatorSignature represents DROP OPERATOR signature.
-type DropOperatorSignature struct{}
+type DropOperatorSignature struct {
+	Name     *ast.ObjectName
+	ArgTypes []string // Type names as strings
+}
 
 func (d *DropOperatorSignature) exprNode()        {}
 func (d *DropOperatorSignature) Span() token.Span { return token.Span{} }
-func (d *DropOperatorSignature) String() string   { return "" }
+func (d *DropOperatorSignature) String() string {
+	var f strings.Builder
+	f.WriteString(d.Name.String())
+	f.WriteString("(")
+	for i, t := range d.ArgTypes {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(t)
+	}
+	f.WriteString(")")
+	return f.String()
+}
 
 // OperatorSignature represents operator signature.
 type OperatorSignature struct{}

@@ -446,22 +446,55 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 			}
 			return ep.parseArrayExpr(true)
 		}
-		// ARRAY(...) subquery
+		// ARRAY(...) subquery or function call
 		if _, ok := nextTok.Token.(token.TokenLParen); ok {
+			// Save position to backtrack if it's not a subquery
+			restore := ep.parser.SavePosition()
 			if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 				return nil, err
 			}
-			// Parse subquery
-			// For now, return a placeholder
-			return &expr.FunctionExpr{
-				Name: &expr.ObjectName{
-					SpanVal: span,
-					Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(word, span)}},
-				},
-				UsesOdbcSyntax: false,
-				Args:           &expr.FunctionArguments{None: true},
-				SpanVal:        span,
-			}, nil
+
+			// Check if it's a subquery (starts with SELECT, WITH, VALUES, TABLE)
+			subqueryKeywords := []string{"SELECT", "WITH", "VALUES", "TABLE"}
+			nextTok := ep.parser.PeekTokenRef()
+			wordPtr, ok := nextTok.Token.(*token.TokenWord)
+			if !ok {
+				// Not a word token, try value type assertion
+				if wordVal, ok := nextTok.Token.(token.TokenWord); ok {
+					wordPtr = &wordVal
+				}
+			}
+			if wordPtr != nil {
+				kw := string(wordPtr.Word.Keyword)
+				isSubquery := false
+				for _, skw := range subqueryKeywords {
+					if kw == skw {
+						isSubquery = true
+						break
+					}
+				}
+
+				if isSubquery {
+					// Parse subquery
+					// For now, return a placeholder (TODO: proper subquery parsing)
+					return &expr.FunctionExpr{
+						Name: &expr.ObjectName{
+							SpanVal: span,
+							Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(wordPtr, span)}},
+						},
+						UsesOdbcSyntax: false,
+						Args:           &expr.FunctionArguments{None: true},
+						SpanVal:        span,
+					}, nil
+				}
+			}
+
+			// Not a subquery - restore and treat as regular function call
+			restore()
+			return ep.parseFunction(&expr.ObjectName{
+				SpanVal: span,
+				Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(word, span)}},
+			})
 		}
 
 	case "NOT":
@@ -546,6 +579,35 @@ func (ep *ExpressionParser) parseUnreservedWordPrefix(word *token.TokenWord, spa
 	// Check for lambda expression (single parameter)
 	if dialects.SupportsLambdaFunctions(dialect) {
 		next := ep.parser.PeekTokenRef()
+		// Check for optional type annotation (e.g., "a INT -> expr")
+		param := expr.LambdaFunctionParameter{
+			SpanVal: span,
+			Name:    ident,
+		}
+
+		// Peek ahead to see if we have [type] -> pattern
+		savePos := ep.parser.SavePosition()
+		hasType := false
+		if word, ok := next.Token.(token.TokenWord); ok {
+			nextKw := string(word.Word.Keyword)
+			// If next is a word that's not an arrow, it might be a type
+			if nextKw != "->" {
+				typeIdent, err := ep.parseIdentifier()
+				if err == nil {
+					// Check if the token after the type is ->
+					afterType := ep.parser.PeekTokenRef()
+					if _, isArrow := afterType.Token.(token.TokenArrow); isArrow {
+						hasType = true
+						param.DataType = typeIdent.Value
+					}
+				}
+			}
+		}
+		if !hasType {
+			savePos()
+		}
+
+		next = ep.parser.PeekTokenRef()
 		if _, ok := next.Token.(token.TokenArrow); ok {
 			ep.parser.AdvanceToken() // consume ->
 			body, err := ep.ParseExpr()
@@ -554,12 +616,9 @@ func (ep *ExpressionParser) parseUnreservedWordPrefix(word *token.TokenWord, spa
 			}
 			return &expr.LambdaExpr{
 				SpanVal: mergeSpans(span, body.Span()),
-				Params: []expr.LambdaFunctionParameter{{
-					SpanVal: span,
-					Name:    ident,
-				}},
-				Body:   body,
-				Syntax: expr.LambdaArrow,
+				Params:  []expr.LambdaFunctionParameter{param},
+				Body:    body,
+				Syntax:  expr.LambdaArrow,
 			}, nil
 		}
 	}
@@ -1126,12 +1185,162 @@ func (ep *ExpressionParser) peekSubquery() bool {
 }
 
 // tryParseLambda attempts to parse a lambda expression
+// Lambda expressions have the form: (param1, param2, ...) -> expr
+// This is called when we've already seen the opening '('
 func (ep *ExpressionParser) tryParseLambda() (expr.Expr, bool) {
-	// Lambda expressions are: (x, y) -> expr or x -> expr
-	// We need to check for the pattern: ( [ident [, ident]*] ) ->
+	dialect := ep.parser.GetDialect()
+	if !dialects.SupportsLambdaFunctions(dialect) {
+		return nil, false
+	}
 
-	// For now, return false - complex lambda detection requires more context
-	return nil, false
+	// We need to check if this looks like a lambda without consuming tokens.
+	// Lambda pattern: ( [ident [, ident]*] ) -> expr
+	// We peek ahead to see if there's an arrow after the closing paren.
+
+	// Save position for backtrack
+	restore := ep.parser.SavePosition()
+	spanStart := ep.parser.GetCurrentToken().Span
+
+	// Advance past the '(' we already consumed in the caller
+	// (Note: the caller already consumed '(' before calling this function)
+
+	// Try to parse comma-separated identifiers
+	foundIdentifiers := false
+	for {
+		tok := ep.parser.PeekTokenRef()
+
+		// Check for closing paren - end of parameter list
+		if _, isRParen := tok.Token.(token.TokenRParen); isRParen {
+			if !foundIdentifiers {
+				// Empty parens () - not a lambda
+				restore()
+				return nil, false
+			}
+			break
+		}
+
+		// Expect an identifier
+		_, err := ep.parseIdentifier()
+		if err != nil {
+			// Not an identifier - not a lambda
+			restore()
+			return nil, false
+		}
+		foundIdentifiers = true
+
+		// Skip optional type annotation (e.g., "x INT")
+		nextTok := ep.parser.PeekTokenRef()
+		if word, ok := nextTok.Token.(token.TokenWord); ok {
+			nextKw := string(word.Word.Keyword)
+			// If next token is a word that's not a reserved keyword, it might be a type
+			if nextKw != "->" && nextKw != "," && nextKw != ")" {
+				// Try to consume it as a type (but don't fail if it's not)
+				_, _ = ep.parseIdentifier()
+			}
+		}
+
+		// Check for comma or closing paren
+		tok = ep.parser.PeekTokenRef()
+		if _, isComma := tok.Token.(token.TokenComma); isComma {
+			ep.parser.AdvanceToken() // consume ,
+			continue
+		}
+		if _, isRParen := tok.Token.(token.TokenRParen); isRParen {
+			break
+		}
+
+		// Unexpected token - not a lambda
+		restore()
+		return nil, false
+	}
+
+	// Expect closing paren
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+		restore()
+		return nil, false
+	}
+
+	// Check for arrow token ->
+	nextTok := ep.parser.PeekTokenRef()
+	if _, isArrow := nextTok.Token.(token.TokenArrow); !isArrow {
+		// No arrow - not a lambda, restore and return false
+		restore()
+		return nil, false
+	}
+
+	// It's a lambda! Now consume the arrow and parse the body
+	ep.parser.AdvanceToken() // consume ->
+
+	// Parse the body expression
+	body, err := ep.ParseExpr()
+	if err != nil {
+		restore()
+		return nil, false
+	}
+
+	// Build lambda expression with collected identifiers
+	// Note: We need to re-parse to get the actual identifier details
+	// For now, restore and re-parse properly
+	restore()
+
+	// Now do the actual parse
+	// Note: After restore, we're at the position after '(', so don't consume it again
+	// The caller already consumed '(', and restore() puts us back to that position (after '(')
+
+	var params []expr.LambdaFunctionParameter
+	for {
+		tok := ep.parser.PeekTokenRef()
+		if _, isRParen := tok.Token.(token.TokenRParen); isRParen {
+			break
+		}
+
+		ident, err := ep.parseIdentifier()
+		if err != nil {
+			return nil, false
+		}
+
+		param := expr.LambdaFunctionParameter{
+			SpanVal: ident.Span(),
+			Name:    ident,
+		}
+
+		// Check for optional type
+		nextTok := ep.parser.PeekTokenRef()
+		if word, ok := nextTok.Token.(token.TokenWord); ok {
+			nextKw := string(word.Word.Keyword)
+			if nextKw != "->" && nextKw != "," && nextKw != ")" {
+				if typeIdent, err := ep.parseIdentifier(); err == nil {
+					param.DataType = typeIdent.Value
+				}
+			}
+		}
+
+		params = append(params, param)
+
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, false
+	}
+
+	if _, err := ep.parser.ExpectToken(token.TokenArrow{}); err != nil {
+		return nil, false
+	}
+
+	body, err = ep.ParseExpr()
+	if err != nil {
+		return nil, false
+	}
+
+	return &expr.LambdaExpr{
+		SpanVal: mergeSpans(spanStart, body.Span()),
+		Params:  params,
+		Body:    body,
+		Syntax:  expr.LambdaArrow,
+	}, true
 }
 
 // parseIntroducedString parses a string with charset introducer

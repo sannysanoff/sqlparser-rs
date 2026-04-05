@@ -1097,8 +1097,9 @@ func (c *CreateTrigger) String() string {
 // DropTrigger represents a DROP TRIGGER statement
 type DropTrigger struct {
 	BaseStatement
-	IfExists bool
-	Name     *ast.ObjectName
+	IfExists  bool
+	Name      *ast.ObjectName
+	TableName *ast.ObjectName // Optional ON table_name
 }
 
 func (d *DropTrigger) statementNode() {}
@@ -1110,6 +1111,10 @@ func (d *DropTrigger) String() string {
 		f.WriteString("IF EXISTS ")
 	}
 	f.WriteString(d.Name.String())
+	if d.TableName != nil {
+		f.WriteString(" ON ")
+		f.WriteString(d.TableName.String())
+	}
 	return f.String()
 }
 
@@ -1889,8 +1894,9 @@ func (d *DropExtension) String() string {
 // DropOperator represents a DROP OPERATOR statement
 type DropOperator struct {
 	BaseStatement
-	IfExists bool
-	Names    []*expr.DropOperatorSignature
+	IfExists     bool
+	Names        []*expr.DropOperatorSignature
+	DropBehavior *expr.DropBehavior
 }
 
 func (d *DropOperator) statementNode() {}
@@ -1906,6 +1912,10 @@ func (d *DropOperator) String() string {
 			f.WriteString(", ")
 		}
 		f.WriteString(sig.String())
+	}
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
 	}
 	return f.String()
 }
@@ -1961,6 +1971,29 @@ func (d *DropOperatorClass) String() string {
 	f.WriteString(d.Name.String())
 	f.WriteString(" USING ")
 	f.WriteString(d.IndexMethod.String())
+	return f.String()
+}
+
+// ============================================================================
+// DROP STAGE (Snowflake)
+// ============================================================================
+
+// DropStage represents a DROP STAGE statement (Snowflake-specific)
+type DropStage struct {
+	BaseStatement
+	IfExists bool
+	Name     *ast.ObjectName
+}
+
+func (d *DropStage) statementNode() {}
+
+func (d *DropStage) String() string {
+	var f strings.Builder
+	f.WriteString("DROP STAGE ")
+	if d.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
+	f.WriteString(d.Name.String())
 	return f.String()
 }
 
