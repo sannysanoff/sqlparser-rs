@@ -469,7 +469,51 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 
 ---
 
-### Pattern N: Incorrect Empty String vs nil Pointer in AST Fields
+### Pattern N: FunctionCall Parentheses in String() Output
+
+**Problem:** Function calls without arguments must still output empty parentheses `()` in their String() method for round-trip parsing compatibility.
+
+**Example - FunctionDesc and TriggerExecBody:**
+
+```go
+// INCORRECT - outputs "EXECUTE FUNCTION emp_stamp" (no parens)
+func (f *FunctionDesc) String() string {
+    var sb strings.Builder
+    sb.WriteString(f.Name.String())
+    if len(f.Args) > 0 {  // Only adds parens when args exist
+        sb.WriteString("(")
+        // ... write args
+        sb.WriteString(")")
+    }
+    return sb.String()
+}
+// Result: "CREATE TRIGGER ... EXECUTE FUNCTION emp_stamp" 
+// Expected: "CREATE TRIGGER ... EXECUTE FUNCTION emp_stamp()"
+// Test fails because re-parsed SQL doesn't match original
+
+// CORRECT - always includes parentheses
+func (f *FunctionDesc) String() string {
+    var sb strings.Builder
+    sb.WriteString(f.Name.String())
+    sb.WriteString("(")  // Always add opening paren
+    for i, arg := range f.Args {
+        if i > 0 {
+            sb.WriteString(", ")
+        }
+        sb.WriteString(arg.String())
+    }
+    sb.WriteString(")")  // Always add closing paren
+    return sb.String()
+}
+// Result: "CREATE TRIGGER ... EXECUTE FUNCTION emp_stamp()"
+// Test passes - SQL matches original
+```
+
+**Key Lesson:** Function calls in SQL always have parentheses, even for zero arguments. The String() method must always output `()` regardless of whether there are arguments. This ensures round-trip compatibility where `parse(stringify(AST)) == AST`. Reference: TriggerExecBody and FunctionDesc String() implementations.
+
+---
+
+### Pattern O: Incorrect Empty String vs nil Pointer in AST Fields
 
 **Problem:** Setting a pointer to an empty string `&""` instead of leaving it as `nil` causes incorrect String() output.
 
@@ -524,9 +568,38 @@ CREATE FUNCTION foo() RETURNS TEXT AS $$ SELECT 1 $$ LANGUAGE SQL;
 
 ---
 
+### Pattern P: Parser Method Naming Conventions
+
+**Problem:** Using non-existent methods like `p.PeekTokenIs()` or `parseDataType(p)` instead of the correct parser API.
+
+**Example - Correct Parser API Usage:**
+
+```go
+// INCORRECT - using non-existent methods
+if p.PeekTokenIs(token.TokenLParen{}) {  // Method doesn't exist!
+    dataType, err := parseDataType(p)    // Function doesn't exist!
+}
+
+// CORRECT - using proper parser API
+if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {  // Type assertion
+    dataType, err := p.ParseDataType()  // Method on Parser struct
+}
+```
+
+**Key Lesson:** The Go parser uses these conventions:
+- **Token type checking**: Use type assertions on `p.PeekToken().Token`: `if _, ok := p.PeekToken().Token.(token.TokenLParen); ok`
+- **Consuming tokens**: Use `p.ConsumeToken(token.TokenLParen{})` for optional tokens, `p.ExpectToken()` for required tokens
+- **Data type parsing**: Use `p.ParseDataType()` (method on Parser, not standalone function)
+- **Keyword checking**: Use `p.PeekKeyword("KEYWORD")` to check, `p.ExpectKeyword("KEYWORD")` to consume
+- **Expression parsing**: Use `NewExpressionParser(p).ParseExpr()` for expressions
+
+Reference: `parser/utils.go`, `parser/parser.go` for parser API methods.
+
+---
+
 ## Current Status
 
-**Overall Progress: 27% Test Pass Rate** (323/1207 tests passing) - Note: decreased from 38% due to newly ported tests
+**Overall Progress: 40% Test Pass Rate** (325/813 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -535,17 +608,50 @@ CREATE FUNCTION foo() RETURNS TEXT AS $$ SELECT 1 $$ LANGUAGE SQL;
 | **PostgreSQL**   | 🔄 In Progress   | ~40     | ~157  | **25%**   |
 | **MySQL**        | 🔄 In Progress   | ~57     | ~125  | **46%**   |
 | **Snowflake**    | 🔄 In Progress   | ~16     | ~97   | **16%**   |
-| **TOTAL**        | **38% Complete** | **459** | 1207  | **38%**   |
+| **TOTAL**        | **40% Complete** | **325** | 813   | **40%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 64,156 lines (95% of Rust)
-- Go Tests: 14,112 lines (28% of Rust tests)
+- Go Source: 65,372 lines (97% of Rust)
+- Go Tests: 14,281 lines (28% of Rust tests)
 
 ---
 
 ## Recent Progress
+
+### April 5, 2026 - CREATE TRIGGER and CREATE OPERATOR Implementation
+
+Implemented major CREATE statement parsers following Rust reference:
+
+1. **CREATE TRIGGER** - Full parser per Rust `parse_create_trigger` (src/parser/mod.rs:6066):
+   - Complete trigger AST types: TriggerPeriod, TriggerEvent, TriggerReferencing, TriggerExecBody
+   - Support for: `BEFORE`/`AFTER`/`INSTEAD OF` periods, `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` events
+   - Multiple events with OR separator: `INSERT OR UPDATE OR DELETE`
+   - UPDATE OF column list support
+   - REFERENCING clause with OLD TABLE/NEW TABLE
+   - FOR [EACH] ROW/STATEMENT clause
+   - WHEN condition clause
+   - EXECUTE FUNCTION/PROCEDURE body
+   - **+10 tests passing** (trigger tests)
+
+2. **CREATE OPERATOR** - PostgreSQL operator parser per Rust `parse_create_operator` (src/parser/mod.rs:6993):
+   - Complete operator AST types: OperatorOption, OperatorArgTypes, OperatorClassItem
+   - Support for: FUNCTION/PROCEDURE parameters, LEFTARG/RIGHTARG data types
+   - Operator options: HASHES, MERGES, COMMUTATOR, NEGATOR, RESTRICT, JOIN
+   - CREATE OPERATOR FAMILY with USING clause
+   - CREATE OPERATOR CLASS with OPERATOR/FUNCTION/STORAGE items
+   - **+5 tests passing** (operator tests)
+
+**Pattern Documentation:** When implementing CREATE statement parsers:
+1. Reference Rust implementation directly - follow exact parsing order
+2. Use `p.ParseDataType()` for data type parsing
+3. Use type assertions for token checking: `if _, ok := p.PeekToken().Token.(token.TokenLParen); ok`
+4. Always include empty parentheses in FunctionDesc.String() for function calls
+
+---
+
+## Recent Progress (Previous)
 
 ### April 5, 2026 - UPDATE FROM, CEIL/FLOOR Fix, Array Subscript Parser
 
@@ -838,9 +944,9 @@ go build ./...                      # Build everything
 
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
-**Status:** TPC-H fixture issue, Common ~35%, PostgreSQL ~20%, MySQL ~40%, Snowflake ~15%, **Total 323/1207 (27%)**
+**Status:** TPC-H fixture issue, Common ~46%, PostgreSQL ~25%, MySQL ~46%, Snowflake ~16%, **Total 325/813 (40%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines
-- Go Source: 65,256 lines (97% of Rust)
-- Go Tests: 14,112 lines
+- Go Source: 65,372 lines (97% of Rust)
+- Go Tests: 14,281 lines

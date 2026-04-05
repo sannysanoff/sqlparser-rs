@@ -1394,37 +1394,208 @@ func (u *UserDefinedTypeRepresentation) exprNode()        {}
 func (u *UserDefinedTypeRepresentation) Span() token.Span { return token.Span{} }
 func (u *UserDefinedTypeRepresentation) String() string   { return "" }
 
-// TriggerPeriod represents trigger period.
+// TriggerPeriod represents the trigger timing (BEFORE, AFTER, INSTEAD OF, FOR).
 type TriggerPeriod int
 
 const (
 	TriggerPeriodNone TriggerPeriod = iota
+	TriggerPeriodFor
+	TriggerPeriodAfter
+	TriggerPeriodBefore
+	TriggerPeriodInsteadOf
 )
 
-func (t TriggerPeriod) String() string { return "" }
+func (t TriggerPeriod) String() string {
+	switch t {
+	case TriggerPeriodFor:
+		return "FOR"
+	case TriggerPeriodAfter:
+		return "AFTER"
+	case TriggerPeriodBefore:
+		return "BEFORE"
+	case TriggerPeriodInsteadOf:
+		return "INSTEAD OF"
+	default:
+		return ""
+	}
+}
 
-// TriggerEvent represents trigger event.
+// TriggerEvent represents trigger event (INSERT, UPDATE, DELETE, TRUNCATE).
 type TriggerEvent int
 
 const (
 	TriggerEventNone TriggerEvent = iota
+	TriggerEventInsert
+	TriggerEventUpdate
+	TriggerEventDelete
+	TriggerEventTruncate
 )
 
-func (t TriggerEvent) String() string { return "" }
+// TriggerEventWithColumns represents UPDATE event with column list.
+type TriggerEventWithColumns struct {
+	Event   TriggerEvent
+	Columns []*ast.Ident
+}
 
-// TriggerReferencing represents trigger referencing.
-type TriggerReferencing struct{}
+func (t TriggerEvent) String() string {
+	switch t {
+	case TriggerEventInsert:
+		return "INSERT"
+	case TriggerEventUpdate:
+		return "UPDATE"
+	case TriggerEventDelete:
+		return "DELETE"
+	case TriggerEventTruncate:
+		return "TRUNCATE"
+	default:
+		return ""
+	}
+}
+
+// TriggerReferencingType represents the type of trigger referencing (OLD TABLE, NEW TABLE).
+type TriggerReferencingType int
+
+const (
+	TriggerReferencingTypeNone TriggerReferencingType = iota
+	TriggerReferencingTypeOldTable
+	TriggerReferencingTypeNewTable
+)
+
+func (t TriggerReferencingType) String() string {
+	switch t {
+	case TriggerReferencingTypeOldTable:
+		return "OLD TABLE"
+	case TriggerReferencingTypeNewTable:
+		return "NEW TABLE"
+	default:
+		return ""
+	}
+}
+
+// TriggerReferencing represents trigger referencing clause.
+type TriggerReferencing struct {
+	ReferType              TriggerReferencingType
+	IsAs                   bool
+	TransitionRelationName *ast.ObjectName
+}
 
 func (t *TriggerReferencing) exprNode()        {}
 func (t *TriggerReferencing) Span() token.Span { return token.Span{} }
-func (t *TriggerReferencing) String() string   { return "" }
+func (t *TriggerReferencing) String() string {
+	var sb strings.Builder
+	sb.WriteString(t.ReferType.String())
+	if t.IsAs {
+		sb.WriteString(" AS")
+	}
+	if t.TransitionRelationName != nil {
+		sb.WriteString(" ")
+		sb.WriteString(t.TransitionRelationName.String())
+	}
+	return sb.String()
+}
+
+// TriggerObject represents whether trigger fires per row or per statement.
+type TriggerObject int
+
+const (
+	TriggerObjectNone TriggerObject = iota
+	TriggerObjectRow
+	TriggerObjectStatement
+)
+
+func (t TriggerObject) String() string {
+	switch t {
+	case TriggerObjectRow:
+		return "ROW"
+	case TriggerObjectStatement:
+		return "STATEMENT"
+	default:
+		return ""
+	}
+}
+
+// TriggerObjectKind represents FOR ROW/STATEMENT or FOR EACH ROW/STATEMENT.
+type TriggerObjectKind int
+
+const (
+	TriggerObjectKindNone TriggerObjectKind = iota
+	TriggerObjectKindFor
+	TriggerObjectKindForEach
+)
+
+type TriggerObjectKindWithObject struct {
+	Kind   TriggerObjectKind
+	Object TriggerObject
+}
+
+func (t TriggerObjectKindWithObject) String() string {
+	var sb strings.Builder
+	if t.Kind == TriggerObjectKindForEach {
+		sb.WriteString("FOR EACH ")
+	} else {
+		sb.WriteString("FOR ")
+	}
+	sb.WriteString(t.Object.String())
+	return sb.String()
+}
+
+// TriggerExecBodyType represents the type of trigger execution body.
+type TriggerExecBodyType int
+
+const (
+	TriggerExecBodyTypeNone TriggerExecBodyType = iota
+	TriggerExecBodyTypeFunction
+	TriggerExecBodyTypeProcedure
+)
+
+func (t TriggerExecBodyType) String() string {
+	switch t {
+	case TriggerExecBodyTypeFunction:
+		return "FUNCTION"
+	case TriggerExecBodyTypeProcedure:
+		return "PROCEDURE"
+	default:
+		return ""
+	}
+}
+
+// FunctionDesc represents a function description.
+type FunctionDesc struct {
+	Name *ast.ObjectName
+	Args []Expr
+}
+
+func (f *FunctionDesc) exprNode()        {}
+func (f *FunctionDesc) Span() token.Span { return token.Span{} }
+func (f *FunctionDesc) String() string {
+	var sb strings.Builder
+	sb.WriteString(f.Name.String())
+	sb.WriteString("(")
+	for i, arg := range f.Args {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(arg.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
 
 // TriggerExecBody represents trigger execution body.
-type TriggerExecBody struct{}
+type TriggerExecBody struct {
+	ExecType TriggerExecBodyType
+	FuncDesc *FunctionDesc
+}
 
 func (t *TriggerExecBody) exprNode()        {}
 func (t *TriggerExecBody) Span() token.Span { return token.Span{} }
-func (t *TriggerExecBody) String() string   { return "" }
+func (t *TriggerExecBody) String() string {
+	var sb strings.Builder
+	sb.WriteString(t.ExecType.String())
+	sb.WriteString(" ")
+	sb.WriteString(t.FuncDesc.String())
+	return sb.String()
+}
 
 // ConditionalStatements represents conditional statements.
 type ConditionalStatements struct{}
@@ -1572,28 +1743,157 @@ func (r *RoleName) exprNode()        {}
 func (r *RoleName) Span() token.Span { return token.Span{} }
 func (r *RoleName) String() string   { return r.Name }
 
-// OperatorPurpose represents operator purpose.
+// OperatorPurpose represents the purpose of an operator in an operator class.
 type OperatorPurpose int
 
 const (
 	OperatorPurposeNone OperatorPurpose = iota
+	OperatorPurposeForSearch
+	OperatorPurposeForOrderBy
 )
 
-func (o OperatorPurpose) String() string { return "" }
+type OperatorPurposeWithFamily struct {
+	Purpose    OperatorPurpose
+	SortFamily *ast.ObjectName
+}
 
-// OperatorOption represents operator option.
-type OperatorOption struct{}
+func (o OperatorPurpose) String() string {
+	switch o {
+	case OperatorPurposeForSearch:
+		return "FOR SEARCH"
+	case OperatorPurposeForOrderBy:
+		return "FOR ORDER BY"
+	default:
+		return ""
+	}
+}
+
+// OperatorOptionKind represents the kind of operator option.
+type OperatorOptionKind int
+
+const (
+	OperatorOptionKindHashes OperatorOptionKind = iota
+	OperatorOptionKindMerges
+	OperatorOptionKindCommutator
+	OperatorOptionKindNegator
+	OperatorOptionKindRestrict
+	OperatorOptionKindJoin
+)
+
+// OperatorOption represents operator option (COMMUTATOR, NEGATOR, RESTRICT, JOIN, HASHES, MERGES).
+type OperatorOption struct {
+	Kind OperatorOptionKind
+	Name *ast.ObjectName // For Commutator, Negator, Restrict, Join
+}
 
 func (o *OperatorOption) exprNode()        {}
 func (o *OperatorOption) Span() token.Span { return token.Span{} }
-func (o *OperatorOption) String() string   { return "" }
+func (o *OperatorOption) String() string {
+	switch o.Kind {
+	case OperatorOptionKindHashes:
+		return "HASHES"
+	case OperatorOptionKindMerges:
+		return "MERGES"
+	case OperatorOptionKindCommutator:
+		if o.Name != nil {
+			return fmt.Sprintf("COMMUTATOR = %s", o.Name.String())
+		}
+		return "COMMUTATOR"
+	case OperatorOptionKindNegator:
+		if o.Name != nil {
+			return fmt.Sprintf("NEGATOR = %s", o.Name.String())
+		}
+		return "NEGATOR"
+	case OperatorOptionKindRestrict:
+		if o.Name != nil {
+			return fmt.Sprintf("RESTRICT = %s", o.Name.String())
+		}
+		return "RESTRICT"
+	case OperatorOptionKindJoin:
+		if o.Name != nil {
+			return fmt.Sprintf("JOIN = %s", o.Name.String())
+		}
+		return "JOIN"
+	default:
+		return ""
+	}
+}
 
-// OperatorClassItem represents operator class item.
-type OperatorClassItem struct{}
+// OperatorArgTypes represents operator argument types for CREATE OPERATOR CLASS.
+type OperatorArgTypes struct {
+	Left  interface{} // DataType
+	Right interface{} // DataType
+}
+
+func (o *OperatorArgTypes) exprNode()        {}
+func (o *OperatorArgTypes) Span() token.Span { return token.Span{} }
+func (o *OperatorArgTypes) String() string {
+	return fmt.Sprintf("%v, %v", o.Left, o.Right)
+}
+
+// OperatorClassItem represents an item in a CREATE OPERATOR CLASS statement.
+type OperatorClassItem struct {
+	IsOperator     bool
+	IsFunction     bool
+	IsStorage      bool
+	StrategyNumber uint64
+	OperatorName   *ast.ObjectName
+	OpTypes        *OperatorArgTypes
+	Purpose        *OperatorPurposeWithFamily
+	SupportNumber  uint64
+	FuncOpTypes    []interface{} // []DataType
+	FunctionName   *ast.ObjectName
+	ArgumentTypes  []interface{} // []DataType
+	StorageType    interface{}   // DataType
+}
 
 func (o *OperatorClassItem) exprNode()        {}
 func (o *OperatorClassItem) Span() token.Span { return token.Span{} }
-func (o *OperatorClassItem) String() string   { return "" }
+func (o *OperatorClassItem) String() string {
+	if o.IsOperator {
+		var sb strings.Builder
+		sb.WriteString("OPERATOR ")
+		sb.WriteString(fmt.Sprintf("%d", o.StrategyNumber))
+		sb.WriteString(" ")
+		sb.WriteString(o.OperatorName.String())
+		if o.OpTypes != nil {
+			sb.WriteString("(")
+			sb.WriteString(o.OpTypes.String())
+			sb.WriteString(")")
+		}
+		if o.Purpose != nil {
+			sb.WriteString(" ")
+			sb.WriteString(o.Purpose.Purpose.String())
+			if o.Purpose.Purpose == OperatorPurposeForOrderBy && o.Purpose.SortFamily != nil {
+				sb.WriteString(" ")
+				sb.WriteString(o.Purpose.SortFamily.String())
+			}
+		}
+		return sb.String()
+	}
+	if o.IsFunction {
+		var sb strings.Builder
+		sb.WriteString("FUNCTION ")
+		sb.WriteString(fmt.Sprintf("%d", o.SupportNumber))
+		sb.WriteString(" ")
+		sb.WriteString(o.FunctionName.String())
+		if len(o.ArgumentTypes) > 0 {
+			sb.WriteString("(")
+			for i, t := range o.ArgumentTypes {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				sb.WriteString(fmt.Sprintf("%v", t))
+			}
+			sb.WriteString(")")
+		}
+		return sb.String()
+	}
+	if o.IsStorage {
+		return fmt.Sprintf("STORAGE %v", o.StorageType)
+	}
+	return ""
+}
 
 // AlterPolicyOperation represents ALTER POLICY operation.
 type AlterPolicyOperation struct{}
@@ -1615,13 +1915,6 @@ type AttachDuckDBDatabaseOption struct{}
 func (a *AttachDuckDBDatabaseOption) exprNode()        {}
 func (a *AttachDuckDBDatabaseOption) Span() token.Span { return token.Span{} }
 func (a *AttachDuckDBDatabaseOption) String() string   { return "" }
-
-// FunctionDesc represents function description.
-type FunctionDesc struct{}
-
-func (f *FunctionDesc) exprNode()        {}
-func (f *FunctionDesc) Span() token.Span { return token.Span{} }
-func (f *FunctionDesc) String() string   { return "" }
 
 // DropOperatorSignature represents DROP OPERATOR signature.
 type DropOperatorSignature struct{}

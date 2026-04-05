@@ -1082,7 +1082,279 @@ func parseCreateExtension(p *Parser) (ast.Statement, error) {
 }
 
 func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE TRIGGER not yet implemented", p.PeekTokenRef())
+	// Consume TRIGGER keyword
+	if _, err := p.ExpectKeyword("TRIGGER"); err != nil {
+		return nil, err
+	}
+
+	// Parse trigger name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	trigger := &statement.CreateTrigger{
+		Name:              name,
+		OrReplace:         orReplace,
+		PeriodBeforeTable: true, // Default to PostgreSQL/MySQL style (period before ON)
+	}
+
+	// Parse optional period (BEFORE, AFTER, INSTEAD OF, FOR)
+	if p.PeekKeyword("BEFORE") {
+		p.NextToken()
+		period := expr.TriggerPeriodBefore
+		trigger.Period = &period
+	} else if p.PeekKeyword("AFTER") {
+		p.NextToken()
+		period := expr.TriggerPeriodAfter
+		trigger.Period = &period
+	} else if p.PeekKeyword("INSTEAD") {
+		p.NextToken()
+		if _, err := p.ExpectKeyword("OF"); err != nil {
+			return nil, err
+		}
+		period := expr.TriggerPeriodInsteadOf
+		trigger.Period = &period
+	} else if p.PeekKeyword("FOR") {
+		p.NextToken()
+		period := expr.TriggerPeriodFor
+		trigger.Period = &period
+	}
+
+	// Parse trigger events (can be OR-separated: INSERT OR UPDATE OR DELETE)
+	for {
+		event, eventCols, err := parseTriggerEvent(p)
+		if err != nil {
+			return nil, err
+		}
+		trigger.Events = append(trigger.Events, &expr.TriggerEventWithColumns{
+			Event:   event,
+			Columns: eventCols,
+		})
+
+		// Check for OR keyword to parse more events
+		if !p.PeekKeyword("OR") {
+			break
+		}
+		p.NextToken() // consume OR
+	}
+
+	// Expect ON keyword
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, err
+	}
+
+	// Parse table name
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+	trigger.TableName = tableName
+
+	// Parse optional FROM clause (referenced table)
+	if p.PeekKeyword("FROM") {
+		p.NextToken()
+		refTable, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		trigger.ReferencedTableName = refTable
+	}
+
+	// Parse optional constraint characteristics (DEFERRABLE, etc.)
+	// For now, just parse and discard - full implementation TODO
+	parseConstraintCharacteristics(p)
+
+	// Parse optional REFERENCING clause
+	if p.PeekKeyword("REFERENCING") {
+		p.NextToken()
+		for {
+			referencing, err := parseTriggerReferencing(p)
+			if err != nil {
+				return nil, err
+			}
+			if referencing == nil {
+				break
+			}
+			trigger.Referencing = append(trigger.Referencing, referencing)
+			// Check if next token could be another referencing clause
+			if !p.PeekKeyword("OLD") && !p.PeekKeyword("NEW") {
+				break
+			}
+		}
+	}
+
+	// Parse optional FOR [EACH] ROW/STATEMENT
+	if p.PeekKeyword("FOR") {
+		p.NextToken()
+		kind := expr.TriggerObjectKindFor
+		if p.PeekKeyword("EACH") {
+			p.NextToken()
+			kind = expr.TriggerObjectKindForEach
+		}
+
+		var obj expr.TriggerObject
+		if p.PeekKeyword("ROW") {
+			p.NextToken()
+			obj = expr.TriggerObjectRow
+		} else if p.PeekKeyword("STATEMENT") {
+			p.NextToken()
+			obj = expr.TriggerObjectStatement
+		}
+		trigger.TriggerObject = &expr.TriggerObjectKindWithObject{
+			Kind:   kind,
+			Object: obj,
+		}
+	}
+
+	// Parse optional WHEN clause
+	if p.PeekKeyword("WHEN") {
+		p.NextToken()
+		condition, err := NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		trigger.Condition = condition
+	}
+
+	// Parse EXECUTE clause (FUNCTION or PROCEDURE)
+	if p.PeekKeyword("EXECUTE") {
+		p.NextToken()
+		execBody, err := parseTriggerExecBody(p)
+		if err != nil {
+			return nil, err
+		}
+		trigger.ExecBody = execBody
+	} else {
+		// Parse statement body (for T-SQL style triggers)
+		// For now, skip this - it's complex conditional statement parsing
+	}
+
+	return trigger, nil
+}
+
+func parseTriggerEvent(p *Parser) (expr.TriggerEvent, []*ast.Ident, error) {
+	switch {
+	case p.PeekKeyword("INSERT"):
+		p.NextToken()
+		return expr.TriggerEventInsert, nil, nil
+	case p.PeekKeyword("UPDATE"):
+		p.NextToken()
+		var cols []*ast.Ident
+		if p.PeekKeyword("OF") {
+			p.NextToken()
+			// Parse column list
+			for {
+				col, err := p.ParseIdentifier()
+				if err != nil {
+					return expr.TriggerEventNone, nil, err
+				}
+				cols = append(cols, col)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+		}
+		return expr.TriggerEventUpdate, cols, nil
+	case p.PeekKeyword("DELETE"):
+		p.NextToken()
+		return expr.TriggerEventDelete, nil, nil
+	case p.PeekKeyword("TRUNCATE"):
+		p.NextToken()
+		return expr.TriggerEventTruncate, nil, nil
+	default:
+		return expr.TriggerEventNone, nil, fmt.Errorf("expected INSERT, UPDATE, DELETE, or TRUNCATE, found %v", p.PeekToken())
+	}
+}
+
+func parseTriggerReferencing(p *Parser) (*expr.TriggerReferencing, error) {
+	var referType expr.TriggerReferencingType
+
+	if p.PeekKeyword("OLD") {
+		p.NextToken()
+		if p.PeekKeyword("TABLE") {
+			p.NextToken()
+			referType = expr.TriggerReferencingTypeOldTable
+		} else {
+			// Not a valid referencing clause
+			return nil, nil
+		}
+	} else if p.PeekKeyword("NEW") {
+		p.NextToken()
+		if p.PeekKeyword("TABLE") {
+			p.NextToken()
+			referType = expr.TriggerReferencingTypeNewTable
+		} else {
+			// Not a valid referencing clause
+			return nil, nil
+		}
+	} else {
+		return nil, nil
+	}
+
+	isAs := p.PeekKeyword("AS")
+	if isAs {
+		p.NextToken()
+	}
+
+	transitionName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &expr.TriggerReferencing{
+		ReferType:              referType,
+		IsAs:                   isAs,
+		TransitionRelationName: transitionName,
+	}, nil
+}
+
+func parseTriggerExecBody(p *Parser) (*expr.TriggerExecBody, error) {
+	var execType expr.TriggerExecBodyType
+
+	if p.PeekKeyword("FUNCTION") {
+		p.NextToken()
+		execType = expr.TriggerExecBodyTypeFunction
+	} else if p.PeekKeyword("PROCEDURE") {
+		p.NextToken()
+		execType = expr.TriggerExecBodyTypeProcedure
+	} else {
+		return nil, fmt.Errorf("expected FUNCTION or PROCEDURE after EXECUTE")
+	}
+
+	// Parse function/procedure name and optional arguments
+	funcName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	var args []expr.Expr
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		p.NextToken() // consume (
+		if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {
+			for {
+				arg, err := NewExpressionParser(p).ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, arg)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return &expr.TriggerExecBody{
+		ExecType: execType,
+		FuncDesc: &expr.FunctionDesc{
+			Name: funcName,
+			Args: args,
+		},
+	}, nil
 }
 
 func parseCreatePolicy(p *Parser, orReplace bool) (ast.Statement, error) {
@@ -1461,7 +1733,474 @@ func parseCreateConnector(p *Parser, orReplace bool) (ast.Statement, error) {
 }
 
 func parseCreateOperator(p *Parser) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE OPERATOR not yet implemented", p.PeekTokenRef())
+	// Consume OPERATOR keyword
+	if _, err := p.ExpectKeyword("OPERATOR"); err != nil {
+		return nil, err
+	}
+
+	// Check for FAMILY or CLASS
+	if p.PeekKeyword("FAMILY") {
+		return parseCreateOperatorFamily(p)
+	}
+	if p.PeekKeyword("CLASS") {
+		return parseCreateOperatorClass(p)
+	}
+
+	// Parse operator name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	createOp := &statement.CreateOperator{
+		Name: name,
+	}
+
+	// Parse operator parameters
+	for {
+		done := false
+		switch {
+		case p.PeekKeyword("FUNCTION"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			funcName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			createOp.Function = funcName
+			createOp.IsProcedure = false
+
+		case p.PeekKeyword("PROCEDURE"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			funcName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			createOp.Function = funcName
+			createOp.IsProcedure = true
+
+		case p.PeekKeyword("LEFTARG"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse data type
+			dataType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			createOp.LeftArg = dataType
+
+		case p.PeekKeyword("RIGHTARG"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse data type
+			dataType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			createOp.RightArg = dataType
+
+		case p.PeekKeyword("HASHES"):
+			p.NextToken()
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindHashes,
+			})
+
+		case p.PeekKeyword("MERGES"):
+			p.NextToken()
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindMerges,
+			})
+
+		case p.PeekKeyword("COMMUTATOR"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			var opName *ast.ObjectName
+			if p.PeekKeyword("OPERATOR") {
+				p.NextToken()
+				if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+					return nil, err
+				}
+				opName, err = p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+			} else {
+				opName, err = p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+			}
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindCommutator,
+				Name: opName,
+			})
+
+		case p.PeekKeyword("NEGATOR"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			var opName *ast.ObjectName
+			if p.PeekKeyword("OPERATOR") {
+				p.NextToken()
+				if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+					return nil, err
+				}
+				opName, err = p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+			} else {
+				opName, err = p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+			}
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindNegator,
+				Name: opName,
+			})
+
+		case p.PeekKeyword("RESTRICT"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			funcName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindRestrict,
+				Name: funcName,
+			})
+
+		case p.PeekKeyword("JOIN"):
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			funcName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			createOp.Options = append(createOp.Options, &expr.OperatorOption{
+				Kind: expr.OperatorOptionKindJoin,
+				Name: funcName,
+			})
+
+		default:
+			done = true
+		}
+
+		if done {
+			break
+		}
+
+		// Check for comma separator
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Validate that FUNCTION was specified
+	if createOp.Function == nil {
+		return nil, fmt.Errorf("CREATE OPERATOR requires FUNCTION parameter")
+	}
+
+	return createOp, nil
+}
+
+func parseCreateOperatorFamily(p *Parser) (ast.Statement, error) {
+	// Consume FAMILY keyword
+	if _, err := p.ExpectKeyword("FAMILY"); err != nil {
+		return nil, err
+	}
+
+	// Parse family name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect USING keyword
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+
+	// Parse index method
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.CreateOperatorFamily{
+		Name:        name,
+		IndexMethod: indexMethod,
+	}, nil
+}
+
+func parseCreateOperatorClass(p *Parser) (ast.Statement, error) {
+	// Consume CLASS keyword
+	if _, err := p.ExpectKeyword("CLASS"); err != nil {
+		return nil, err
+	}
+
+	// Parse class name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	createOpClass := &statement.CreateOperatorClass{
+		Name: name,
+	}
+
+	// Check for DEFAULT
+	if p.PeekKeyword("DEFAULT") {
+		p.NextToken()
+		createOpClass.IsDefault = true
+	}
+
+	// Expect FOR TYPE keywords
+	if err := p.ExpectKeywords([]string{"FOR", "TYPE"}); err != nil {
+		return nil, err
+	}
+
+	// Parse data type
+	dataType, err := p.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+	createOpClass.DataType = dataType
+
+	// Expect USING keyword
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+
+	// Parse index method
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+	createOpClass.IndexMethod = indexMethod
+
+	// Check for FAMILY clause
+	if p.PeekKeyword("FAMILY") {
+		p.NextToken()
+		family, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		createOpClass.Family = family
+	}
+
+	// Expect AS keyword
+	if _, err := p.ExpectKeyword("AS"); err != nil {
+		return nil, err
+	}
+
+	// Parse operator class items
+	for {
+		item, err := parseOperatorClassItem(p)
+		if err != nil {
+			return nil, err
+		}
+		if item == nil {
+			break
+		}
+		createOpClass.Items = append(createOpClass.Items, item)
+
+		// Check for comma separator
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return createOpClass, nil
+}
+
+func parseOperatorClassItem(p *Parser) (*expr.OperatorClassItem, error) {
+	if p.PeekKeyword("OPERATOR") {
+		p.NextToken()
+
+		// Parse strategy number
+		stratNum, err := parseLiteralUint(p)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse operator name
+		opName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		item := &expr.OperatorClassItem{
+			IsOperator:     true,
+			StrategyNumber: stratNum,
+			OperatorName:   opName,
+		}
+
+		// Check for optional argument types
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			p.NextToken()
+			leftType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenComma{}); err != nil {
+				return nil, err
+			}
+			rightType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			item.OpTypes = &expr.OperatorArgTypes{
+				Left:  leftType,
+				Right: rightType,
+			}
+		}
+
+		// Check for optional purpose (FOR SEARCH or FOR ORDER BY)
+		if p.PeekKeyword("FOR") {
+			p.NextToken()
+			if p.PeekKeyword("SEARCH") {
+				p.NextToken()
+				item.Purpose = &expr.OperatorPurposeWithFamily{
+					Purpose: expr.OperatorPurposeForSearch,
+				}
+			} else if p.PeekKeyword("ORDER") {
+				p.NextToken()
+				if _, err := p.ExpectKeyword("BY"); err != nil {
+					return nil, err
+				}
+				sortFamily, err := p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+				item.Purpose = &expr.OperatorPurposeWithFamily{
+					Purpose:    expr.OperatorPurposeForOrderBy,
+					SortFamily: sortFamily,
+				}
+			}
+		}
+
+		return item, nil
+	}
+
+	if p.PeekKeyword("FUNCTION") {
+		p.NextToken()
+
+		// Parse support number
+		supportNum, err := parseLiteralUint(p)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse function name
+		funcName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+
+		item := &expr.OperatorClassItem{
+			IsFunction:    true,
+			SupportNumber: supportNum,
+			FunctionName:  funcName,
+		}
+
+		// Parse argument types
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			p.NextToken()
+			if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {
+				for {
+					argType, err := p.ParseDataType()
+					if err != nil {
+						return nil, err
+					}
+					item.ArgumentTypes = append(item.ArgumentTypes, argType)
+					if !p.ConsumeToken(token.TokenComma{}) {
+						break
+					}
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+
+		return item, nil
+	}
+
+	if p.PeekKeyword("STORAGE") {
+		p.NextToken()
+		storageType, err := p.ParseDataType()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.OperatorClassItem{
+			IsStorage:   true,
+			StorageType: storageType,
+		}, nil
+	}
+
+	// No more items
+	return nil, nil
+}
+
+func parseLiteralUint(p *Parser) (uint64, error) {
+	tok := p.PeekToken()
+	if numTok, ok := tok.Token.(token.TokenNumber); ok {
+		var val uint64
+		_, err := fmt.Sscanf(numTok.Value, "%d", &val)
+		if err != nil {
+			return 0, fmt.Errorf("expected unsigned integer, got %s", numTok.Value)
+		}
+		p.NextToken()
+		return val, nil
+	}
+	// Also try parsing a word that represents a number
+	if wordTok, ok := tok.Token.(token.TokenWord); ok {
+		var val uint64
+		_, err := fmt.Sscanf(wordTok.Word.Value, "%d", &val)
+		if err == nil {
+			p.NextToken()
+			return val, nil
+		}
+	}
+	return 0, fmt.Errorf("expected unsigned integer, got %v", tok)
 }
 
 func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {

@@ -961,19 +961,22 @@ func (c *CreateVirtualTable) String() string {
 // CreateTrigger represents a CREATE TRIGGER statement
 type CreateTrigger struct {
 	BaseStatement
-	OrReplace       bool
-	Temporary       bool
-	Name            *ast.Ident
-	Period          *expr.TriggerPeriod
-	Event           *expr.TriggerEvent
-	TableName       *ast.ObjectName
-	Referencing     []*expr.TriggerReferencing
-	IncludeEachRow  bool
-	When            expr.Expr
-	TriggerBody     *expr.TriggerExecBody
-	Enabled         *bool
-	BeforeColumns   []*ast.Ident
-	OnConfiguration *string
+	OrAlter             bool
+	Temporary           bool
+	OrReplace           bool
+	IsConstraint        bool
+	Name                *ast.ObjectName
+	Period              *expr.TriggerPeriod
+	PeriodBeforeTable   bool
+	Events              []*expr.TriggerEventWithColumns
+	TableName           *ast.ObjectName
+	ReferencedTableName *ast.ObjectName
+	Referencing         []*expr.TriggerReferencing
+	TriggerObject       *expr.TriggerObjectKindWithObject
+	Condition           expr.Expr
+	ExecBody            *expr.TriggerExecBody
+	StatementsAs        bool
+	Statements          *expr.ConditionalStatements
 }
 
 func (c *CreateTrigger) statementNode() {}
@@ -981,31 +984,107 @@ func (c *CreateTrigger) statementNode() {}
 func (c *CreateTrigger) String() string {
 	var f strings.Builder
 	f.WriteString("CREATE ")
-	if c.OrReplace {
-		f.WriteString("OR REPLACE ")
-	}
 	if c.Temporary {
 		f.WriteString("TEMPORARY ")
 	}
+	if c.OrAlter {
+		f.WriteString("OR ALTER ")
+	}
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	if c.IsConstraint {
+		f.WriteString("CONSTRAINT ")
+	}
 	f.WriteString("TRIGGER ")
 	f.WriteString(c.Name.String())
+	f.WriteString(" ")
 
-	if c.Period != nil {
+	if c.PeriodBeforeTable {
+		if c.Period != nil {
+			f.WriteString(c.Period.String())
+			f.WriteString(" ")
+		}
+		// Write events
+		for i, event := range c.Events {
+			if i > 0 {
+				f.WriteString(" OR ")
+			}
+			f.WriteString(event.Event.String())
+			if len(event.Columns) > 0 {
+				f.WriteString(" OF ")
+				for j, col := range event.Columns {
+					if j > 0 {
+						f.WriteString(", ")
+					}
+					f.WriteString(col.String())
+				}
+			}
+		}
+		f.WriteString(" ON ")
+		f.WriteString(c.TableName.String())
+	} else {
+		f.WriteString("ON ")
+		f.WriteString(c.TableName.String())
 		f.WriteString(" ")
-		f.WriteString(c.Period.String())
+		if c.Period != nil {
+			f.WriteString(c.Period.String())
+			f.WriteString(" ")
+		}
+		// Write events
+		for i, event := range c.Events {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(event.Event.String())
+			if len(event.Columns) > 0 {
+				f.WriteString(" OF ")
+				for j, col := range event.Columns {
+					if j > 0 {
+						f.WriteString(", ")
+					}
+					f.WriteString(col.String())
+				}
+			}
+		}
 	}
 
-	if c.Event != nil {
-		f.WriteString(" ")
-		f.WriteString(c.Event.String())
+	if c.ReferencedTableName != nil {
+		f.WriteString(" FROM ")
+		f.WriteString(c.ReferencedTableName.String())
 	}
 
-	f.WriteString(" ON ")
-	f.WriteString(c.TableName.String())
+	if len(c.Referencing) > 0 {
+		f.WriteString(" REFERENCING ")
+		for i, ref := range c.Referencing {
+			if i > 0 {
+				f.WriteString(" ")
+			}
+			f.WriteString(ref.String())
+		}
+	}
 
-	if c.TriggerBody != nil {
+	if c.TriggerObject != nil {
 		f.WriteString(" ")
-		f.WriteString(c.TriggerBody.String())
+		f.WriteString(c.TriggerObject.String())
+	}
+
+	if c.Condition != nil {
+		f.WriteString(" WHEN ")
+		f.WriteString(c.Condition.String())
+	}
+
+	if c.ExecBody != nil {
+		f.WriteString(" EXECUTE ")
+		f.WriteString(c.ExecBody.String())
+	}
+
+	if c.Statements != nil {
+		if c.StatementsAs {
+			f.WriteString(" AS")
+		}
+		f.WriteString(" ")
+		f.WriteString(c.Statements.String())
 	}
 
 	return f.String()
@@ -1292,10 +1371,12 @@ func (c *CreateConnector) String() string {
 // CreateOperator represents a CREATE OPERATOR statement
 type CreateOperator struct {
 	BaseStatement
-	OrReplace bool
-	Name      *ast.ObjectName
-	Kind      *expr.OperatorPurpose
-	Options   []*expr.OperatorOption
+	Name        *ast.ObjectName
+	Function    *ast.ObjectName
+	IsProcedure bool
+	LeftArg     interface{} // DataType
+	RightArg    interface{} // DataType
+	Options     []*expr.OperatorOption
 }
 
 func (c *CreateOperator) statementNode() {}
@@ -1303,10 +1384,29 @@ func (c *CreateOperator) statementNode() {}
 func (c *CreateOperator) String() string {
 	var f strings.Builder
 	f.WriteString("CREATE OPERATOR ")
-	if c.OrReplace {
-		f.WriteString("OR REPLACE ")
-	}
 	f.WriteString(c.Name.String())
+	f.WriteString(" (")
+
+	var params []string
+	if c.IsProcedure {
+		params = append(params, fmt.Sprintf("PROCEDURE = %s", c.Function.String()))
+	} else {
+		params = append(params, fmt.Sprintf("FUNCTION = %s", c.Function.String()))
+	}
+
+	if c.LeftArg != nil {
+		params = append(params, fmt.Sprintf("LEFTARG = %v", c.LeftArg))
+	}
+	if c.RightArg != nil {
+		params = append(params, fmt.Sprintf("RIGHTARG = %v", c.RightArg))
+	}
+
+	for _, opt := range c.Options {
+		params = append(params, opt.String())
+	}
+
+	f.WriteString(strings.Join(params, ", "))
+	f.WriteString(")")
 	return f.String()
 }
 
@@ -1344,12 +1444,11 @@ func (c *CreateOperatorFamily) String() string {
 // CreateOperatorClass represents a CREATE OPERATOR CLASS statement
 type CreateOperatorClass struct {
 	BaseStatement
-	OrReplace   bool
+	IsDefault   bool
 	Name        *ast.ObjectName
 	IndexMethod *ast.Ident
-	DataType    *ast.DataType
+	DataType    interface{} // datatype.DataType
 	Family      *ast.ObjectName
-	Options     []*expr.SqlOption
 	Items       []*expr.OperatorClassItem
 }
 
@@ -1358,12 +1457,31 @@ func (c *CreateOperatorClass) statementNode() {}
 func (c *CreateOperatorClass) String() string {
 	var f strings.Builder
 	f.WriteString("CREATE OPERATOR CLASS ")
-	if c.OrReplace {
-		f.WriteString("OR REPLACE ")
-	}
 	f.WriteString(c.Name.String())
+	if c.IsDefault {
+		f.WriteString(" DEFAULT")
+	}
+	f.WriteString(" FOR TYPE ")
+	if c.DataType != nil {
+		if dt, ok := c.DataType.(fmt.Stringer); ok {
+			f.WriteString(dt.String())
+		}
+	}
 	f.WriteString(" USING ")
 	f.WriteString(c.IndexMethod.String())
+	if c.Family != nil {
+		f.WriteString(" FAMILY ")
+		f.WriteString(c.Family.String())
+	}
+	if len(c.Items) > 0 {
+		f.WriteString(" AS ")
+		for i, item := range c.Items {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(item.String())
+		}
+	}
 	return f.String()
 }
 
