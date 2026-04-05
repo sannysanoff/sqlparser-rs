@@ -22,6 +22,7 @@ import (
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/operator"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
@@ -100,7 +101,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 	}
 
 	// Parse FILTER clause for aggregate functions (if supported)
-	if dialect.SupportsFilterDuringAggregation() && ep.parser.ParseKeyword("FILTER") {
+	if dialects.SupportsFilterDuringAggregation(dialect) && ep.parser.ParseKeyword("FILTER") {
 		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
@@ -129,7 +130,7 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 	}
 
 	// Parse WITHIN GROUP for ordered set aggregates
-	if dialect.SupportsWithinAfterArrayAggregation() && ep.parser.ParseKeywords([]string{"WITHIN", "GROUP"}) {
+	if dialects.SupportsWithinAfterArrayAggregation(dialect) && ep.parser.ParseKeywords([]string{"WITHIN", "GROUP"}) {
 		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
@@ -264,17 +265,17 @@ func (ep *ExpressionParser) parseFunctionArg() (expr.FunctionArg, error) {
 
 	// Try to parse as named argument if dialect supports it
 	// Check for: name => value, name = value, name := value, name : value
-	if dialect.SupportsNamedFnArgsWithRArrowOperator() ||
-		dialect.SupportsNamedFnArgsWithEqOperator() ||
-		dialect.SupportsNamedFnArgsWithAssignmentOperator() ||
-		dialect.SupportsNamedFnArgsWithColonOperator() {
+	if dialects.SupportsNamedFnArgsWithRArrowOperator(dialect) ||
+		dialects.SupportsNamedFnArgsWithEqOperator(dialect) ||
+		dialects.SupportsNamedFnArgsWithAssignmentOperator(dialect) ||
+		dialects.SupportsNamedFnArgsWithColonOperator(dialect) {
 
 		// Try to parse named argument using "maybe parse" pattern
 		// First, attempt to parse the name part
 		var arg expr.FunctionArg
 		var err error
 
-		if dialect.SupportsNamedFnArgsWithExprName() {
+		if dialects.SupportsNamedFnArgsWithExprName(dialect) {
 			// Name can be an arbitrary expression
 			arg, err = ep.tryParseNamedArgWithExprName()
 		} else {
@@ -376,7 +377,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 
 	// Check for => operator (RArrow)
 	if _, ok := tok.Token.(token.TokenRArrow); ok {
-		if dialect.SupportsNamedFnArgsWithRArrowOperator() {
+		if dialects.SupportsNamedFnArgsWithRArrowOperator(dialect) {
 			ep.parser.NextToken() // consume
 			return "=>"
 		}
@@ -384,7 +385,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 
 	// Check for = operator (Eq)
 	if _, ok := tok.Token.(token.TokenEq); ok {
-		if dialect.SupportsNamedFnArgsWithEqOperator() {
+		if dialects.SupportsNamedFnArgsWithEqOperator(dialect) {
 			ep.parser.NextToken() // consume
 			return "="
 		}
@@ -396,7 +397,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 	if _, ok := tok.Token.(token.TokenColon); ok {
 		nextTok := ep.parser.PeekNthToken(1)
 		if _, ok := nextTok.Token.(token.TokenEq); ok {
-			if dialect.SupportsNamedFnArgsWithAssignmentOperator() {
+			if dialects.SupportsNamedFnArgsWithAssignmentOperator(dialect) {
 				ep.parser.NextToken() // consume :
 				ep.parser.NextToken() // consume =
 				return ":="
@@ -406,7 +407,7 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 
 	// Check for : operator (Colon) - used by some dialects
 	if _, ok := tok.Token.(token.TokenColon); ok {
-		if dialect.SupportsNamedFnArgsWithColonOperator() {
+		if dialects.SupportsNamedFnArgsWithColonOperator(dialect) {
 			ep.parser.NextToken() // consume
 			return ":"
 		}

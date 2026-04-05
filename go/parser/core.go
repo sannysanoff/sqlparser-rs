@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
@@ -137,7 +138,7 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		case "AT":
 			return dialect.PrecValue(parseriface.PrecedenceAtTz), nil
 		case "NOTNULL":
-			if dialect.SupportsNotnullOperator() {
+			if dialects.SupportsNotnullOperator(dialect) {
 				return dialect.PrecValue(parseriface.PrecedenceIs), nil
 			}
 		case "MEMBER":
@@ -180,12 +181,12 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		return dialect.PrecValue(parseriface.PrecedencePlusMinus), nil
 
 	case token.TokenShiftLeft, token.TokenShiftRight:
-		if dialect.SupportsBitwiseShiftOperators() {
+		if dialects.SupportsBitwiseShiftOperators(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
 		}
 
 	case token.TokenSharp:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return dialect.PrecValue(parseriface.PrecedencePgOther), nil
 		}
 
@@ -193,7 +194,7 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		if dialect.Dialect() == "postgresql" {
 			return dialect.PrecValue(parseriface.PrecedenceEq), nil
 		}
-		if dialect.SupportsDoubleAmpersandOperator() {
+		if dialects.SupportsDoubleAmpersandOperator(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceAnd), nil
 		}
 
@@ -218,17 +219,17 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 
 	case token.TokenColon:
-		if dialect.SupportsPartiQL() {
+		if dialects.SupportsPartiQL(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceColon), nil
 		}
 
 	case token.TokenExclamationMark:
-		if dialect.SupportsFactorialOperator() {
+		if dialects.SupportsFactorialOperator(dialect) {
 			// Postfix factorial operator
 			return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 		}
 		// Also used for bang-not operator in some dialects
-		if dialect.SupportsBangNotOperator() {
+		if dialects.SupportsBangNotOperator(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceUnaryNot), nil
 		}
 
@@ -263,7 +264,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 			switch tok := nextTok.Token.(type) {
 			case token.TokenMul:
 				// Handle qualified wildcard like foo.*
-				if dialect.SupportsSelectWildcardExcept() {
+				if dialects.SupportsSelectWildcardExcept(dialect) {
 					endingWildcard = &token.TokenWithSpan{
 						Token: tok,
 						Span:  nextTok.Span,
@@ -344,7 +345,7 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 				})
 			}
 
-		} else if !dialect.SupportsPartiQL() {
+		} else if !dialects.SupportsPartiQL(dialect) {
 			// Check for array subscript (e.g., foo[1])
 			nextTok := ep.parser.PeekTokenRef()
 			if _, ok := nextTok.Token.(token.TokenLBracket); ok {
@@ -526,7 +527,7 @@ func (ep *ExpressionParser) exprsToIdents(root expr.Expr, fields []expr.AccessEx
 // maybeParseOuterJoinOperator checks for and consumes Oracle-style outer join operator
 func (ep *ExpressionParser) maybeParseOuterJoinOperator() bool {
 	dialect := ep.parser.GetDialect()
-	if !dialect.SupportsOuterJoinOperator() {
+	if !dialects.SupportsOuterJoinOperator(dialect) {
 		return false
 	}
 

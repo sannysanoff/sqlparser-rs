@@ -31,6 +31,100 @@ import (
 
 // SnowflakeDialect is a dialect for Snowflake SQL.
 // See: https://www.snowflake.com/
+//
+// SnowflakeDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with $ in identifiers, " quotes)
+//   - dialects.KeywordDialect (with IDENTIFIER() function)
+//   - dialects.StringLiteralDialect (with backslash escape)
+//   - dialects.AggregationDialect (with FILTER, WITHIN GROUP, MATCH_RECOGNIZE)
+//   - dialects.GroupByDialect (with GROUP BY Expr)
+//   - dialects.JoinDialect (with outer join operator)
+//   - dialects.ConnectByDialect (with CONNECT BY support)
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect (with parenthesized SET variables)
+//   - dialects.SelectDialect (with trailing commas, EXCLUDE, REPLACE, ILIKE, RENAME)
+//   - dialects.TypeConversionDialect (with TRY_CONVERT)
+//   - dialects.ObjectReferenceDialect (with double-dot notation)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with dictionary, lambda)
+//   - dialects.TableDefinitionDialect (with table versioning, VALUES, PIVOT/UNPIVOT)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments, COMMENT ON)
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect (EXECUTE IMMEDIATE)
+//   - dialects.ExtractDialect (with comma syntax, single quotes)
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect (dollar placeholders)
+//   - dialects.IndexDialect (WITH clause)
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect (with bitwise shift)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect (LIKE before IN)
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table alias)
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//
+// Compile-time interface checks:
+var _ dialects.CompleteDialect = (*SnowflakeDialect)(nil)
+var _ dialects.CoreDialect = (*SnowflakeDialect)(nil)
+var _ dialects.IdentifierDialect = (*SnowflakeDialect)(nil)
+var _ dialects.KeywordDialect = (*SnowflakeDialect)(nil)
+var _ dialects.StringLiteralDialect = (*SnowflakeDialect)(nil)
+var _ dialects.AggregationDialect = (*SnowflakeDialect)(nil)
+var _ dialects.GroupByDialect = (*SnowflakeDialect)(nil)
+var _ dialects.JoinDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ConnectByDialect = (*SnowflakeDialect)(nil)
+var _ dialects.TransactionDialect = (*SnowflakeDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*SnowflakeDialect)(nil)
+var _ dialects.SetDialect = (*SnowflakeDialect)(nil)
+var _ dialects.SelectDialect = (*SnowflakeDialect)(nil)
+var _ dialects.TypeConversionDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*SnowflakeDialect)(nil)
+var _ dialects.InExpressionDialect = (*SnowflakeDialect)(nil)
+var _ dialects.LiteralDialect = (*SnowflakeDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*SnowflakeDialect)(nil)
+var _ dialects.CommentDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ExplainDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ExecuteDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ExtractDialect = (*SnowflakeDialect)(nil)
+var _ dialects.SubqueryDialect = (*SnowflakeDialect)(nil)
+var _ dialects.PlaceholderDialect = (*SnowflakeDialect)(nil)
+var _ dialects.IndexDialect = (*SnowflakeDialect)(nil)
+var _ dialects.IntervalDialect = (*SnowflakeDialect)(nil)
+var _ dialects.OperatorDialect = (*SnowflakeDialect)(nil)
+var _ dialects.MatchDialect = (*SnowflakeDialect)(nil)
+var _ dialects.GranteeDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*SnowflakeDialect)(nil)
+var _ dialects.LoadDialect = (*SnowflakeDialect)(nil)
+var _ dialects.TopDistinctDialect = (*SnowflakeDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ShowDialect = (*SnowflakeDialect)(nil)
+var _ dialects.PartiQLDialect = (*SnowflakeDialect)(nil)
+var _ dialects.AliasDialect = (*SnowflakeDialect)(nil)
+var _ dialects.InsertDialect = (*SnowflakeDialect)(nil)
+var _ dialects.AlterTableDialect = (*SnowflakeDialect)(nil)
+var _ dialects.OrderByDialect = (*SnowflakeDialect)(nil)
+var _ dialects.GeometricDialect = (*SnowflakeDialect)(nil)
+var _ dialects.DescribeDialect = (*SnowflakeDialect)(nil)
+var _ dialects.ClickHouseDialect = (*SnowflakeDialect)(nil)
+var _ dialects.DuckDBDialect = (*SnowflakeDialect)(nil)
+var _ dialects.TrimDialect = (*SnowflakeDialect)(nil)
+
 type SnowflakeDialect struct{}
 
 // NewSnowflakeDialect creates a new instance of SnowflakeDialect.

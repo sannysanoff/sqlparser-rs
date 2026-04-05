@@ -40,6 +40,100 @@ import (
 )
 
 // DatabricksDialect is a dialect for Databricks SQL.
+//
+// DatabricksDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with backtick quotes)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect (with FILTER, window null treatment)
+//   - dialects.GroupByDialect (with GROUP BY Expr, WITH modifiers)
+//   - dialects.JoinDialect
+//   - dialects.ConnectByDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect (with => operator)
+//   - dialects.SetDialect (with SET NAMES)
+//   - dialects.SelectDialect (with EXCEPT)
+//   - dialects.TypeConversionDialect (with TRY_CONVERT)
+//   - dialects.ObjectReferenceDialect (with numeric literal underscores)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with STRUCT, MAP, array, dictionary, lambda)
+//   - dialects.TableDefinitionDialect (with table versioning, VALUES, PIVOT/UNPIVOT, table hints)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments, COMMENT ON)
+//   - dialects.ExplainDialect (with utility options)
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect (with custom keywords)
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect (WITH clause)
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect (with bitwise shift)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table alias)
+//   - dialects.AlterTableDialect (with USING, comma-separated DROP COLUMN)
+//   - dialects.OrderByDialect (ORDER BY ALL)
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect (OPTIMIZE TABLE)
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//
+// Compile-time interface checks:
+var _ dialects.CompleteDialect = (*DatabricksDialect)(nil)
+var _ dialects.CoreDialect = (*DatabricksDialect)(nil)
+var _ dialects.IdentifierDialect = (*DatabricksDialect)(nil)
+var _ dialects.KeywordDialect = (*DatabricksDialect)(nil)
+var _ dialects.StringLiteralDialect = (*DatabricksDialect)(nil)
+var _ dialects.AggregationDialect = (*DatabricksDialect)(nil)
+var _ dialects.GroupByDialect = (*DatabricksDialect)(nil)
+var _ dialects.JoinDialect = (*DatabricksDialect)(nil)
+var _ dialects.ConnectByDialect = (*DatabricksDialect)(nil)
+var _ dialects.TransactionDialect = (*DatabricksDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*DatabricksDialect)(nil)
+var _ dialects.SetDialect = (*DatabricksDialect)(nil)
+var _ dialects.SelectDialect = (*DatabricksDialect)(nil)
+var _ dialects.TypeConversionDialect = (*DatabricksDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*DatabricksDialect)(nil)
+var _ dialects.InExpressionDialect = (*DatabricksDialect)(nil)
+var _ dialects.LiteralDialect = (*DatabricksDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*DatabricksDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*DatabricksDialect)(nil)
+var _ dialects.CommentDialect = (*DatabricksDialect)(nil)
+var _ dialects.ExplainDialect = (*DatabricksDialect)(nil)
+var _ dialects.ExecuteDialect = (*DatabricksDialect)(nil)
+var _ dialects.ExtractDialect = (*DatabricksDialect)(nil)
+var _ dialects.SubqueryDialect = (*DatabricksDialect)(nil)
+var _ dialects.PlaceholderDialect = (*DatabricksDialect)(nil)
+var _ dialects.IndexDialect = (*DatabricksDialect)(nil)
+var _ dialects.IntervalDialect = (*DatabricksDialect)(nil)
+var _ dialects.OperatorDialect = (*DatabricksDialect)(nil)
+var _ dialects.MatchDialect = (*DatabricksDialect)(nil)
+var _ dialects.GranteeDialect = (*DatabricksDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*DatabricksDialect)(nil)
+var _ dialects.LoadDialect = (*DatabricksDialect)(nil)
+var _ dialects.TopDistinctDialect = (*DatabricksDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*DatabricksDialect)(nil)
+var _ dialects.ShowDialect = (*DatabricksDialect)(nil)
+var _ dialects.PartiQLDialect = (*DatabricksDialect)(nil)
+var _ dialects.AliasDialect = (*DatabricksDialect)(nil)
+var _ dialects.InsertDialect = (*DatabricksDialect)(nil)
+var _ dialects.AlterTableDialect = (*DatabricksDialect)(nil)
+var _ dialects.OrderByDialect = (*DatabricksDialect)(nil)
+var _ dialects.GeometricDialect = (*DatabricksDialect)(nil)
+var _ dialects.DescribeDialect = (*DatabricksDialect)(nil)
+var _ dialects.ClickHouseDialect = (*DatabricksDialect)(nil)
+var _ dialects.DuckDBDialect = (*DatabricksDialect)(nil)
+var _ dialects.TrimDialect = (*DatabricksDialect)(nil)
+
 type DatabricksDialect struct{}
 
 // NewDatabricksDialect creates a new instance of DatabricksDialect.

@@ -25,6 +25,100 @@ import (
 
 // DuckDbDialect is a dialect for DuckDB SQL implementation.
 // See https://duckdb.org/
+//
+// DuckDbDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with $ in identifiers)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with Unicode literals, E” escape)
+//   - dialects.AggregationDialect (with FILTER)
+//   - dialects.GroupByDialect (with GROUP BY Expr)
+//   - dialects.JoinDialect
+//   - dialects.ConnectByDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect (with =, :=, and => operators)
+//   - dialects.SetDialect
+//   - dialects.SelectDialect (with EXCLUDE, REPLACE, pipe operator, trailing commas, FROM-first)
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect (with numeric literal underscores)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with STRUCT, MAP, array, dictionary, lambda)
+//   - dialects.TableDefinitionDialect (with array typedef, VALUES)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments)
+//   - dialects.ExplainDialect (with utility options)
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect (with single quotes)
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect (with bitwise shift, NOTNULL)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect (with LOAD EXTENSION)
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect (ORDER BY ALL)
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect (INSTALL, DETACH)
+//   - dialects.TrimDialect
+//
+// Compile-time interface checks:
+var _ dialects.CompleteDialect = (*DuckDbDialect)(nil)
+var _ dialects.CoreDialect = (*DuckDbDialect)(nil)
+var _ dialects.IdentifierDialect = (*DuckDbDialect)(nil)
+var _ dialects.KeywordDialect = (*DuckDbDialect)(nil)
+var _ dialects.StringLiteralDialect = (*DuckDbDialect)(nil)
+var _ dialects.AggregationDialect = (*DuckDbDialect)(nil)
+var _ dialects.GroupByDialect = (*DuckDbDialect)(nil)
+var _ dialects.JoinDialect = (*DuckDbDialect)(nil)
+var _ dialects.ConnectByDialect = (*DuckDbDialect)(nil)
+var _ dialects.TransactionDialect = (*DuckDbDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*DuckDbDialect)(nil)
+var _ dialects.SetDialect = (*DuckDbDialect)(nil)
+var _ dialects.SelectDialect = (*DuckDbDialect)(nil)
+var _ dialects.TypeConversionDialect = (*DuckDbDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*DuckDbDialect)(nil)
+var _ dialects.InExpressionDialect = (*DuckDbDialect)(nil)
+var _ dialects.LiteralDialect = (*DuckDbDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*DuckDbDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*DuckDbDialect)(nil)
+var _ dialects.CommentDialect = (*DuckDbDialect)(nil)
+var _ dialects.ExplainDialect = (*DuckDbDialect)(nil)
+var _ dialects.ExecuteDialect = (*DuckDbDialect)(nil)
+var _ dialects.ExtractDialect = (*DuckDbDialect)(nil)
+var _ dialects.SubqueryDialect = (*DuckDbDialect)(nil)
+var _ dialects.PlaceholderDialect = (*DuckDbDialect)(nil)
+var _ dialects.IndexDialect = (*DuckDbDialect)(nil)
+var _ dialects.IntervalDialect = (*DuckDbDialect)(nil)
+var _ dialects.OperatorDialect = (*DuckDbDialect)(nil)
+var _ dialects.MatchDialect = (*DuckDbDialect)(nil)
+var _ dialects.GranteeDialect = (*DuckDbDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*DuckDbDialect)(nil)
+var _ dialects.LoadDialect = (*DuckDbDialect)(nil)
+var _ dialects.TopDistinctDialect = (*DuckDbDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*DuckDbDialect)(nil)
+var _ dialects.ShowDialect = (*DuckDbDialect)(nil)
+var _ dialects.PartiQLDialect = (*DuckDbDialect)(nil)
+var _ dialects.AliasDialect = (*DuckDbDialect)(nil)
+var _ dialects.InsertDialect = (*DuckDbDialect)(nil)
+var _ dialects.AlterTableDialect = (*DuckDbDialect)(nil)
+var _ dialects.OrderByDialect = (*DuckDbDialect)(nil)
+var _ dialects.GeometricDialect = (*DuckDbDialect)(nil)
+var _ dialects.DescribeDialect = (*DuckDbDialect)(nil)
+var _ dialects.ClickHouseDialect = (*DuckDbDialect)(nil)
+var _ dialects.DuckDBDialect = (*DuckDbDialect)(nil)
+var _ dialects.TrimDialect = (*DuckDbDialect)(nil)
+
 type DuckDbDialect struct{}
 
 // NewDuckDbDialect creates a new instance of DuckDbDialect.

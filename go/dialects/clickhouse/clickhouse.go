@@ -25,6 +25,100 @@ import (
 
 // ClickHouseDialect is a dialect for ClickHouse SQL implementation.
 // See https://clickhouse.com/
+//
+// ClickHouseDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with " and ` quotes)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with backslash escape, concatenation)
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect (with GROUP BY Expr, WITH modifiers)
+//   - dialects.JoinDialect
+//   - dialects.ConnectByDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect (with => operator)
+//   - dialects.SetDialect
+//   - dialects.SelectDialect (with LIMIT comma, wildcard EXCEPT/REPLACE, FROM-first)
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect (with numeric literal underscores)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with array, dictionary, lambda)
+//   - dialects.TableDefinitionDialect (with array typedef, VALUES)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments)
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect (subquery as function arg)
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table function, FORMAT)
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect (ORDER BY ALL)
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect (requires TABLE keyword)
+//   - dialects.ClickHouseDialect (OPTIMIZE, PREWHERE, WITH FILL, LIMIT BY, INTERPOLATE, SETTINGS, FORMAT)
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//
+// Compile-time interface checks:
+var _ dialects.CompleteDialect = (*ClickHouseDialect)(nil)
+var _ dialects.CoreDialect = (*ClickHouseDialect)(nil)
+var _ dialects.IdentifierDialect = (*ClickHouseDialect)(nil)
+var _ dialects.KeywordDialect = (*ClickHouseDialect)(nil)
+var _ dialects.StringLiteralDialect = (*ClickHouseDialect)(nil)
+var _ dialects.AggregationDialect = (*ClickHouseDialect)(nil)
+var _ dialects.GroupByDialect = (*ClickHouseDialect)(nil)
+var _ dialects.JoinDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ConnectByDialect = (*ClickHouseDialect)(nil)
+var _ dialects.TransactionDialect = (*ClickHouseDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*ClickHouseDialect)(nil)
+var _ dialects.SetDialect = (*ClickHouseDialect)(nil)
+var _ dialects.SelectDialect = (*ClickHouseDialect)(nil)
+var _ dialects.TypeConversionDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*ClickHouseDialect)(nil)
+var _ dialects.InExpressionDialect = (*ClickHouseDialect)(nil)
+var _ dialects.LiteralDialect = (*ClickHouseDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*ClickHouseDialect)(nil)
+var _ dialects.CommentDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ExplainDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ExecuteDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ExtractDialect = (*ClickHouseDialect)(nil)
+var _ dialects.SubqueryDialect = (*ClickHouseDialect)(nil)
+var _ dialects.PlaceholderDialect = (*ClickHouseDialect)(nil)
+var _ dialects.IndexDialect = (*ClickHouseDialect)(nil)
+var _ dialects.IntervalDialect = (*ClickHouseDialect)(nil)
+var _ dialects.OperatorDialect = (*ClickHouseDialect)(nil)
+var _ dialects.MatchDialect = (*ClickHouseDialect)(nil)
+var _ dialects.GranteeDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*ClickHouseDialect)(nil)
+var _ dialects.LoadDialect = (*ClickHouseDialect)(nil)
+var _ dialects.TopDistinctDialect = (*ClickHouseDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ShowDialect = (*ClickHouseDialect)(nil)
+var _ dialects.PartiQLDialect = (*ClickHouseDialect)(nil)
+var _ dialects.AliasDialect = (*ClickHouseDialect)(nil)
+var _ dialects.InsertDialect = (*ClickHouseDialect)(nil)
+var _ dialects.AlterTableDialect = (*ClickHouseDialect)(nil)
+var _ dialects.OrderByDialect = (*ClickHouseDialect)(nil)
+var _ dialects.GeometricDialect = (*ClickHouseDialect)(nil)
+var _ dialects.DescribeDialect = (*ClickHouseDialect)(nil)
+var _ dialects.ClickHouseDialect = (*ClickHouseDialect)(nil)
+var _ dialects.DuckDBDialect = (*ClickHouseDialect)(nil)
+var _ dialects.TrimDialect = (*ClickHouseDialect)(nil)
+
 type ClickHouseDialect struct{}
 
 // NewClickHouseDialect creates a new instance of ClickHouseDialect.

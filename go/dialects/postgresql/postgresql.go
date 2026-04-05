@@ -39,7 +39,100 @@ import (
 
 // PostgreSqlDialect is a dialect for PostgreSQL.
 // See https://www.postgresql.org/
+//
+// PostgreSqlDialect implements the following capability interfaces from the dialects package:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//   - dialects.CompleteDialect (via parseriface.CompleteDialect)
 type PostgreSqlDialect struct{}
+
+// Compile-time interface checks to ensure PostgreSqlDialect implements all required interfaces.
+var _ dialects.CompleteDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.IdentifierDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.KeywordDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.StringLiteralDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.AggregationDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.GroupByDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.JoinDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.TransactionDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.SetDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.SelectDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.TypeConversionDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.InExpressionDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.LiteralDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.CommentDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ExplainDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ExecuteDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ExtractDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.SubqueryDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.PlaceholderDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.IndexDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.IntervalDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.OperatorDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.MatchDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.GranteeDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.LoadDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.TopDistinctDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ShowDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.PartiQLDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.AliasDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.InsertDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.AlterTableDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.OrderByDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.GeometricDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.DescribeDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ClickHouseDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.DuckDBDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.TrimDialect = (*PostgreSqlDialect)(nil)
+var _ dialects.ConnectByDialect = (*PostgreSqlDialect)(nil)
 
 // NewPostgreSqlDialect creates a new instance of PostgreSqlDialect.
 func NewPostgreSqlDialect() *PostgreSqlDialect {

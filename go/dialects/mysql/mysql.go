@@ -36,7 +36,100 @@ var reservedForTableAliasMySQL = []token.Keyword{
 
 // MySqlDialect is a dialect for MySQL SQL implementation.
 // See https://www.mysql.com/
+//
+// MySqlDialect implements the following capability interfaces from the dialects package:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//   - dialects.CompleteDialect (via parseriface.CompleteDialect)
 type MySqlDialect struct{}
+
+// Compile-time interface checks to ensure MySqlDialect implements all required interfaces.
+var _ dialects.CompleteDialect = (*MySqlDialect)(nil)
+var _ dialects.IdentifierDialect = (*MySqlDialect)(nil)
+var _ dialects.KeywordDialect = (*MySqlDialect)(nil)
+var _ dialects.StringLiteralDialect = (*MySqlDialect)(nil)
+var _ dialects.AggregationDialect = (*MySqlDialect)(nil)
+var _ dialects.GroupByDialect = (*MySqlDialect)(nil)
+var _ dialects.JoinDialect = (*MySqlDialect)(nil)
+var _ dialects.TransactionDialect = (*MySqlDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*MySqlDialect)(nil)
+var _ dialects.SetDialect = (*MySqlDialect)(nil)
+var _ dialects.SelectDialect = (*MySqlDialect)(nil)
+var _ dialects.TypeConversionDialect = (*MySqlDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*MySqlDialect)(nil)
+var _ dialects.InExpressionDialect = (*MySqlDialect)(nil)
+var _ dialects.LiteralDialect = (*MySqlDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*MySqlDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*MySqlDialect)(nil)
+var _ dialects.CommentDialect = (*MySqlDialect)(nil)
+var _ dialects.ExplainDialect = (*MySqlDialect)(nil)
+var _ dialects.ExecuteDialect = (*MySqlDialect)(nil)
+var _ dialects.ExtractDialect = (*MySqlDialect)(nil)
+var _ dialects.SubqueryDialect = (*MySqlDialect)(nil)
+var _ dialects.PlaceholderDialect = (*MySqlDialect)(nil)
+var _ dialects.IndexDialect = (*MySqlDialect)(nil)
+var _ dialects.IntervalDialect = (*MySqlDialect)(nil)
+var _ dialects.OperatorDialect = (*MySqlDialect)(nil)
+var _ dialects.MatchDialect = (*MySqlDialect)(nil)
+var _ dialects.GranteeDialect = (*MySqlDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*MySqlDialect)(nil)
+var _ dialects.LoadDialect = (*MySqlDialect)(nil)
+var _ dialects.TopDistinctDialect = (*MySqlDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*MySqlDialect)(nil)
+var _ dialects.ShowDialect = (*MySqlDialect)(nil)
+var _ dialects.PartiQLDialect = (*MySqlDialect)(nil)
+var _ dialects.AliasDialect = (*MySqlDialect)(nil)
+var _ dialects.InsertDialect = (*MySqlDialect)(nil)
+var _ dialects.AlterTableDialect = (*MySqlDialect)(nil)
+var _ dialects.OrderByDialect = (*MySqlDialect)(nil)
+var _ dialects.GeometricDialect = (*MySqlDialect)(nil)
+var _ dialects.DescribeDialect = (*MySqlDialect)(nil)
+var _ dialects.ClickHouseDialect = (*MySqlDialect)(nil)
+var _ dialects.DuckDBDialect = (*MySqlDialect)(nil)
+var _ dialects.TrimDialect = (*MySqlDialect)(nil)
+var _ dialects.ConnectByDialect = (*MySqlDialect)(nil)
 
 // NewMySqlDialect creates a new instance of MySqlDialect.
 func NewMySqlDialect() *MySqlDialect {

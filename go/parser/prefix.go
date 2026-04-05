@@ -92,7 +92,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		}, nil
 
 	case token.TokenExclamationMark:
-		if dialect.SupportsBangNotOperator() {
+		if dialects.SupportsBangNotOperator(dialect) {
 			// PostgreSQL-style bang not operator (!expr)
 			prec := ep.getPrecedence(parseriface.PrecedenceUnaryNot)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
@@ -171,7 +171,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 			}, nil
 		}
 
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
 			if err != nil {
@@ -202,7 +202,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		}, nil
 
 	case token.TokenSharp:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
 			if err != nil {
@@ -218,7 +218,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return nil, ep.parser.ExpectedRef("an expression", ep.parser.PeekTokenRef())
 
 	case token.TokenAtDashAt:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
 			if err != nil {
@@ -234,7 +234,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return nil, ep.parser.ExpectedRef("an expression", ep.parser.PeekTokenRef())
 
 	case token.TokenQuestionMarkDash:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
 			if err != nil {
@@ -250,7 +250,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return nil, ep.parser.ExpectedRef("an expression", ep.parser.PeekTokenRef())
 
 	case token.TokenQuestionPipe:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
 			innerExpr, err := ep.ParseExprWithPrecedence(prec)
 			if err != nil {
@@ -326,7 +326,7 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 
 	switch word.Word.Keyword {
 	case "TRUE", "FALSE":
-		if dialect.SupportsBooleanLiterals() {
+		if dialects.SupportsBooleanLiterals(dialect) {
 			ep.parser.PrevToken()
 			return ep.parseValue()
 		}
@@ -359,7 +359,7 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 		return ep.parseConvertExpr(false)
 
 	case "TRY_CONVERT":
-		if dialect.SupportsTryConvert() {
+		if dialects.SupportsTryConvert(dialect) {
 			return ep.parseConvertExpr(true)
 		}
 
@@ -434,12 +434,12 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 		return ep.parseNotExpr()
 
 	case "MATCH":
-		if dialect.SupportsMatchAgainst() {
+		if dialects.SupportsMatchAgainst(dialect) {
 			return ep.parseMatchAgainstExpr()
 		}
 
 	case "STRUCT":
-		if dialect.SupportsStructLiteral() {
+		if dialects.SupportsStructLiteral(dialect) {
 			return ep.parseStructLiteral()
 		}
 
@@ -458,17 +458,17 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 
 	case "MAP":
 		nextTok := ep.parser.PeekTokenRef()
-		if _, ok := nextTok.Token.(token.TokenLBrace); ok && dialect.SupportsMapLiteralSyntax() {
+		if _, ok := nextTok.Token.(token.TokenLBrace); ok && dialects.SupportsMapLiteralSyntax(dialect) {
 			return ep.parseMapLiteral()
 		}
 
 	case "LAMBDA":
-		if dialect.SupportsLambdaFunctions() {
+		if dialects.SupportsLambdaFunctions(dialect) {
 			return ep.parseLambdaExpr()
 		}
 
 	case "CIRCLE", "BOX", "PATH", "LINE", "LSEG", "POINT", "POLYGON":
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return ep.parseGeometricType(string(word.Word.Keyword))
 		}
 	}
@@ -510,7 +510,7 @@ func (ep *ExpressionParser) parseUnreservedWordPrefix(word *token.TokenWord, spa
 	}
 
 	// Check for lambda expression (single parameter)
-	if dialect.SupportsLambdaFunctions() {
+	if dialects.SupportsLambdaFunctions(dialect) {
 		next := ep.parser.PeekTokenRef()
 		if _, ok := next.Token.(token.TokenArrow); ok {
 			ep.parser.AdvanceToken() // consume ->
@@ -865,7 +865,7 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 // peekOuterJoinOperator checks if the next tokens indicate Oracle outer join operator
 func (ep *ExpressionParser) peekOuterJoinOperator() bool {
 	dialect := ep.parser.GetDialect()
-	if !dialect.SupportsOuterJoinOperator() {
+	if !dialects.SupportsOuterJoinOperator(dialect) {
 		return false
 	}
 

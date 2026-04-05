@@ -24,8 +24,101 @@ import (
 )
 
 // HiveDialect is a dialect for Apache Hive SQL implementation.
+//
+// HiveDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with numeric prefix support)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with backslash escape and concatenation)
+//   - dialects.AggregationDialect (with FILTER)
+//   - dialects.GroupByDialect (with WITH ROLLUP/CUBE modifiers)
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect (with numeric prefix)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect (with CREATE TABLE SELECT, TABLESAMPLE before alias)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with multiline comment hints)
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect (requires interval qualifier)
+//   - dialects.OperatorDialect (with bitwise shifts, ! NOT operator)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect (LOAD DATA support)
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//
 // See https://hive.apache.org/
 type HiveDialect struct{}
+
+// Compile-time interface checks
+var _ dialects.CoreDialect = (*HiveDialect)(nil)
+var _ dialects.IdentifierDialect = (*HiveDialect)(nil)
+var _ dialects.KeywordDialect = (*HiveDialect)(nil)
+var _ dialects.StringLiteralDialect = (*HiveDialect)(nil)
+var _ dialects.AggregationDialect = (*HiveDialect)(nil)
+var _ dialects.GroupByDialect = (*HiveDialect)(nil)
+var _ dialects.JoinDialect = (*HiveDialect)(nil)
+var _ dialects.TransactionDialect = (*HiveDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*HiveDialect)(nil)
+var _ dialects.SetDialect = (*HiveDialect)(nil)
+var _ dialects.SelectDialect = (*HiveDialect)(nil)
+var _ dialects.TypeConversionDialect = (*HiveDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*HiveDialect)(nil)
+var _ dialects.InExpressionDialect = (*HiveDialect)(nil)
+var _ dialects.LiteralDialect = (*HiveDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*HiveDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*HiveDialect)(nil)
+var _ dialects.CommentDialect = (*HiveDialect)(nil)
+var _ dialects.ExplainDialect = (*HiveDialect)(nil)
+var _ dialects.ExecuteDialect = (*HiveDialect)(nil)
+var _ dialects.ExtractDialect = (*HiveDialect)(nil)
+var _ dialects.SubqueryDialect = (*HiveDialect)(nil)
+var _ dialects.PlaceholderDialect = (*HiveDialect)(nil)
+var _ dialects.IndexDialect = (*HiveDialect)(nil)
+var _ dialects.IntervalDialect = (*HiveDialect)(nil)
+var _ dialects.OperatorDialect = (*HiveDialect)(nil)
+var _ dialects.MatchDialect = (*HiveDialect)(nil)
+var _ dialects.GranteeDialect = (*HiveDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*HiveDialect)(nil)
+var _ dialects.LoadDialect = (*HiveDialect)(nil)
+var _ dialects.TopDistinctDialect = (*HiveDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*HiveDialect)(nil)
+var _ dialects.ShowDialect = (*HiveDialect)(nil)
+var _ dialects.PartiQLDialect = (*HiveDialect)(nil)
+var _ dialects.AliasDialect = (*HiveDialect)(nil)
+var _ dialects.InsertDialect = (*HiveDialect)(nil)
+var _ dialects.AlterTableDialect = (*HiveDialect)(nil)
+var _ dialects.OrderByDialect = (*HiveDialect)(nil)
+var _ dialects.GeometricDialect = (*HiveDialect)(nil)
+var _ dialects.DescribeDialect = (*HiveDialect)(nil)
+var _ dialects.ClickHouseDialect = (*HiveDialect)(nil)
+var _ dialects.DuckDBDialect = (*HiveDialect)(nil)
+var _ dialects.TrimDialect = (*HiveDialect)(nil)
+var _ dialects.ConnectByDialect = (*HiveDialect)(nil)
 
 // NewHiveDialect creates a new instance of HiveDialect.
 func NewHiveDialect() *HiveDialect {

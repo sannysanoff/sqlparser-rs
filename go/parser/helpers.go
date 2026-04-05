@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
@@ -44,7 +45,7 @@ func (ep *ExpressionParser) parseCommaSeparatedExprs() ([]expr.Expr, error) {
 		}
 
 		// Check if trailing comma is allowed and we're at the end
-		if dialect.SupportsTrailingCommas() {
+		if dialects.SupportsTrailingCommas(dialect) {
 			next := ep.parser.PeekTokenRef()
 			if _, isRParen := next.Token.(token.TokenRParen); isRParen {
 				// Trailing comma is allowed
@@ -190,7 +191,7 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 
 	// Parse value
 	var value expr.Expr
-	if dialect.RequireIntervalQualifier() {
+	if dialects.RequireIntervalQualifier(dialect) {
 		// Parse as full expression
 		v, err := ep.ParseExpr()
 		if err != nil {
@@ -211,7 +212,7 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 	if ep.isTemporalUnit() {
 		unit := ep.parseTemporalUnit()
 		leadingField = &unit
-	} else if dialect.RequireIntervalQualifier() {
+	} else if dialects.RequireIntervalQualifier(dialect) {
 		return nil, fmt.Errorf("INTERVAL requires a unit after the literal value")
 	}
 
@@ -420,7 +421,7 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 	var targetBeforeValue bool
 	var styles []expr.Expr
 
-	if dialect.ConvertTypeBeforeValue() {
+	if dialects.ConvertTypeBeforeValue(dialect) {
 		// MSSQL syntax: CONVERT(type, expr [, style])
 		targetBeforeValue = true
 		dt, err := ep.parseIdentifier()
@@ -521,7 +522,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 	var syntax expr.ExtractSyntax
 	if ep.parser.ParseKeyword("FROM") {
 		syntax = expr.ExtractFrom
-	} else if dialect.SupportsExtractCommaSyntax() && ep.parser.ConsumeToken(token.TokenComma{}) {
+	} else if dialects.SupportsExtractCommaSyntax(dialect) && ep.parser.ConsumeToken(token.TokenComma{}) {
 		syntax = expr.ExtractComma
 	} else {
 		return nil, fmt.Errorf("expected FROM or comma after field in EXTRACT")
@@ -824,7 +825,7 @@ func (ep *ExpressionParser) parseTrimExpr() (expr.Expr, error) {
 
 	// Check for comma-separated trim characters (some dialects)
 	var trimChars []expr.Expr
-	if dialect.SupportsCommaSeparatedTrim() && ep.parser.ConsumeToken(token.TokenComma{}) {
+	if dialects.SupportsCommaSeparatedTrim(dialect) && ep.parser.ConsumeToken(token.TokenComma{}) {
 		chars, err := ep.parseCommaSeparatedExprs()
 		if err != nil {
 			return nil, err
@@ -910,7 +911,7 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 	dialect := ep.parser.GetDialect()
 
-	if !dialect.SupportsMapLiteralSyntax() {
+	if !dialects.SupportsMapLiteralSyntax(dialect) {
 		return nil, fmt.Errorf("MAP literal not supported in this dialect")
 	}
 
@@ -1005,7 +1006,7 @@ func (ep *ExpressionParser) parseLambdaExpr() (expr.Expr, error) {
 	spanStart := ep.parser.GetCurrentToken().Span
 	dialect := ep.parser.GetDialect()
 
-	if !dialect.SupportsLambdaFunctions() {
+	if !dialects.SupportsLambdaFunctions(dialect) {
 		return nil, fmt.Errorf("lambda functions not supported in this dialect")
 	}
 

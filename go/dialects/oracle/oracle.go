@@ -46,7 +46,99 @@ import (
 var reservedKeywordsForSelectItemOperator = []token.Keyword{token.CONNECT_BY_ROOT}
 
 // OracleDialect is a dialect for Oracle Database.
+//
+// OracleDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with quote-delimited strings)
+//   - dialects.AggregationDialect (with FILTER, MATCH_RECOGNIZE, window function null treatment)
+//   - dialects.GroupByDialect (with GROUP BY expressions)
+//   - dialects.JoinDialect (with outer join operator (+))
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect (with assignment operator :=)
+//   - dialects.SetDialect (with SET without operator)
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect (with CREATE TABLE SELECT)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with optimizer hints)
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect (EXECUTE IMMEDIATE)
+//   - dialects.ExtractDialect (with custom extract)
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect (CREATE INDEX WITH clause)
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect (with && operator)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table alias and table query)
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect (CONNECT BY hierarchical queries)
 type OracleDialect struct{}
+
+// Compile-time interface checks
+var _ dialects.CoreDialect = (*OracleDialect)(nil)
+var _ dialects.IdentifierDialect = (*OracleDialect)(nil)
+var _ dialects.KeywordDialect = (*OracleDialect)(nil)
+var _ dialects.StringLiteralDialect = (*OracleDialect)(nil)
+var _ dialects.AggregationDialect = (*OracleDialect)(nil)
+var _ dialects.GroupByDialect = (*OracleDialect)(nil)
+var _ dialects.JoinDialect = (*OracleDialect)(nil)
+var _ dialects.TransactionDialect = (*OracleDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*OracleDialect)(nil)
+var _ dialects.SetDialect = (*OracleDialect)(nil)
+var _ dialects.SelectDialect = (*OracleDialect)(nil)
+var _ dialects.TypeConversionDialect = (*OracleDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*OracleDialect)(nil)
+var _ dialects.InExpressionDialect = (*OracleDialect)(nil)
+var _ dialects.LiteralDialect = (*OracleDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*OracleDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*OracleDialect)(nil)
+var _ dialects.CommentDialect = (*OracleDialect)(nil)
+var _ dialects.ExplainDialect = (*OracleDialect)(nil)
+var _ dialects.ExecuteDialect = (*OracleDialect)(nil)
+var _ dialects.ExtractDialect = (*OracleDialect)(nil)
+var _ dialects.SubqueryDialect = (*OracleDialect)(nil)
+var _ dialects.PlaceholderDialect = (*OracleDialect)(nil)
+var _ dialects.IndexDialect = (*OracleDialect)(nil)
+var _ dialects.IntervalDialect = (*OracleDialect)(nil)
+var _ dialects.OperatorDialect = (*OracleDialect)(nil)
+var _ dialects.MatchDialect = (*OracleDialect)(nil)
+var _ dialects.GranteeDialect = (*OracleDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*OracleDialect)(nil)
+var _ dialects.LoadDialect = (*OracleDialect)(nil)
+var _ dialects.TopDistinctDialect = (*OracleDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*OracleDialect)(nil)
+var _ dialects.ShowDialect = (*OracleDialect)(nil)
+var _ dialects.PartiQLDialect = (*OracleDialect)(nil)
+var _ dialects.AliasDialect = (*OracleDialect)(nil)
+var _ dialects.InsertDialect = (*OracleDialect)(nil)
+var _ dialects.AlterTableDialect = (*OracleDialect)(nil)
+var _ dialects.OrderByDialect = (*OracleDialect)(nil)
+var _ dialects.GeometricDialect = (*OracleDialect)(nil)
+var _ dialects.DescribeDialect = (*OracleDialect)(nil)
+var _ dialects.ClickHouseDialect = (*OracleDialect)(nil)
+var _ dialects.DuckDBDialect = (*OracleDialect)(nil)
+var _ dialects.TrimDialect = (*OracleDialect)(nil)
+var _ dialects.ConnectByDialect = (*OracleDialect)(nil)
 
 // NewOracleDialect creates a new instance of OracleDialect.
 func NewOracleDialect() *OracleDialect {

@@ -24,8 +24,101 @@ import (
 )
 
 // MsSqlDialect is a dialect for Microsoft SQL Server SQL implementation.
+//
+// MsSqlDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with square bracket identifiers)
+//   - dialects.KeywordDialect (with grantee types for roles)
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect (with outer join operator (+))
+//   - dialects.TransactionDialect (with TRY/CATCH modifiers)
+//   - dialects.NamedArgumentDialect (with colon operator and expression names)
+//   - dialects.SetDialect (with SET without operator)
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect (CONVERT(type, value) syntax, TRY_CONVERT)
+//   - dialects.ObjectReferenceDialect (with double dot notation)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect (with table versioning)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments)
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect (requires interval qualifier)
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect (TOP before DISTINCT)
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect (with = alias assignment)
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect (CONNECT BY hierarchical queries)
+//
 // See https://www.microsoft.com/en-us/sql-server/
 type MsSqlDialect struct{}
+
+// Compile-time interface checks
+var _ dialects.CoreDialect = (*MsSqlDialect)(nil)
+var _ dialects.IdentifierDialect = (*MsSqlDialect)(nil)
+var _ dialects.KeywordDialect = (*MsSqlDialect)(nil)
+var _ dialects.StringLiteralDialect = (*MsSqlDialect)(nil)
+var _ dialects.AggregationDialect = (*MsSqlDialect)(nil)
+var _ dialects.GroupByDialect = (*MsSqlDialect)(nil)
+var _ dialects.JoinDialect = (*MsSqlDialect)(nil)
+var _ dialects.TransactionDialect = (*MsSqlDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*MsSqlDialect)(nil)
+var _ dialects.SetDialect = (*MsSqlDialect)(nil)
+var _ dialects.SelectDialect = (*MsSqlDialect)(nil)
+var _ dialects.TypeConversionDialect = (*MsSqlDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*MsSqlDialect)(nil)
+var _ dialects.InExpressionDialect = (*MsSqlDialect)(nil)
+var _ dialects.LiteralDialect = (*MsSqlDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*MsSqlDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*MsSqlDialect)(nil)
+var _ dialects.CommentDialect = (*MsSqlDialect)(nil)
+var _ dialects.ExplainDialect = (*MsSqlDialect)(nil)
+var _ dialects.ExecuteDialect = (*MsSqlDialect)(nil)
+var _ dialects.ExtractDialect = (*MsSqlDialect)(nil)
+var _ dialects.SubqueryDialect = (*MsSqlDialect)(nil)
+var _ dialects.PlaceholderDialect = (*MsSqlDialect)(nil)
+var _ dialects.IndexDialect = (*MsSqlDialect)(nil)
+var _ dialects.IntervalDialect = (*MsSqlDialect)(nil)
+var _ dialects.OperatorDialect = (*MsSqlDialect)(nil)
+var _ dialects.MatchDialect = (*MsSqlDialect)(nil)
+var _ dialects.GranteeDialect = (*MsSqlDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*MsSqlDialect)(nil)
+var _ dialects.LoadDialect = (*MsSqlDialect)(nil)
+var _ dialects.TopDistinctDialect = (*MsSqlDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*MsSqlDialect)(nil)
+var _ dialects.ShowDialect = (*MsSqlDialect)(nil)
+var _ dialects.PartiQLDialect = (*MsSqlDialect)(nil)
+var _ dialects.AliasDialect = (*MsSqlDialect)(nil)
+var _ dialects.InsertDialect = (*MsSqlDialect)(nil)
+var _ dialects.AlterTableDialect = (*MsSqlDialect)(nil)
+var _ dialects.OrderByDialect = (*MsSqlDialect)(nil)
+var _ dialects.GeometricDialect = (*MsSqlDialect)(nil)
+var _ dialects.DescribeDialect = (*MsSqlDialect)(nil)
+var _ dialects.ClickHouseDialect = (*MsSqlDialect)(nil)
+var _ dialects.DuckDBDialect = (*MsSqlDialect)(nil)
+var _ dialects.TrimDialect = (*MsSqlDialect)(nil)
+var _ dialects.ConnectByDialect = (*MsSqlDialect)(nil)
 
 // NewMsSqlDialect creates a new instance of MsSqlDialect.
 func NewMsSqlDialect() *MsSqlDialect {

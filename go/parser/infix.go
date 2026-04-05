@@ -22,6 +22,7 @@ import (
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/operator"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
@@ -65,7 +66,7 @@ func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.E
 		return ep.parseDoubleColonCast(left)
 
 	case token.TokenExclamationMark:
-		if dialect.SupportsFactorialOperator() {
+		if dialects.SupportsFactorialOperator(dialect) {
 			return &expr.UnaryOp{
 				Op:      operator.UOpPGPostfixFactorial,
 				Expr:    left,
@@ -124,11 +125,11 @@ func (ep *ExpressionParser) tokenToBinaryOperator(tok token.Token) operator.Bina
 	case token.TokenDuckIntDiv:
 		return operator.BOpDuckIntegerDivide
 	case token.TokenShiftLeft:
-		if dialect.SupportsBitwiseShiftOperators() {
+		if dialects.SupportsBitwiseShiftOperators(dialect) {
 			return operator.BOpPGBitwiseShiftLeft
 		}
 	case token.TokenShiftRight:
-		if dialect.SupportsBitwiseShiftOperators() {
+		if dialects.SupportsBitwiseShiftOperators(dialect) {
 			return operator.BOpPGBitwiseShiftRight
 		}
 	case token.TokenSharp:
@@ -139,7 +140,7 @@ func (ep *ExpressionParser) tokenToBinaryOperator(tok token.Token) operator.Bina
 		if dialect.Dialect() == "postgresql" {
 			return operator.BOpPGOverlap
 		}
-		if dialect.SupportsDoubleAmpersandOperator() {
+		if dialects.SupportsDoubleAmpersandOperator(dialect) {
 			return operator.BOpAnd
 		}
 	case token.TokenCaretAt:
@@ -192,67 +193,67 @@ func (ep *ExpressionParser) tokenToBinaryOperator(tok token.Token) operator.Bina
 		// TODO: Enhance BinaryOperator to support custom operator names.
 		return operator.BOpCustom
 	case token.TokenDoubleSharp:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpDoubleHash
 		}
 	case token.TokenAmpersandLeftAngleBracket:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpAndLt
 		}
 	case token.TokenAmpersandRightAngleBracket:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpAndGt
 		}
 	case token.TokenQuestionMarkDash:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpQuestionDash
 		}
 	case token.TokenAmpersandLeftAngleBracketVerticalBar:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpAndLtPipe
 		}
 	case token.TokenVerticalBarAmpersandRightAngleBracket:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpPipeAndGt
 		}
 	case token.TokenTwoWayArrow:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpLtDashGt
 		}
 	case token.TokenLeftAngleBracketCaret:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpLtCaret
 		}
 	case token.TokenRightAngleBracketCaret:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpGtCaret
 		}
 	case token.TokenQuestionMarkSharp:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpQuestionHash
 		}
 	case token.TokenQuestionMarkDoubleVerticalBar:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpQuestionDoublePipe
 		}
 	case token.TokenQuestionMarkDashVerticalBar:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpQuestionDashPipe
 		}
 	case token.TokenTildeEqual:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpTildeEq
 		}
 	case token.TokenShiftLeftVerticalBar:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpLtLtPipe
 		}
 	case token.TokenVerticalBarShiftRight:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpPipeGtGt
 		}
 	case token.TokenAtSign:
-		if dialect.SupportsGeometricTypes() {
+		if dialects.SupportsGeometricTypes(dialect) {
 			return operator.BOpAt
 		}
 	}
@@ -450,7 +451,7 @@ func (ep *ExpressionParser) parseWordInfix(left expr.Expr, word token.TokenWord,
 		}, nil
 
 	case "NOTNULL":
-		if dialect.SupportsNotnullOperator() {
+		if dialects.SupportsNotnullOperator(dialect) {
 			return &expr.IsNotNull{
 				Expr:    left,
 				SpanVal: mergeSpans(left.Span(), span),
@@ -675,7 +676,7 @@ func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr
 	dialect := ep.parser.GetDialect()
 	next := ep.parser.PeekTokenRef()
 	if _, ok := next.Token.(token.TokenRParen); ok {
-		if dialect.SupportsInEmptyList() {
+		if dialects.SupportsInEmptyList(dialect) {
 			ep.parser.AdvanceToken() // consume )
 			return &expr.InList{
 				Expr:    left,

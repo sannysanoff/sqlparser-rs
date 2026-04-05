@@ -25,6 +25,100 @@ import (
 
 // BigQueryDialect is a dialect for Google BigQuery SQL.
 // See https://cloud.google.com/bigquery/docs/reference/standard-sql/
+//
+// BigQueryDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with @ for variables)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with triple-quoted strings, backslash escape)
+//   - dialects.AggregationDialect (with FILTER, window null treatment)
+//   - dialects.GroupByDialect (with GROUP BY Expr)
+//   - dialects.JoinDialect
+//   - dialects.ConnectByDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect (with parenthesized SET variables)
+//   - dialects.SelectDialect (with trailing commas, pipe operator, EXCEPT/REPLACE)
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with STRUCT, array, lambda)
+//   - dialects.TableDefinitionDialect (with multi-schema, versioning, UNNEST)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect (with bitwise shift operators)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table function)
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect (with comma-separated TRIM)
+//
+// Compile-time interface checks:
+var _ dialects.CompleteDialect = (*BigQueryDialect)(nil)
+var _ dialects.CoreDialect = (*BigQueryDialect)(nil)
+var _ dialects.IdentifierDialect = (*BigQueryDialect)(nil)
+var _ dialects.KeywordDialect = (*BigQueryDialect)(nil)
+var _ dialects.StringLiteralDialect = (*BigQueryDialect)(nil)
+var _ dialects.AggregationDialect = (*BigQueryDialect)(nil)
+var _ dialects.GroupByDialect = (*BigQueryDialect)(nil)
+var _ dialects.JoinDialect = (*BigQueryDialect)(nil)
+var _ dialects.ConnectByDialect = (*BigQueryDialect)(nil)
+var _ dialects.TransactionDialect = (*BigQueryDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*BigQueryDialect)(nil)
+var _ dialects.SetDialect = (*BigQueryDialect)(nil)
+var _ dialects.SelectDialect = (*BigQueryDialect)(nil)
+var _ dialects.TypeConversionDialect = (*BigQueryDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*BigQueryDialect)(nil)
+var _ dialects.InExpressionDialect = (*BigQueryDialect)(nil)
+var _ dialects.LiteralDialect = (*BigQueryDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*BigQueryDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*BigQueryDialect)(nil)
+var _ dialects.CommentDialect = (*BigQueryDialect)(nil)
+var _ dialects.ExplainDialect = (*BigQueryDialect)(nil)
+var _ dialects.ExecuteDialect = (*BigQueryDialect)(nil)
+var _ dialects.ExtractDialect = (*BigQueryDialect)(nil)
+var _ dialects.SubqueryDialect = (*BigQueryDialect)(nil)
+var _ dialects.PlaceholderDialect = (*BigQueryDialect)(nil)
+var _ dialects.IndexDialect = (*BigQueryDialect)(nil)
+var _ dialects.IntervalDialect = (*BigQueryDialect)(nil)
+var _ dialects.OperatorDialect = (*BigQueryDialect)(nil)
+var _ dialects.MatchDialect = (*BigQueryDialect)(nil)
+var _ dialects.GranteeDialect = (*BigQueryDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*BigQueryDialect)(nil)
+var _ dialects.LoadDialect = (*BigQueryDialect)(nil)
+var _ dialects.TopDistinctDialect = (*BigQueryDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*BigQueryDialect)(nil)
+var _ dialects.ShowDialect = (*BigQueryDialect)(nil)
+var _ dialects.PartiQLDialect = (*BigQueryDialect)(nil)
+var _ dialects.AliasDialect = (*BigQueryDialect)(nil)
+var _ dialects.InsertDialect = (*BigQueryDialect)(nil)
+var _ dialects.AlterTableDialect = (*BigQueryDialect)(nil)
+var _ dialects.OrderByDialect = (*BigQueryDialect)(nil)
+var _ dialects.GeometricDialect = (*BigQueryDialect)(nil)
+var _ dialects.DescribeDialect = (*BigQueryDialect)(nil)
+var _ dialects.ClickHouseDialect = (*BigQueryDialect)(nil)
+var _ dialects.DuckDBDialect = (*BigQueryDialect)(nil)
+var _ dialects.TrimDialect = (*BigQueryDialect)(nil)
+
 type BigQueryDialect struct{}
 
 // NewBigQueryDialect creates a new instance of BigQueryDialect.

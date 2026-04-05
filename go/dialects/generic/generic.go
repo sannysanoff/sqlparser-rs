@@ -25,7 +25,100 @@ import (
 
 // GenericDialect is a permissive, general purpose dialect which parses a wide
 // variety of SQL statements from many different dialects.
+//
+// GenericDialect implements the following capability interfaces from the dialects package:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//   - dialects.CompleteDialect (via parseriface.CompleteDialect)
 type GenericDialect struct{}
+
+// Compile-time interface checks to ensure GenericDialect implements all required interfaces.
+var _ dialects.CompleteDialect = (*GenericDialect)(nil)
+var _ dialects.IdentifierDialect = (*GenericDialect)(nil)
+var _ dialects.KeywordDialect = (*GenericDialect)(nil)
+var _ dialects.StringLiteralDialect = (*GenericDialect)(nil)
+var _ dialects.AggregationDialect = (*GenericDialect)(nil)
+var _ dialects.GroupByDialect = (*GenericDialect)(nil)
+var _ dialects.JoinDialect = (*GenericDialect)(nil)
+var _ dialects.TransactionDialect = (*GenericDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*GenericDialect)(nil)
+var _ dialects.SetDialect = (*GenericDialect)(nil)
+var _ dialects.SelectDialect = (*GenericDialect)(nil)
+var _ dialects.TypeConversionDialect = (*GenericDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*GenericDialect)(nil)
+var _ dialects.InExpressionDialect = (*GenericDialect)(nil)
+var _ dialects.LiteralDialect = (*GenericDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*GenericDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*GenericDialect)(nil)
+var _ dialects.CommentDialect = (*GenericDialect)(nil)
+var _ dialects.ExplainDialect = (*GenericDialect)(nil)
+var _ dialects.ExecuteDialect = (*GenericDialect)(nil)
+var _ dialects.ExtractDialect = (*GenericDialect)(nil)
+var _ dialects.SubqueryDialect = (*GenericDialect)(nil)
+var _ dialects.PlaceholderDialect = (*GenericDialect)(nil)
+var _ dialects.IndexDialect = (*GenericDialect)(nil)
+var _ dialects.IntervalDialect = (*GenericDialect)(nil)
+var _ dialects.OperatorDialect = (*GenericDialect)(nil)
+var _ dialects.MatchDialect = (*GenericDialect)(nil)
+var _ dialects.GranteeDialect = (*GenericDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*GenericDialect)(nil)
+var _ dialects.LoadDialect = (*GenericDialect)(nil)
+var _ dialects.TopDistinctDialect = (*GenericDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*GenericDialect)(nil)
+var _ dialects.ShowDialect = (*GenericDialect)(nil)
+var _ dialects.PartiQLDialect = (*GenericDialect)(nil)
+var _ dialects.AliasDialect = (*GenericDialect)(nil)
+var _ dialects.InsertDialect = (*GenericDialect)(nil)
+var _ dialects.AlterTableDialect = (*GenericDialect)(nil)
+var _ dialects.OrderByDialect = (*GenericDialect)(nil)
+var _ dialects.GeometricDialect = (*GenericDialect)(nil)
+var _ dialects.DescribeDialect = (*GenericDialect)(nil)
+var _ dialects.ClickHouseDialect = (*GenericDialect)(nil)
+var _ dialects.DuckDBDialect = (*GenericDialect)(nil)
+var _ dialects.TrimDialect = (*GenericDialect)(nil)
+var _ dialects.ConnectByDialect = (*GenericDialect)(nil)
 
 // NewGenericDialect creates a new instance of GenericDialect.
 func NewGenericDialect() *GenericDialect {

@@ -28,7 +28,100 @@ import (
 // This dialect allows columns in a CREATE TABLE statement with no
 // type specified, as in `CREATE TABLE t1 (a)`. In the AST, these columns will
 // have the data type Unspecified.
+//
+// SQLiteDialect implements the following capability interfaces from the dialects package:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect
+//   - dialects.AggregationDialect
+//   - dialects.GroupByDialect
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect
+//   - dialects.SetDialect
+//   - dialects.SelectDialect
+//   - dialects.TypeConversionDialect
+//   - dialects.ObjectReferenceDialect
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect
+//   - dialects.TableDefinitionDialect
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect
+//   - dialects.ExplainDialect
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect
+//   - dialects.IndexDialect
+//   - dialects.IntervalDialect
+//   - dialects.OperatorDialect
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect
+//   - dialects.AlterTableDialect
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect
+//   - dialects.ConnectByDialect
+//   - dialects.CompleteDialect (via parseriface.CompleteDialect)
 type SQLiteDialect struct{}
+
+// Compile-time interface checks to ensure SQLiteDialect implements all required interfaces.
+var _ dialects.CompleteDialect = (*SQLiteDialect)(nil)
+var _ dialects.IdentifierDialect = (*SQLiteDialect)(nil)
+var _ dialects.KeywordDialect = (*SQLiteDialect)(nil)
+var _ dialects.StringLiteralDialect = (*SQLiteDialect)(nil)
+var _ dialects.AggregationDialect = (*SQLiteDialect)(nil)
+var _ dialects.GroupByDialect = (*SQLiteDialect)(nil)
+var _ dialects.JoinDialect = (*SQLiteDialect)(nil)
+var _ dialects.TransactionDialect = (*SQLiteDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*SQLiteDialect)(nil)
+var _ dialects.SetDialect = (*SQLiteDialect)(nil)
+var _ dialects.SelectDialect = (*SQLiteDialect)(nil)
+var _ dialects.TypeConversionDialect = (*SQLiteDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*SQLiteDialect)(nil)
+var _ dialects.InExpressionDialect = (*SQLiteDialect)(nil)
+var _ dialects.LiteralDialect = (*SQLiteDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*SQLiteDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*SQLiteDialect)(nil)
+var _ dialects.CommentDialect = (*SQLiteDialect)(nil)
+var _ dialects.ExplainDialect = (*SQLiteDialect)(nil)
+var _ dialects.ExecuteDialect = (*SQLiteDialect)(nil)
+var _ dialects.ExtractDialect = (*SQLiteDialect)(nil)
+var _ dialects.SubqueryDialect = (*SQLiteDialect)(nil)
+var _ dialects.PlaceholderDialect = (*SQLiteDialect)(nil)
+var _ dialects.IndexDialect = (*SQLiteDialect)(nil)
+var _ dialects.IntervalDialect = (*SQLiteDialect)(nil)
+var _ dialects.OperatorDialect = (*SQLiteDialect)(nil)
+var _ dialects.MatchDialect = (*SQLiteDialect)(nil)
+var _ dialects.GranteeDialect = (*SQLiteDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*SQLiteDialect)(nil)
+var _ dialects.LoadDialect = (*SQLiteDialect)(nil)
+var _ dialects.TopDistinctDialect = (*SQLiteDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*SQLiteDialect)(nil)
+var _ dialects.ShowDialect = (*SQLiteDialect)(nil)
+var _ dialects.PartiQLDialect = (*SQLiteDialect)(nil)
+var _ dialects.AliasDialect = (*SQLiteDialect)(nil)
+var _ dialects.InsertDialect = (*SQLiteDialect)(nil)
+var _ dialects.AlterTableDialect = (*SQLiteDialect)(nil)
+var _ dialects.OrderByDialect = (*SQLiteDialect)(nil)
+var _ dialects.GeometricDialect = (*SQLiteDialect)(nil)
+var _ dialects.DescribeDialect = (*SQLiteDialect)(nil)
+var _ dialects.ClickHouseDialect = (*SQLiteDialect)(nil)
+var _ dialects.DuckDBDialect = (*SQLiteDialect)(nil)
+var _ dialects.TrimDialect = (*SQLiteDialect)(nil)
+var _ dialects.ConnectByDialect = (*SQLiteDialect)(nil)
 
 // NewSQLiteDialect creates a new instance of SQLiteDialect.
 func NewSQLiteDialect() *SQLiteDialect {

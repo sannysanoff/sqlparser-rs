@@ -39,7 +39,99 @@ import (
 )
 
 // RedshiftSqlDialect is a dialect for Amazon Redshift.
+//
+// RedshiftSqlDialect implements the following capability interfaces:
+//   - dialects.CoreDialect
+//   - dialects.IdentifierDialect (with nested bracket identifiers)
+//   - dialects.KeywordDialect
+//   - dialects.StringLiteralDialect (with escape constants and newline concatenation)
+//   - dialects.AggregationDialect (with FILTER, window function null treatment)
+//   - dialects.GroupByDialect (with GROUP BY expressions)
+//   - dialects.JoinDialect
+//   - dialects.TransactionDialect
+//   - dialects.NamedArgumentDialect (with => operator)
+//   - dialects.SetDialect (with SET NAMES)
+//   - dialects.SelectDialect (with EXCLUDE, wildcard alias)
+//   - dialects.TypeConversionDialect (CONVERT(type, value) syntax)
+//   - dialects.ObjectReferenceDialect (with numeric literal underscores)
+//   - dialects.InExpressionDialect
+//   - dialects.LiteralDialect (with array literals)
+//   - dialects.TableDefinitionDialect (with CREATE TABLE LIKE parenthesized, array typedef)
+//   - dialects.ColumnDefinitionDialect
+//   - dialects.CommentDialect (with nested comments, COMMENT ON)
+//   - dialects.ExplainDialect (with utility options)
+//   - dialects.ExecuteDialect
+//   - dialects.ExtractDialect (with custom extract, single quotes)
+//   - dialects.SubqueryDialect
+//   - dialects.PlaceholderDialect (dollar placeholders)
+//   - dialects.IndexDialect (CREATE INDEX WITH clause)
+//   - dialects.IntervalDialect (with options)
+//   - dialects.OperatorDialect (factorial, bitwise shifts, NOTNULL)
+//   - dialects.MatchDialect
+//   - dialects.GranteeDialect
+//   - dialects.ListenNotifyDialect
+//   - dialects.LoadDialect
+//   - dialects.TopDistinctDialect (TOP before DISTINCT)
+//   - dialects.BooleanLiteralDialect
+//   - dialects.ShowDialect
+//   - dialects.PartiQLDialect (SUPER type support)
+//   - dialects.AliasDialect
+//   - dialects.InsertDialect (with table alias)
+//   - dialects.AlterTableDialect (with ALTER COLUMN TYPE USING)
+//   - dialects.OrderByDialect
+//   - dialects.GeometricDialect
+//   - dialects.DescribeDialect
+//   - dialects.ClickHouseDialect
+//   - dialects.DuckDBDialect
+//   - dialects.TrimDialect (comma-separated TRIM)
+//   - dialects.ConnectByDialect (CONNECT BY hierarchical queries)
 type RedshiftSqlDialect struct{}
+
+// Compile-time interface checks
+var _ dialects.CoreDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.IdentifierDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.KeywordDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.StringLiteralDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.AggregationDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.GroupByDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.JoinDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.TransactionDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.NamedArgumentDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.SetDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.SelectDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.TypeConversionDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ObjectReferenceDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.InExpressionDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.LiteralDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.TableDefinitionDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ColumnDefinitionDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.CommentDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ExplainDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ExecuteDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ExtractDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.SubqueryDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.PlaceholderDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.IndexDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.IntervalDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.OperatorDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.MatchDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.GranteeDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ListenNotifyDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.LoadDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.TopDistinctDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.BooleanLiteralDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ShowDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.PartiQLDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.AliasDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.InsertDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.AlterTableDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.OrderByDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.GeometricDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.DescribeDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ClickHouseDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.DuckDBDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.TrimDialect = (*RedshiftSqlDialect)(nil)
+var _ dialects.ConnectByDialect = (*RedshiftSqlDialect)(nil)
 
 // NewRedshiftSqlDialect creates a new instance of RedshiftSqlDialect.
 func NewRedshiftSqlDialect() *RedshiftSqlDialect {
