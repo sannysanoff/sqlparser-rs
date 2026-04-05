@@ -1775,10 +1775,6 @@ func parseSettings(p *Parser) (interface{}, error) {
 	return nil, nil
 }
 
-func parseFetch(p *Parser) (interface{}, error) {
-	return nil, fmt.Errorf("FETCH parsing not yet fully implemented")
-}
-
 func parseOffsetClause(p *Parser) (interface{}, error) {
 	return nil, nil
 }

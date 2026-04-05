@@ -481,27 +481,27 @@ func (p *Parser) parseQuery() (ast.Statement, error) {
 }
 
 func (p *Parser) parseInsert(tok token.TokenWithSpan) (ast.Statement, error) {
-	return ParseInsert(p, tok)
+	return parseInsert(p, tok)
 }
 
 func (p *Parser) parseReplace(tok token.TokenWithSpan) (ast.Statement, error) {
-	return ParseReplace(p, tok)
+	return parseReplace(p, tok)
 }
 
 func (p *Parser) parseUpdate(tok token.TokenWithSpan) (ast.Statement, error) {
-	return ParseUpdate(p, tok)
+	return parseUpdate(p, tok)
 }
 
 func (p *Parser) parseDelete(tok token.TokenWithSpan) (ast.Statement, error) {
-	return ParseDelete(p, tok)
+	return parseDelete(p, tok)
 }
 
 func (p *Parser) parseCreate() (ast.Statement, error) {
-	return ParseCreate(p)
+	return parseCreate(p)
 }
 
 func (p *Parser) parseDrop() (ast.Statement, error) {
-	return ParseDrop(p)
+	return parseDrop(p)
 }
 
 func (p *Parser) parseAlter() (ast.Statement, error) {
@@ -509,91 +509,91 @@ func (p *Parser) parseAlter() (ast.Statement, error) {
 }
 
 func (p *Parser) parseTruncate() (ast.Statement, error) {
-	return ParseTruncate(p)
+	return parseTruncate(p)
 }
 
 func (p *Parser) parseExplain() (ast.Statement, error) {
-	return ParseExplain(p)
+	return parseExplain(p)
 }
 
 func (p *Parser) parseDescribe(keyword string) (ast.Statement, error) {
-	return ParseDescribeWithAlias(p, keyword)
+	return parseDescribeWithAlias(p, keyword)
 }
 
 func (p *Parser) parseShow() (ast.Statement, error) {
-	return ParseShow(p)
+	return parseShow(p)
 }
 
 func (p *Parser) parseSet() (ast.Statement, error) {
-	return ParseSet(p)
+	return parseSet(p)
 }
 
 func (p *Parser) parseBegin() (ast.Statement, error) {
-	return ParseBegin(p)
+	return parseBegin(p)
 }
 
 func (p *Parser) parseCommit() (ast.Statement, error) {
-	return ParseCommit(p)
+	return parseCommit(p)
 }
 
 func (p *Parser) parseRollback() (ast.Statement, error) {
-	return ParseRollback(p)
+	return parseRollback(p)
 }
 
 func (p *Parser) parseGrant() (ast.Statement, error) {
-	return ParseGrant(p)
+	return parseGrant(p)
 }
 
 func (p *Parser) parseRevoke() (ast.Statement, error) {
-	return ParseRevoke(p)
+	return parseRevoke(p)
 }
 
 func (p *Parser) parseDeny() (ast.Statement, error) {
-	return ParseDeny(p)
+	return parseDeny(p)
 }
 
 func (p *Parser) parseUse() (ast.Statement, error) {
-	return ParseUse(p)
+	return parseUse(p)
 }
 
 func (p *Parser) parseAnalyze() (ast.Statement, error) {
-	return ParseAnalyze(p)
+	return parseAnalyze(p)
 }
 
 func (p *Parser) parseCall() (ast.Statement, error) {
-	return ParseCall(p)
+	return parseCall(p)
 }
 
 func (p *Parser) parseCopy() (ast.Statement, error) {
-	return ParseCopy(p)
+	return parseCopy(p)
 }
 
 func (p *Parser) parseMerge(tok token.TokenWithSpan) (ast.Statement, error) {
-	return ParseMerge(p, tok)
+	return parseMerge(p, tok)
 }
 
 func (p *Parser) parseExecute() (ast.Statement, error) {
-	return ParseExecute(p)
+	return parseExecute(p)
 }
 
 func (p *Parser) parsePrepare() (ast.Statement, error) {
-	return ParsePrepare(p)
+	return parsePrepare(p)
 }
 
 func (p *Parser) parseDeallocate() (ast.Statement, error) {
-	return ParseDeallocate(p)
+	return parseDeallocate(p)
 }
 
 func (p *Parser) parseDeclare() (ast.Statement, error) {
-	return ParseDeclare(p)
+	return parseDeclare(p)
 }
 
 func (p *Parser) parseFetch() (ast.Statement, error) {
-	return ParseFetch(p)
+	return parseFetch(p)
 }
 
 func (p *Parser) parseClose() (ast.Statement, error) {
-	return ParseClose(p)
+	return parseClose(p)
 }
 
 func (p *Parser) parseCache() (ast.Statement, error) {
@@ -818,11 +818,11 @@ func (p *Parser) parseAssert() (ast.Statement, error) {
 }
 
 func (p *Parser) parseSavepoint() (ast.Statement, error) {
-	return ParseSavepoint(p)
+	return parseSavepoint(p)
 }
 
 func (p *Parser) parseRelease() (ast.Statement, error) {
-	return ParseRelease(p)
+	return parseRelease(p)
 }
 
 func (p *Parser) parseLock() (ast.Statement, error) {

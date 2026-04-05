@@ -65,6 +65,10 @@ func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.E
 		// PostgreSQL-style cast ::type
 		return ep.parseDoubleColonCast(left)
 
+	case token.TokenLBracket:
+		// Array subscript: expr[index]
+		return ep.parseArraySubscript(left)
+
 	case token.TokenExclamationMark:
 		if dialects.SupportsFactorialOperator(dialect) {
 			return &expr.UnaryOp{

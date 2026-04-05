@@ -25,10 +25,10 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseDeallocate parses DEALLOCATE statements
+// parseDeallocate parses DEALLOCATE statements
 // Reference: src/parser/mod.rs parse_deallocate
 // DEALLOCATE [PREPARE] { name | ALL }
-func ParseDeallocate(p *Parser) (ast.Statement, error) {
+func parseDeallocate(p *Parser) (ast.Statement, error) {
 	// Optional PREPARE keyword
 	prepare := p.ParseKeyword("PREPARE")
 
@@ -44,11 +44,11 @@ func ParseDeallocate(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseExecute parses EXECUTE statements
+// parseExecute parses EXECUTE statements
 // Reference: src/parser/mod.rs parse_execute
 // EXECUTE name [ (parameter [, ...]) ]
 // EXECUTE IMMEDIATE (for some dialects like BigQuery/Snowflake)
-func ParseExecute(p *Parser) (ast.Statement, error) {
+func parseExecute(p *Parser) (ast.Statement, error) {
 	executeStmt := &statement.Execute{}
 
 	// Check for EXECUTE IMMEDIATE
@@ -131,10 +131,10 @@ func ParseExecute(p *Parser) (ast.Statement, error) {
 	return executeStmt, nil
 }
 
-// ParsePrepare parses PREPARE statements
+// parsePrepare parses PREPARE statements
 // Reference: src/parser/mod.rs parse_prepare
 // PREPARE name [ ( data_type [, ...] ) ] AS statement
-func ParsePrepare(p *Parser) (ast.Statement, error) {
+func parsePrepare(p *Parser) (ast.Statement, error) {
 	// Parse the prepared statement name
 	name, err := p.ParseIdentifier()
 	if err != nil {

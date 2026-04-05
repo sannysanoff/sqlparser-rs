@@ -576,10 +576,9 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 		}
 		ceilExpr.Field.Scale = scale
 	} else {
-		// CEIL/FLOOR(expr)
+		// CEIL/FLOOR(expr) - simple case, no DateTimeField or Scale
 		ceilExpr.Field.Kind = expr.CeilFloorDateTime
-		empty := ""
-		ceilExpr.Field.DateTimeField = &empty
+		// Don't set DateTimeField - leave it nil so String() outputs simple form
 	}
 
 	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {

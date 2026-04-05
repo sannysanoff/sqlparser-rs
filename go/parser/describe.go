@@ -26,23 +26,18 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseExplain parses EXPLAIN statements
-func ParseExplain(p *Parser) (ast.Statement, error) {
-	return parseExplain(p)
-}
-
 // parseExplain parses EXPLAIN statements
 func parseExplain(p *Parser) (ast.Statement, error) {
 	return parseExplainWithAlias(p, expr.DescribeAliasExplain)
 }
 
-// ParseDescribe parses DESCRIBE statements
-func ParseDescribe(p *Parser) (ast.Statement, error) {
-	return ParseDescribeWithAlias(p, "DESCRIBE")
+// parseDescribe parses DESCRIBE statements
+func parseDescribe(p *Parser) (ast.Statement, error) {
+	return parseDescribeWithAlias(p, "DESCRIBE")
 }
 
-// ParseDescribeWithAlias parses DESCRIBE/DESC statements with the given alias
-func ParseDescribeWithAlias(p *Parser, keyword string) (ast.Statement, error) {
+// parseDescribeWithAlias parses DESCRIBE/DESC statements with the given alias
+func parseDescribeWithAlias(p *Parser, keyword string) (ast.Statement, error) {
 	// Determine the alias based on the keyword used
 	var alias expr.DescribeAlias
 	switch keyword {
@@ -230,9 +225,4 @@ func parseUtilityOptions(p *Parser) ([]*expr.UtilityOption, error) {
 	}
 
 	return options, nil
-}
-
-// parseDescribe parses DESCRIBE statements (internal helper)
-func parseDescribe(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("DESCRIBE statement parsing not yet fully implemented")
 }

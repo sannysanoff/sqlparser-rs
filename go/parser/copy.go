@@ -26,9 +26,9 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseCopy parses COPY statements
+// parseCopy parses COPY statements
 // Reference: src/parser/mod.rs parse_copy
-func ParseCopy(p *Parser) (ast.Statement, error) {
+func parseCopy(p *Parser) (ast.Statement, error) {
 	copyStmt := &statement.Copy{}
 
 	// Parse source: either (query) or table_name [ (columns) ]

@@ -184,7 +184,7 @@ type Update struct {
 	Table           *ast.ObjectName
 	TableAlias      *ast.Ident
 	Assignments     []*expr.Assignment
-	From            *query.TableWithJoins
+	From            *query.UpdateTableFromKind // Changed from *query.TableWithJoins
 	Selection       expr.Expr
 	Returning       []*query.SelectItem
 	Output          *expr.OutputClause
@@ -200,9 +200,12 @@ func (u *Update) String() string {
 	var f strings.Builder
 	f.WriteString("UPDATE ")
 
-	// Output the FROM clause with joins (for MySQL UPDATE with JOINs)
-	if u.From != nil {
+	// Handle FROM clause position for different SQL dialects
+	if u.From != nil && u.From.BeforeSet != nil {
+		// Snowflake/MSSQL style: UPDATE FROM t1 SET ...
+		f.WriteString("FROM ")
 		f.WriteString(u.From.String())
+		f.WriteString(" ")
 	} else if u.Table != nil {
 		f.WriteString(u.Table.String())
 	}
@@ -215,6 +218,12 @@ func (u *Update) String() string {
 			}
 			f.WriteString(assign.String())
 		}
+	}
+
+	// PostgreSQL style: UPDATE t1 SET ... FROM t2
+	if u.From != nil && u.From.AfterSet != nil {
+		f.WriteString(" FROM ")
+		f.WriteString(u.From.String())
 	}
 
 	if u.Selection != nil {

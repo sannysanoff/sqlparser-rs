@@ -26,12 +26,6 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseShow parses SHOW statements
-// Reference: src/parser/mod.rs:15030
-func ParseShow(p *Parser) (ast.Statement, error) {
-	return parseShow(p)
-}
-
 // parseShow parses SHOW statements
 // Reference: src/parser/mod.rs:15030
 func parseShow(p *Parser) (ast.Statement, error) {

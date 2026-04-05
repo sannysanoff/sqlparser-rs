@@ -29,13 +29,13 @@
 //   - ParseInsert: INSERT with VALUES or subquery
 //   - ParseUpdate: UPDATE with SET and WHERE
 //   - ParseDelete: DELETE with WHERE
-//   - ParseMerge: MERGE statement
+//   - parseMerge: MERGE statement
 //
 // DDL Statements:
-//   - ParseCreate: CREATE TABLE, VIEW, INDEX, FUNCTION, ROLE, etc.
-//   - ParseAlter: ALTER TABLE, VIEW, INDEX, ROLE, USER, etc.
-//   - ParseDrop: DROP statements
-//   - ParseTruncate: TRUNCATE TABLE
+//   - parseCreate: CREATE TABLE, VIEW, INDEX, FUNCTION, ROLE, etc.
+//   - parseAlter: ALTER TABLE, VIEW, INDEX, ROLE, USER, etc.
+//   - ParseDrop: DROP statements (internal)
+//   - ParseTruncate: TRUNCATE TABLE (internal)
 //
 // Transaction Statements:
 //   - ParseStartTransaction: BEGIN, START TRANSACTION
@@ -46,7 +46,7 @@
 //
 // Other Statements:
 //   - ParseAnalyze: ANALYZE
-//   - ParseCopy: COPY (PostgreSQL)
+//   - parseCopy: COPY (PostgreSQL)
 //   - ParseExplain: EXPLAIN
 //   - ParseSet: SET variables
 //   - ParseShow: SHOW

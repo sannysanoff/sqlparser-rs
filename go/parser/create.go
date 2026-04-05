@@ -27,9 +27,9 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseCreate parses a CREATE statement
+// parseCreate parses a CREATE statement
 // Reference: src/parser/mod.rs:5095
-func ParseCreate(p *Parser) (ast.Statement, error) {
+func parseCreate(p *Parser) (ast.Statement, error) {
 	// Check for OR REPLACE / OR ALTER
 	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
 	_ = p.ParseKeywords([]string{"OR", "ALTER"}) // orAlter not used yet

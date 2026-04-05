@@ -26,9 +26,9 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseStartTransaction parses START TRANSACTION statements
+// parseStartTransaction parses START TRANSACTION statements
 // Reference: src/parser/mod.rs:18612-18623
-func ParseStartTransaction(p *Parser) (ast.Statement, error) {
+func parseStartTransaction(p *Parser) (ast.Statement, error) {
 	// Expect TRANSACTION keyword after START
 	if !p.ParseKeyword("TRANSACTION") {
 		return nil, fmt.Errorf("Expected TRANSACTION after START")
@@ -45,9 +45,9 @@ func ParseStartTransaction(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseBegin parses BEGIN TRANSACTION statements
+// parseBegin parses BEGIN TRANSACTION statements
 // Reference: src/parser/mod.rs:18645-18664
-func ParseBegin(p *Parser) (ast.Statement, error) {
+func parseBegin(p *Parser) (ast.Statement, error) {
 	// Parse optional transaction modifier (DEFERRED, IMMEDIATE, EXCLUSIVE, etc.)
 	modifier := parseTransactionModifier(p)
 
@@ -170,9 +170,9 @@ func parseTransactionModes(p *Parser) ([]*expr.TransactionMode, error) {
 	return modes, nil
 }
 
-// ParseCommit parses COMMIT statements
+// parseCommit parses COMMIT statements
 // Reference: src/parser/mod.rs:18770-18776
-func ParseCommit(p *Parser) (ast.Statement, error) {
+func parseCommit(p *Parser) (ast.Statement, error) {
 	chain, err := parseCommitRollbackChain(p)
 	if err != nil {
 		return nil, err
@@ -184,9 +184,9 @@ func ParseCommit(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseRollback parses ROLLBACK statements
+// parseRollback parses ROLLBACK statements
 // Reference: src/parser/mod.rs:18779-18784
-func ParseRollback(p *Parser) (ast.Statement, error) {
+func parseRollback(p *Parser) (ast.Statement, error) {
 	chain, err := parseCommitRollbackChain(p)
 	if err != nil {
 		return nil, err
@@ -232,9 +232,9 @@ func parseRollbackSavepoint(p *Parser) (*ast.Ident, error) {
 	return nil, nil
 }
 
-// ParseSavepoint parses SAVEPOINT statements
+// parseSavepoint parses SAVEPOINT statements
 // Reference: src/parser/mod.rs:1430-1433
-func ParseSavepoint(p *Parser) (ast.Statement, error) {
+func parseSavepoint(p *Parser) (ast.Statement, error) {
 	name, err := p.ParseIdentifier()
 	if err != nil {
 		return nil, err
@@ -244,9 +244,9 @@ func ParseSavepoint(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseRelease parses RELEASE SAVEPOINT statements
+// parseRelease parses RELEASE SAVEPOINT statements
 // Reference: src/parser/mod.rs:1436-1441
-func ParseRelease(p *Parser) (ast.Statement, error) {
+func parseRelease(p *Parser) (ast.Statement, error) {
 	// Optional SAVEPOINT keyword
 	p.ParseKeyword("SAVEPOINT")
 

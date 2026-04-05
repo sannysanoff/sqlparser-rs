@@ -1119,8 +1119,3 @@ func parseAlterOperatorClass(p *Parser) (ast.Statement, error) {
 func parseAlterOperatorFamily(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("ALTER OPERATOR FAMILY parsing not yet implemented")
 }
-
-// ParseAlter parses ALTER statements (exported version)
-func ParseAlter(p *Parser) (ast.Statement, error) {
-	return parseAlter(p)
-}

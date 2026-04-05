@@ -27,9 +27,9 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseMerge parses a MERGE statement
+// parseMerge parses a MERGE statement
 // Reference: src/parser/merge.rs
-func ParseMerge(p *Parser, tok token.TokenWithSpan) (*statement.Merge, error) {
+func parseMerge(p *Parser, tok token.TokenWithSpan) (*statement.Merge, error) {
 	return parseMergeInternal(p, tok)
 }
 

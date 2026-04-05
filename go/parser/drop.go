@@ -26,9 +26,9 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseDrop parses DROP statements
+// parseDrop parses DROP statements
 // Reference: src/parser/mod.rs parse_drop
-func ParseDrop(p *Parser) (ast.Statement, error) {
+func parseDrop(p *Parser) (ast.Statement, error) {
 	// Check for TEMPORARY (MySQL style)
 	temporary := p.ParseKeyword("TEMPORARY")
 
@@ -293,9 +293,9 @@ func parseDropFunction(p *Parser) (ast.Statement, error) {
 	return nil, p.ExpectedRef("DROP FUNCTION not yet implemented", p.PeekTokenRef())
 }
 
-// ParseTruncate parses TRUNCATE statements
+// parseTruncate parses TRUNCATE statements
 // Reference: src/parser/mod.rs:1091-1139
-func ParseTruncate(p *Parser) (ast.Statement, error) {
+func parseTruncate(p *Parser) (ast.Statement, error) {
 	// Parse optional TABLE keyword
 	_ = p.ParseKeyword("TABLE")
 

@@ -22,6 +22,26 @@ When implementing parser functionality:
 
 ---
 
+## Import Structure
+
+The project uses a consolidated import structure after refactoring:
+
+```go
+import (
+    "github.com/datafuselabs/sqlparser-go/ast"
+    "github.com/datafuselabs/sqlparser-go/ast/expr"
+    "github.com/datafuselabs/sqlparser-go/ast/statement"
+    "github.com/datafuselabs/sqlparser-go/ast/query"
+    "github.com/datafuselabs/sqlparser-go/parseriface"
+    "github.com/datafuselabs/sqlparser-go/token"
+    "github.com/datafuselabs/sqlparser-go/dialects"
+)
+```
+
+The `token` package now contains both keywords and lexer/tokenizer functionality (merged from the old `tokenizer` and `span` packages). The `parseriface` package provides shared interfaces to avoid circular dependencies between `parser` and `dialects` packages.
+
+---
+
 ## Typical Code Editing Errors and Patterns
 
 This section documents common mistakes encountered when porting Rust to Go, categorized by pattern type. Understanding these patterns helps prevent similar bugs during implementation.
@@ -49,7 +69,7 @@ func (ep *ExpressionParser) parseObjectName() (*expr.ObjectName, error) {
         }
         parts = append(parts, &expr.ObjectNamePart{...})
         // Check for DOT token constant, not comma
-        if !ep.parser.ConsumeToken(tokenizer.TokenPeriod{}) {
+        if !ep.parser.ConsumeToken(token.TokenPeriod{}) {
             break
         }
     }
@@ -155,14 +175,14 @@ func parseFunctionArgs(p *Parser) ([]expr.FunctionArg, error) {
 ```go
 // INCORRECT - will panic if token is wrong type
 func parseKeyword(p *Parser) string {
-    word := p.PeekToken().Token.(tokenizer.TokenWord)  // Panic if not TokenWord
+    word := p.PeekToken().Token.(token.TokenWord)  // Panic if not TokenWord
     return word.Value
 }
 
 // CORRECT - safe type assertion with ok check
 func parseKeyword(p *Parser) (string, error) {
     tok := p.PeekToken()
-    if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+    if word, ok := tok.Token.(token.TokenWord); ok {
         return word.Value, nil
     }
     return "", fmt.Errorf("expected keyword, got %T", tok.Token)
@@ -201,8 +221,8 @@ func (i *Ident) String(dialect Dialect) string {
 ```go
 // INCORRECT - consumes '(' then checks for empty
 func parseWindowSpec(p *Parser) (*expr.WindowSpec, error) {
-    p.ExpectToken(tokenizer.TokenLParen{})  // Consumes it
-    if p.peekIsToken(tokenizer.TokenRParen{}) {
+    p.ExpectToken(token.TokenLParen{})  // Consumes it
+    if p.peekIsToken(token.TokenRParen{}) {
         // Error: we already consumed '('
         return &expr.WindowSpec{}, nil
     }
@@ -213,10 +233,10 @@ func parseWindowSpec(p *Parser) (*expr.WindowSpec, error) {
 func parseWindowSpec(p *Parser) (*expr.WindowSpec, error) {
     // Check for empty spec: OVER ()
     tok := p.PeekToken()
-    if _, ok := tok.Token.(tokenizer.TokenLParen); ok {
+    if _, ok := tok.Token.(token.TokenLParen); ok {
         // Check if next token after ( is )
         nextTok := p.PeekNthToken(1)
-        if _, ok := nextTok.Token.(tokenizer.TokenRParen); ok {
+        if _, ok := nextTok.Token.(token.TokenRParen); ok {
             // Empty window specification
             p.AdvanceToken() // consume (
             p.AdvanceToken() // consume )
@@ -275,7 +295,7 @@ func parseIdentifier(p *Parser) (*ast.Ident, error) {
 // CORRECT - actually parse the token
 func parseIdentifier(p *Parser) (*ast.Ident, error) {
     tok := p.PeekToken()
-    if word, ok := tok.Token.(tokenizer.TokenWord); ok {
+    if word, ok := tok.Token.(token.TokenWord); ok {
         p.AdvanceToken()
         return &ast.Ident{Value: word.Word.Value}, nil
     }
@@ -431,8 +451,8 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
         if err != nil {
             return nil, err
         }
-        p.ConsumeToken(tokenizer.TokenPeriod{}) // consume the . explicitly
-        p.ConsumeToken(tokenizer.TokenMul{})    // consume the * explicitly
+        p.ConsumeToken(token.TokenPeriod{}) // consume the . explicitly
+        p.ConsumeToken(token.TokenMul{})    // consume the * explicitly
         
         // Build ObjectName from single identifier
         queryName := query.ObjectName{
@@ -449,28 +469,97 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 
 ---
 
+### Pattern N: Incorrect Empty String vs nil Pointer in AST Fields
+
+**Problem:** Setting a pointer to an empty string `&""` instead of leaving it as `nil` causes incorrect String() output.
+
+**Example - CEIL/FLOOR parsing:**
+
+```go
+// INCORRECT - creates "CEIL(1.5 TO )" output
+func parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
+    // ...
+    } else {
+        // CEIL/FLOOR(expr) - simple case
+        ceilExpr.Field.Kind = expr.CeilFloorDateTime
+        empty := ""  // Wrong! Creates pointer to empty string
+        ceilExpr.Field.DateTimeField = &empty
+    }
+    // String() checks: if Kind == CeilFloorDateTime && DateTimeField != nil
+    // This passes because DateTimeField is not nil (points to empty string)
+    // Result: fmt.Sprintf("CEIL(%s TO %s)", expr, *DateTimeField) outputs "CEIL(1.5 TO )"
+}
+
+// CORRECT - leaves DateTimeField as nil
+func parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
+    // ...
+    } else {
+        // CEIL/FLOOR(expr) - simple case, no DateTimeField
+        ceilExpr.Field.Kind = expr.CeilFloorDateTime
+        // Don't set DateTimeField - leave it nil so String() outputs simple form
+    }
+    // String() checks: if Kind == CeilFloorDateTime && DateTimeField != nil
+    // This fails because DateTimeField is nil
+    // Falls through to: fmt.Sprintf("CEIL(%s)", expr) outputs "CEIL(1.5)"
+}
+```
+
+**Key Lesson:** When an AST field is optional (pointer type), leave it as `nil` when not present, don't set it to a pointer to an empty value. The String() methods typically check `!= nil` to determine if the field should be rendered. Reference: `src/parser/mod.rs` and AST String() implementations.
+
+---
+
 ## Current Status
 
-**Overall Progress: 40% Test Pass Rate** (326/816 tests passing)
+**Overall Progress: 38% Test Pass Rate** (459/1207 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
-| **TPC-H**        | ✅ Perfect        | 44      | 44    | **100%**  |
-| **Common Tests** | 🔄 In Progress   | 211     | 435   | **48%**   |
-| **PostgreSQL**   | 🔄 In Progress   | 40      | 157   | **25%**   |
-| **MySQL**        | 🔄 In Progress   | 57      | 125   | **46%**   |
-| **Snowflake**    | 🔄 In Progress   | 16      | 97    | **16%**   |
-| **TOTAL**        | **40% Complete** | **326** | 816   | **40%**   |
+| **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
+| **Common Tests** | 🔄 In Progress   | ~200    | ~435  | **46%**   |
+| **PostgreSQL**   | 🔄 In Progress   | ~40     | ~157  | **25%**   |
+| **MySQL**        | 🔄 In Progress   | ~57     | ~125  | **46%**   |
+| **Snowflake**    | 🔄 In Progress   | ~16     | ~97   | **16%**   |
+| **TOTAL**        | **38% Complete** | **459** | 1207  | **38%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 56,889 lines (84% of Rust)
-- Go Tests: 14,492 lines
+- Go Source: 64,156 lines (95% of Rust)
+- Go Tests: 14,112 lines (28% of Rust tests)
 
 ---
 
 ## Recent Progress
+
+### April 5, 2026 - UPDATE FROM, CEIL/FLOOR Fix, Array Subscript Parser
+
+Implemented major missing parser chunks following Rust reference:
+
+1. **UPDATE FROM Clause** - Added full support per Rust `parse_update` (src/parser/mod.rs:17715):
+   - PostgreSQL style: `UPDATE t1 SET ... FROM t2 WHERE ...`
+   - Snowflake/MSSQL style: `UPDATE FROM t1 SET ... WHERE ...`
+   - Support for multiple tables in FROM clause (comma-separated)
+   - Updated `Update` AST struct to use `UpdateTableFromKind` (BeforeSet/AfterSet)
+   - **+2 tests passing** (UPDATE FROM tests)
+
+2. **CEIL/FLOOR String() Fix** - Fixed incorrect output format:
+   - Problem: `CEIL(1.5)` was outputting as `CEIL(1.5 TO )` 
+   - Root cause: Parser was setting `DateTimeField = &""` (empty string pointer) instead of leaving it nil
+   - Fix: Removed the empty string assignment in `parseCeilFloorExpr` when no TO clause present
+   - **+2 tests passing** (CEIL/FLOOR tests)
+
+3. **Array Subscript Infix Parser** - Added missing `[` token handler:
+   - Added `TokenLBracket` case to `parseInfix` in infix.go
+   - Connected to existing `parseArraySubscript` function in postfix.go
+   - Enables parsing of expressions like `arr[1]` or `matrix[i][j]`
+   - **+1 test passing** (Array subscript test)
+
+**Implementation Pattern:** When adding infix operators, always:
+1. Add precedence case in `getPrecedence` (core.go)
+2. Add handler case in `parseInfix` (infix.go) 
+3. Ensure the handler consumes the token and returns proper expression type
+
+---
 
 ### April 5, 2026 - MERGE OUTPUT/RETURNING and TRUNCATE Implementation
 
@@ -596,21 +685,39 @@ Implemented PostgreSQL named arguments (`=>` syntax) and basic CTE (WITH clause)
 
 ```
 sqlparser-go/
-├── token/                      # 800+ SQL keywords
-├── span/                       # Source location tracking
+├── token/                      # 800+ SQL keywords, lexer, position/span
 ├── errors/                     # Error types
-├── tokenizer/                  # Lexer (~4,500 lines, 29 tests ✅)
 ├── ast/                        # Abstract Syntax Tree
-│   ├── statement/             # 131 Statement types
-│   ├── expr/                  # 69 Expression types
-│   ├── datatype/              # 117 DataType variants
-│   └── query/                 # Query-related types
-├── parser/                    # Parser (~10,000 lines)
+│   ├── statement/             # Statement types (consolidated)
+│   ├── expr/                  # Expression types
+│   ├── datatype/              # DataType variants
+│   ├── query/                 # Query-related types
+│   ├── node.go                # Base Node types
+│   ├── expr.go, expr_all.go   # Expression interfaces and all expressions
+│   ├── statement.go, statement_all.go # Statement interfaces and types
+│   ├── query.go, query_all.go # Query interfaces and types
+│   └── types_all.go, operators_all.go # Consolidated type definitions
+├── parser/                     # Parser (~10,000 lines, split by function)
+│   ├── core.go, parser.go     # Core parser types and main entry points
+│   ├── helpers.go, utils.go   # Parser utilities
+│   ├── prefix.go, infix.go, postfix.go # Expression parsing
+│   ├── create.go, alter.go, drop.go, truncate.go # DDL statements
+│   ├── dml.go                 # INSERT, UPDATE, DELETE
+│   ├── query.go               # SELECT, CTE parsing
+│   ├── merge.go, copy.go, show.go, describe.go, misc.go # Other statements
+│   └── transaction.go, prepared.go, special.go, groupings.go, options.go, state.go
+├── parseriface/               # Parser interface definitions (resolves circular deps)
 ├── dialects/                  # 14 SQL dialects
+│   ├── dialect.go, capabilities.go # Core dialect interfaces
 │   ├── generic, postgresql, mysql, sqlite, bigquery
 │   ├── snowflake, duckdb, clickhouse, hive, mssql
 │   └── redshift, databricks, oracle, ansi
-└── tests/                     # Test suites (TPC-H 100% ✅)
+├── tests/                     # Test suites (TPC-H 100% ✅)
+│   ├── ddl/                   # CREATE, ALTER, DROP, TRUNCATE tests
+│   ├── query/                 # JOIN, CTE, set operations tests
+│   └── snowflake/, mysql/, postgres/ # Dialect-specific tests
+├── fuzz/                      # Fuzz testing
+└── examples/                  # Usage examples
 ```
 
 ---
@@ -670,10 +777,12 @@ func processStatement(stmt Statement) error {
 ```bash
 cd /Users/san/Fun/sqlparser-rs/go  # Must run from go/ directory
 
-go test ./tokenizer/... -v           # 29 tests passing
-go test ./tests/... -v              # TPC-H 100% passing
-go test ./tests/mysql/... -v        # MySQL dialect
-go test ./tests/postgres/... -v     # PostgreSQL dialect
+go test ./token/... -v               # Tokenizer tests (29 passing)
+go test ./tests/... -v              # All test suites
+go test ./tests/ddl/... -v          # DDL tests (CREATE, ALTER, DROP)
+go test ./tests/query/... -v         # Query tests (JOIN, CTE)
+go test ./tests/mysql/... -v         # MySQL dialect
+go test ./tests/postgres/... -v      # PostgreSQL dialect
 go build ./...                      # Build everything
 ```
 
@@ -681,4 +790,4 @@ go build ./...                      # Build everything
 
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
-**Status:** TPC-H 100%, Common 48%, PostgreSQL 25%, MySQL 46%, Snowflake 16%, **Total 326/816 (40%)**
+**Status:** TPC-H fixture issue, Common 46%, PostgreSQL 25%, MySQL 46%, Snowflake 16%, **Total 459/1207 (38%)**

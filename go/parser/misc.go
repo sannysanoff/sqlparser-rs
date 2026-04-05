@@ -26,13 +26,8 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
-// ParseGrant parses GRANT statements
-// Reference: src/parser/mod.rs parse_grant (line 16697)
-func ParseGrant(p *Parser) (ast.Statement, error) {
-	return parseGrant(p)
-}
-
 // parseGrant parses GRANT statements
+// Reference: src/parser/mod.rs parse_grant (line 16697)
 func parseGrant(p *Parser) (ast.Statement, error) {
 	// Parse privileges and objects
 	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
@@ -95,13 +90,8 @@ func parseGrant(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseRevoke parses REVOKE statements
-// Reference: src/parser/mod.rs parse_revoke (line 17322)
-func ParseRevoke(p *Parser) (ast.Statement, error) {
-	return parseRevoke(p)
-}
-
 // parseRevoke parses REVOKE statements
+// Reference: src/parser/mod.rs parse_revoke (line 17322)
 func parseRevoke(p *Parser) (ast.Statement, error) {
 	// Parse privileges and objects
 	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
@@ -144,13 +134,8 @@ func parseRevoke(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// ParseDeny parses DENY statements
-// Reference: src/parser/mod.rs parse_deny (line 17289)
-func ParseDeny(p *Parser) (ast.Statement, error) {
-	return parseDeny(p)
-}
-
 // parseDeny parses DENY statements
+// Reference: src/parser/mod.rs parse_deny (line 17289)
 func parseDeny(p *Parser) (ast.Statement, error) {
 	// Parse privileges and objects
 	privileges, objects, err := parseGrantDenyRevokePrivilegesObjects(p)
@@ -514,11 +499,6 @@ func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
 	}, nil
 }
 
-// ParseSet parses SET statements
-func ParseSet(p *Parser) (ast.Statement, error) {
-	return parseSet(p)
-}
-
 // parseSet parses SET statements
 func parseSet(p *Parser) (ast.Statement, error) {
 	// SET [ SESSION | LOCAL | GLOBAL ] variable = value [, ...]
@@ -629,92 +609,92 @@ func parseSet(p *Parser) (ast.Statement, error) {
 	return setStmt, nil
 }
 
-// ParseUse parses USE statements
-func ParseUse(p *Parser) (ast.Statement, error) {
+// parseUse parses USE statements
+func parseUse(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("USE statement parsing not yet fully implemented")
 }
 
-// ParseAnalyze parses ANALYZE statements
-func ParseAnalyze(p *Parser) (ast.Statement, error) {
+// parseAnalyze parses ANALYZE statements
+func parseAnalyze(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("ANALYZE statement parsing not yet fully implemented")
 }
 
-// ParseCall parses CALL statements
-func ParseCall(p *Parser) (ast.Statement, error) {
+// parseCall parses CALL statements
+func parseCall(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("CALL statement parsing not yet fully implemented")
 }
 
-// ParseCache parses CACHE statements
-func ParseCache(p *Parser) (ast.Statement, error) {
+// parseCache parses CACHE statements
+func parseCache(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("CACHE statement parsing not yet fully implemented")
 }
 
-// ParseUncache parses UNCACHE statements
-func ParseUncache(p *Parser) (ast.Statement, error) {
+// parseUncache parses UNCACHE statements
+func parseUncache(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("UNCACHE statement parsing not yet fully implemented")
 }
 
-// ParseMsck parses MSCK statements
-func ParseMsck(p *Parser) (ast.Statement, error) {
+// parseMsck parses MSCK statements
+func parseMsck(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("MSCK statement parsing not yet fully implemented")
 }
 
-// ParseFlush parses FLUSH statements
-func ParseFlush(p *Parser) (ast.Statement, error) {
+// parseFlush parses FLUSH statements
+func parseFlush(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("FLUSH statement parsing not yet fully implemented")
 }
 
-// ParseKill parses KILL statements
-func ParseKill(p *Parser) (ast.Statement, error) {
+// parseKill parses KILL statements
+func parseKill(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("KILL statement parsing not yet fully implemented")
 }
 
-// ParseVacuum parses VACUUM statements
-func ParseVacuum(p *Parser) (ast.Statement, error) {
+// parseVacuum parses VACUUM statements
+func parseVacuum(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("VACUUM statement parsing not yet fully implemented")
 }
 
-// ParseOptimize parses OPTIMIZE statements
-func ParseOptimize(p *Parser) (ast.Statement, error) {
+// parseOptimize parses OPTIMIZE statements
+func parseOptimize(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("OPTIMIZE statement parsing not yet fully implemented")
 }
 
-// ParseLoad parses LOAD statements
-func ParseLoad(p *Parser) (ast.Statement, error) {
+// parseLoad parses LOAD statements
+func parseLoad(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("LOAD statement parsing not yet fully implemented")
 }
 
-// ParseUnload parses UNLOAD statements
-func ParseUnload(p *Parser) (ast.Statement, error) {
+// parseUnload parses UNLOAD statements
+func parseUnload(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("UNLOAD statement parsing not yet fully implemented")
 }
 
-// ParseAttach parses ATTACH statements
-func ParseAttach(p *Parser) (ast.Statement, error) {
+// parseAttach parses ATTACH statements
+func parseAttach(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("ATTACH statement parsing not yet fully implemented")
 }
 
-// ParseDetach parses DETACH statements
-func ParseDetach(p *Parser) (ast.Statement, error) {
+// parseDetach parses DETACH statements
+func parseDetach(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("DETACH statement parsing not yet fully implemented")
 }
 
-// ParseComment parses COMMENT statements
-func ParseComment(p *Parser) (ast.Statement, error) {
+// parseComment parses COMMENT statements
+func parseComment(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("COMMENT statement parsing not yet fully implemented")
 }
 
-// ParseDeclare parses DECLARE statements
-func ParseDeclare(p *Parser) (ast.Statement, error) {
+// parseDeclare parses DECLARE statements
+func parseDeclare(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("DECLARE statement parsing not yet fully implemented")
 }
 
-// ParseClose parses CLOSE statements
-func ParseClose(p *Parser) (ast.Statement, error) {
+// parseClose parses CLOSE statements
+func parseClose(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("CLOSE statement parsing not yet fully implemented")
 }
 
-// ParseFetch parses FETCH statements
-func ParseFetch(p *Parser) (ast.Statement, error) {
+// parseFetch parses FETCH statements
+func parseFetch(p *Parser) (ast.Statement, error) {
 	return nil, fmt.Errorf("FETCH statement parsing not yet fully implemented")
 }

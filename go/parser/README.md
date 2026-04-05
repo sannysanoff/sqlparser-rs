@@ -26,7 +26,7 @@ This package contains all SQL statement-specific parsing methods transpiled from
 - `ParseInsert()` - INSERT with VALUES or subquery, PARTITION, RETURNING, ON CONFLICT
 - `ParseUpdate()` - UPDATE with SET, WHERE, FROM, RETURNING
 - `ParseDelete()` - DELETE with WHERE, USING, RETURNING, ORDER BY, LIMIT
-- `ParseMerge()` - MERGE with MATCHED/NOT MATCHED clauses, UPDATE/DELETE/INSERT actions
+- `parseMerge()` - MERGE with MATCHED/NOT MATCHED clauses, UPDATE/DELETE/INSERT actions
 
 ### DDL Statements
 - `ParseCreate()` - CREATE TABLE, VIEW, INDEX, FUNCTION, ROLE, DATABASE, SCHEMA

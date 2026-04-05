@@ -15,7 +15,7 @@ A complete SQL parser for Go, transpiled from the popular Rust sqlparser-rs libr
 ## Installation
 
 ```bash
-go get github.com/user/sqlparser-parser
+go get github.com/user/sqlparser
 ```
 
 ## Quick Start
@@ -27,8 +27,8 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser-parser"
-    "github.com/user/sqlparser-dialects/generic"
+    "github.com/user/sqlparser/parser"
+    "github.com/user/sqlparser/dialects/generic"
 )
 
 func main() {
@@ -60,10 +60,10 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser-parser"
-    "github.com/user/sqlparser-dialects/postgresql"
-    "github.com/user/sqlparser-dialects/mysql"
-    "github.com/user/sqlparser-dialects/bigquery"
+    "github.com/user/sqlparser/parser"
+    "github.com/user/sqlparser/dialects/postgresql"
+    "github.com/user/sqlparser/dialects/mysql"
+    "github.com/user/sqlparser/dialects/bigquery"
 )
 
 func main() {
@@ -101,9 +101,8 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser-parser"
-    "github.com/user/sqlparser-dialects/generic"
-    "github.com/user/sqlparser-ast/statement"
+    "github.com/user/sqlparser/parser"
+    "github.com/user/sqlparser/dialects/generic"
 )
 
 func main() {
@@ -115,24 +114,13 @@ func main() {
         log.Fatal(err)
     }
     
-    // Type assert to access specific statement type
-    selectStmt, ok := statements[0].(*statement.SelectStmt)
-    if !ok {
-        log.Fatal("Expected SELECT statement")
-    }
+    // Access the parsed statement
+    stmt := statements[0]
+    fmt.Printf("Statement type: %T\n", stmt)
+    fmt.Printf("SQL: %s\n", stmt.String())
     
-    // Access query components
-    query := selectStmt.Query
-    fmt.Printf("Query has ORDER BY: %v\n", query.OrderBy != nil)
-    
-    // Access SELECT projection
-    selectExpr := query.Select
-    fmt.Printf("Number of columns: %d\n", len(selectExpr.Projection))
-    
-    // Access WHERE clause
-    if selectExpr.Where != nil {
-        fmt.Printf("WHERE clause: %s\n", selectExpr.Where.String())
-    }
+    // Use type assertion or switch to access specific statement details
+    // See GOLANG.md for detailed AST traversal examples
 }
 ```
 
@@ -255,15 +243,62 @@ go test -fuzz=FuzzPostgreSQL -fuzztime=30m
 
 ## Project Structure
 
-This project uses a multi-module Go workspace:
+The project is organized into focused packages:
 
-- `core/` - Token types, location tracking, errors
-- `tokenizer/` - SQL lexer
-- `ast/` - Abstract syntax tree definitions
-- `parser/` - Parser implementation
+- `token/` - SQL tokenizer and lexer (merged from token/ and tokenizer/)
+  - `token.go` - Token types and definitions
+  - `lexer.go` - Tokenization logic
+  - `keywords.go` - SQL keyword definitions
+  - `position.go` - Source location tracking (Span/Position)
+  - `state.go` - Lexer state management
+
+- `ast/` - Abstract syntax tree definitions (consolidated structure)
+  - `node.go` - Base AST node types
+  - `expr_all.go` - Expression types (consolidated)
+  - `expr_funcs.go` - Function expressions
+  - `operators_all.go` - Operators
+  - `query_all.go` - Query types (SELECT, CTEs, etc.)
+  - `statement_all.go` - Statement types (DML, DDL, DCL)
+  - `types_all.go` - Data types
+  - `value.go` - Value/literal types
+  - `expr/`, `query/`, `statement/`, `datatype/` - Supporting sub-packages
+
+- `parser/` - Parser implementation (split into focused files)
+  - `parser.go` - Main parser entry points
+  - `core.go` - Core parsing infrastructure
+  - `prefix.go`, `infix.go`, `postfix.go` - Expression parsers (Pratt parsing)
+  - `special.go` - Special expression parsers
+  - `helpers.go` - Parser utility methods
+  - `groupings.go` - GROUPING SETS, CUBE, ROLLUP
+  - `create.go`, `alter.go`, `drop.go`, `truncate.go` - DDL parsing
+  - `select.go`, `query.go`, `copy.go`, `show.go` - Query parsing
+  - `dml.go`, `merge.go`, `transaction.go` - Statement parsing
+  - `describe.go`, `misc.go`, `prepared.go` - Other statements
+
 - `dialects/` - SQL dialect implementations
-- `tests/` - Test suite including TPC-H benchmarks
-- `fuzz/` - Fuzz testing
+  - `dialect.go` - Core dialect interface and capability interfaces
+  - `capabilities.go` - Dialect capability checking helpers
+  - Individual dialect packages: `postgresql/`, `mysql/`, `sqlite/`, `bigquery/`, 
+    `snowflake/`, `duckdb/`, `clickhouse/`, `hive/`, `mssql/`, `redshift/`, 
+    `databricks/`, `oracle/`, `ansi/`, `generic/`
+
+- `parseriface/` - Parser interface definitions (resolves circular imports)
+  - Defines ParserInterface for use by dialects and parser
+
+- `errors/` - Error types and handling
+
+- `tests/` - Test suite organized by functionality
+  - `parse_test.go` - Core parsing tests
+  - `expr_test.go`, `func_test.go` - Expression tests
+  - `query/` - SELECT, JOIN, CTE tests
+  - `ddl/` - CREATE, ALTER, DROP, TRUNCATE tests
+  - `dml/` - INSERT, UPDATE, DELETE tests
+  - Dialect-specific test folders: `postgres/`, `mysql/`, `bigquery/`, etc.
+  - `regression/` - TPC-H regression tests
+
+- `fuzz/` - Fuzz testing for robustness
+
+- `examples/` - Usage examples
 
 ## Dialects
 
