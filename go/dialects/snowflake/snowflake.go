@@ -1136,6 +1136,8 @@ func (d *SnowflakeDialect) PrecValue(prec dialects.Precedence) uint8 {
 		return 100
 	} else if prec == dialects.PrecedenceDoubleColon {
 		return 50
+	} else if prec == dialects.PrecedenceCollate {
+		return 42
 	} else if prec == dialects.PrecedenceAtTz {
 		return 41
 	} else if prec == dialects.PrecedenceMulDivModOp {

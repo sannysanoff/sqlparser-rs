@@ -93,6 +93,7 @@ const (
 	PrecedenceUnaryNot    = parseriface.PrecedenceUnaryNot
 	PrecedenceAnd         = parseriface.PrecedenceAnd
 	PrecedenceOr          = parseriface.PrecedenceOr
+	PrecedenceCollate     = parseriface.PrecedenceCollate
 
 	// Grantee types
 	GranteeTypeNone = parseriface.GranteeTypeNone

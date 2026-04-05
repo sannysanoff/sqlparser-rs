@@ -2,7 +2,7 @@
 
 Complete re-implementation of sqlparser-rs in Go using automated transpilation.
 
-**Project Scope:** ~38,000 lines of Rust → Go  
+**Project Scope:** ~117,000 lines of Rust → ~82,000 lines of Go (70%)
 **Target:** Full feature parity with all 14 dialects and 1,260+ tests  
 **Approach:** Automated transpilation with interface-based AST design
 
@@ -721,9 +721,156 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 
 ---
 
+### Pattern T: Whitespace-Skipping Token Methods
+
+**Problem:** `PeekTokenRef()` and `AdvanceToken()` automatically skip whitespace tokens, causing issues when you need to detect newlines or other whitespace.
+
+**Example - Newline-Based String Concatenation:**
+
+```go
+// INCORRECT - PeekTokenRef skips whitespace, never sees newlines
+func (ep *ExpressionParser) maybeConcatStringLiteral(initial string, initialSpan token.Span) (string, token.Span) {
+    for {
+        nextTok := ep.parser.PeekTokenRef()  // Skips whitespace!
+        switch t := nextTok.Token.(type) {
+        case token.TokenWhitespace:
+            // NEVER REACHED - PeekTokenRef already skipped whitespace
+            if t.Whitespace.Type == token.Newline {
+                afterNewline = true
+            }
+        }
+    }
+}
+
+// CORRECT - Use PeekTokenNoSkip and NextTokenNoSkip
+func (ep *ExpressionParser) maybeConcatStringLiteral(initial string, initialSpan token.Span) (string, token.Span) {
+    for {
+        nextTok := ep.parser.PeekTokenNoSkip()  // Sees whitespace
+        switch t := nextTok.Token.(type) {
+        case token.TokenWhitespace:
+            if t.Whitespace.Type == token.Newline {
+                afterNewline = true
+            }
+            ep.parser.NextTokenNoSkip()  // Consume whitespace
+        case token.TokenSingleQuotedString:
+            if afterNewline {
+                result += t.Value
+                ep.parser.NextTokenNoSkip()  // Consume string
+            }
+        }
+    }
+}
+```
+
+**Key Lesson:** The parser has two sets of token methods:
+- **Whitespace-skipping**: `PeekToken()`, `PeekTokenRef()`, `AdvanceToken()`, `NextToken()` - skip `TokenWhitespace` tokens automatically
+- **Whitespace-preserving**: `PeekTokenNoSkip()`, `PeekNthTokenNoSkip()`, `NextTokenNoSkip()` - return all tokens including whitespace
+
+Use whitespace-preserving methods when you need to detect newlines, comments, or other whitespace. Reference: `parser/utils.go` for token method implementations.
+
+---
+
+### Pattern U: Adding New Precedence Levels
+
+**Problem:** Adding a new precedence level (like COLLATE) requires updates to multiple files across the codebase.
+
+**Example - Adding PrecedenceCollate:**
+
+```go
+// Step 1: Add to parseriface/parser.go
+const (
+    PrecedenceOr Precedence = 5
+    PrecedenceCollate Precedence = 42  // NEW: between :: and AT TIME ZONE
+)
+
+// Step 2: Re-export from dialects/dialect.go
+const (
+    PrecedenceOr = parseriface.PrecedenceOr
+    PrecedenceCollate = parseriface.PrecedenceCollate  // NEW
+)
+
+// Step 3: Update ALL dialects' PrecValue() functions
+func (d *GenericDialect) PrecValue(prec dialects.Precedence) uint8 {
+    switch {
+    case prec == dialects.PrecedenceDoubleColon:
+        return 50
+    case prec == dialects.PrecedenceCollate:  // NEW
+        return 42
+    case prec == dialects.PrecedenceAtTz:
+        return 41
+    }
+}
+
+// Step 4: Add to GetNextPrecedenceDefault in parser/core.go
+case "COLLATE":
+    if !ep.parser.InColumnDefinitionState() {
+        return dialect.PrecValue(parseriface.PrecedenceCollate), nil
+    }
+
+// Step 5: Add to parseWordInfix in parser/infix.go
+case "COLLATE":
+    collation, err := ep.parseObjectName()
+    return &expr.Collate{Expr: base, Collation: collation}, nil
+```
+
+**Key Lesson:** When adding new precedence levels:
+1. Add the constant to `parseriface/parser.go`
+2. Re-export from `dialects/dialect.go`
+3. Update **all** dialects' `PrecValue()` functions (13+ dialects)
+4. Add handling to `GetNextPrecedenceDefault()` in `parser/core.go`
+5. Add infix parsing case to handle the operator
+
+Reference: Rust `src/parser/mod.rs` for precedence handling.
+
+---
+
+### Pattern V: Quoted Strings as Identifiers
+
+**Problem:** `parseIdentifier()` only accepts `TokenWord`, but SQL allows quoted strings as identifiers in certain contexts (e.g., collation names).
+
+**Example - Parsing Collation Names:**
+
+```go
+// INCORRECT - only accepts TokenWord
+func (ep *ExpressionParser) parseIdentifier() (*expr.Ident, error) {
+    tok := ep.parser.NextToken()
+    word, ok := tok.Token.(token.TokenWord)
+    if !ok {
+        return nil, ep.parser.Expected("an identifier", tok)
+    }
+    return ep.wordToIdent(&word, tok.Span), nil
+}
+// Result: Fails on SELECT name COLLATE "de_DE" - "de_DE" is TokenDoubleQuotedString
+
+// CORRECT - accept quoted strings as identifiers (following Rust)
+func (ep *ExpressionParser) parseIdentifier() (*expr.Ident, error) {
+    tok := ep.parser.NextToken()
+    switch t := tok.Token.(type) {
+    case token.TokenWord:
+        return ep.wordToIdent(&t, tok.Span), nil
+    case token.TokenSingleQuotedString:
+        singleQuote := rune('\'')
+        return &expr.Ident{SpanVal: tok.Span, Value: t.Value, QuoteStyle: &singleQuote}, nil
+    case token.TokenDoubleQuotedString:
+        doubleQuote := rune('"')
+        return &expr.Ident{SpanVal: tok.Span, Value: t.Value, QuoteStyle: &doubleQuote}, nil
+    }
+    return nil, ep.parser.Expected("an identifier", tok)
+}
+```
+
+**Key Lesson:** The Rust `parse_identifier()` in `src/parser/mod.rs:12926` accepts:
+- `Token::Word(w)` - regular identifiers
+- `Token::SingleQuotedString(s)` - single-quoted strings
+- `Token::DoubleQuotedString(s)` - double-quoted strings
+
+Always check the Rust reference when implementing identifier parsing.
+
+---
+
 ## Current Status
 
-**Overall Progress: ~40% Test Pass Rate** (~480/1207 tests failing)
+**Overall Progress: ~42% Test Pass Rate** (~474/813 tests failing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -734,21 +881,49 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 | **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
 | **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
 | **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **~40% Complete** | **~729**| 1207  | **~40%** |
+| **TOTAL**        | **~42% Complete** | **~339**| 813   | **~42%** |
 
 **Line Counts:**
 
-- Rust Source (src/parser/mod.rs only): 20,899 lines
-- Go Source (go/parser): 18,095 lines (86% of Rust parser)
+- Rust Source (src/ + tests/): 117,231 lines
+- Go Source (go/): 81,931 lines (70% of Rust)
 - Go Tests (go/tests): 14,112 lines
 
-**Recent Focus:** INTERVAL expression parsing (7/7 tests now passing)
+**Recent Focus:** COLLATE expressions and string literal concatenation (4+ tests now passing)
 
 ---
 
 ## Recent Progress
 
-### April 6, 2026 - INTERVAL Expression Parser Fixes
+### April 7, 2026 - COLLATE and String Literal Concatenation
+
+Implemented comprehensive support for COLLATE expressions and string literal concatenation:
+
+1. **COLLATE Expression Support** (parser/core.go, parser/infix.go, parseriface/parser.go):
+   - Added `PrecedenceCollate` constant to parseriface (value 42, between `::` and AT TIME ZONE)
+   - Updated all dialects' `PrecValue()` functions to handle `PrecedenceCollate`
+   - Added COLLATE case to `GetNextPrecedenceDefault()` in core.go
+   - Added COLLATE case to `parseWordInfix()` in infix.go
+   - Fixed `parseIdentifier()` in prefix.go to accept quoted strings as identifiers (required for collation names like `"de_DE"`)
+   - **+2 tests passing** (TestParseCollate, TestParseCollateAfterParens)
+
+2. **String Literal Concatenation** (parser/prefix.go, parseriface/parser.go, dialects/capabilities.go):
+   - Implemented `maybeConcatStringLiteral()` with two modes:
+     - **Adjacent concatenation** (MySQL, ClickHouse, etc.): `'a' 'b'` → `'ab'`
+     - **Newline-based concatenation** (Redshift): `'a'\n'b'` → `'ab'`
+   - Added helper functions `SupportsStringLiteralConcatenation()` and `SupportsStringLiteralConcatenationWithNewline()` to capabilities.go
+   - **Critical fix**: Use `PeekTokenNoSkip()` and `NextTokenNoSkip()` for newline detection (regular `PeekTokenRef()` skips whitespace!)
+   - Added `PeekTokenNoSkip()` and `PeekNthTokenNoSkip()` to parseriface.Parser interface
+   - **+2 tests passing** (TestParseAdjacentStringLiteralConcatenation, TestParseStringLiteralConcatenationWithNewline)
+
+**Key Pattern Documentation:**
+- **Pattern T: Whitespace-Skipping Token Methods** - `PeekTokenRef()` and `AdvanceToken()` automatically skip whitespace tokens. To see whitespace (including newlines), use `PeekTokenNoSkip()` and `NextTokenNoSkip()`.
+- **Pattern U: Precedence Constants** - When adding new precedence levels, add to parseriface.Precedence enum, re-export from dialects/dialect.go, and update ALL dialects' PrecValue() functions.
+- **Pattern V: Quoted String Identifiers** - `parseIdentifier()` must accept `TokenSingleQuotedString` and `TokenDoubleQuotedString` as valid identifiers (not just `TokenWord`), following Rust `parse_identifier()` in `src/parser/mod.rs:12926`.
+
+**Result:** +4 tests now passing (COLLATE and string concatenation)
+
+---
 
 Implemented comprehensive fixes for INTERVAL expression parsing following Rust reference (`src/parser/mod.rs:3246-3312`):
 

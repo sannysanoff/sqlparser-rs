@@ -168,6 +168,24 @@ func SupportsStringEscapeConstant(d CoreDialect) bool {
 	return false
 }
 
+// SupportsStringLiteralConcatenation returns true if the dialect supports
+// concatenating adjacent string literals (e.g., 'Hello ' 'world').
+func SupportsStringLiteralConcatenation(d CoreDialect) bool {
+	if sld, ok := d.(StringLiteralDialect); ok {
+		return sld.SupportsStringLiteralConcatenation()
+	}
+	return false
+}
+
+// SupportsStringLiteralConcatenationWithNewline returns true if the dialect
+// supports concatenating string literals separated by newlines.
+func SupportsStringLiteralConcatenationWithNewline(d CoreDialect) bool {
+	if sld, ok := d.(StringLiteralDialect); ok {
+		return sld.SupportsStringLiteralConcatenationWithNewline()
+	}
+	return false
+}
+
 // ============================================================================
 // Aggregation and Window Function Capability Helpers
 // ============================================================================

@@ -404,6 +404,18 @@ func (ep *ExpressionParser) parseWordInfix(left expr.Expr, word token.TokenWord,
 		}
 		return nil, fmt.Errorf("expected TIME ZONE after AT")
 
+	case "COLLATE":
+		// COLLATE expression: expr COLLATE collation_name
+		collation, err := ep.parseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.Collate{
+			Expr:      left,
+			Collation: collation,
+			SpanVal:   mergeSpans(left.Span(), collation.Span()),
+		}, nil
+
 	case "NOT":
 		// NOT can prefix IN, BETWEEN, LIKE, etc.
 		return ep.parseNotPrefixedInfix(left, precedence)

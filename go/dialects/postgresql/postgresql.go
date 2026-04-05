@@ -943,6 +943,8 @@ func (d *PostgreSqlDialect) PrecValue(prec dialects.Precedence) uint8 {
 		return periodPrec
 	case prec == dialects.PrecedenceDoubleColon:
 		return doubleColonPrec
+	case prec == dialects.PrecedenceCollate:
+		return 42
 	case prec == dialects.PrecedenceAtTz:
 		return atTzPrec
 	case prec == dialects.PrecedenceMulDivModOp:

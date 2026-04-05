@@ -1011,6 +1011,8 @@ func (d *MySqlDialect) PrecValue(prec dialects.Precedence) uint8 {
 		return 100
 	case prec == dialects.PrecedenceDoubleColon:
 		return 50
+	case prec == dialects.PrecedenceCollate:
+		return 42
 	case prec == dialects.PrecedenceAtTz:
 		return 41
 	case prec == dialects.PrecedenceMulDivModOp:

@@ -541,12 +541,29 @@ func (ep *ExpressionParser) parseUnreservedWordPrefix(word *token.TokenWord, spa
 // parseIdentifier parses a simple identifier
 func (ep *ExpressionParser) parseIdentifier() (*expr.Ident, error) {
 	tok := ep.parser.NextToken()
-	word, ok := tok.Token.(token.TokenWord)
-	if !ok {
-		return nil, ep.parser.Expected("an identifier", tok)
+
+	switch t := tok.Token.(type) {
+	case token.TokenWord:
+		return ep.wordToIdent(&t, tok.Span), nil
+	case token.TokenSingleQuotedString:
+		// Single-quoted strings can be used as identifiers (e.g., collation names)
+		singleQuote := rune('\'')
+		return &expr.Ident{
+			SpanVal:    tok.Span,
+			Value:      t.Value,
+			QuoteStyle: &singleQuote,
+		}, nil
+	case token.TokenDoubleQuotedString:
+		// Double-quoted strings can be used as identifiers
+		doubleQuote := rune('"')
+		return &expr.Ident{
+			SpanVal:    tok.Span,
+			Value:      t.Value,
+			QuoteStyle: &doubleQuote,
+		}, nil
 	}
 
-	return ep.wordToIdent(&word, tok.Span), nil
+	return nil, ep.parser.Expected("an identifier", tok)
 }
 
 // parseObjectName parses an object name (potentially qualified), e.g.,
@@ -630,15 +647,17 @@ func (ep *ExpressionParser) parseValue() (expr.Expr, error) {
 		}, nil
 
 	case token.TokenSingleQuotedString:
+		concatenatedValue, endSpan := ep.maybeConcatStringLiteral(t.Value, tok.Span)
 		return &expr.ValueExpr{
-			SpanVal: tok.Span,
-			Value:   t,
+			SpanVal: mergeSpans(tok.Span, endSpan),
+			Value:   token.TokenSingleQuotedString{Value: concatenatedValue},
 		}, nil
 
 	case token.TokenDoubleQuotedString:
+		concatenatedValue, endSpan := ep.maybeConcatStringLiteral(t.Value, tok.Span)
 		return &expr.ValueExpr{
-			SpanVal: tok.Span,
-			Value:   t,
+			SpanVal: mergeSpans(tok.Span, endSpan),
+			Value:   token.TokenDoubleQuotedString{Value: concatenatedValue},
 		}, nil
 
 	case token.TokenNationalStringLiteral:
@@ -705,6 +724,76 @@ func (ep *ExpressionParser) parseValue() (expr.Expr, error) {
 	}
 
 	return nil, ep.parser.Expected("a value", tok)
+}
+
+// maybeConcatStringLiteral concatenates adjacent string literals if the dialect supports it.
+// This handles both simple concatenation (e.g., 'a' 'b' -> 'ab') and newline-based
+// concatenation for dialects that support it.
+// Returns the concatenated string value and the span of the last token consumed.
+func (ep *ExpressionParser) maybeConcatStringLiteral(initial string, initialSpan token.Span) (string, token.Span) {
+	dialect := ep.parser.GetDialect()
+	result := initial
+	endSpan := initialSpan
+
+	if dialects.SupportsStringLiteralConcatenation(dialect) {
+		// Simple adjacent string concatenation: 'a' 'b' -> 'ab'
+		for {
+			nextTok := ep.parser.PeekTokenRef()
+			switch t := nextTok.Token.(type) {
+			case token.TokenSingleQuotedString:
+				result += t.Value
+				endSpan = nextTok.Span
+				ep.parser.AdvanceToken() // consume the string
+			case token.TokenDoubleQuotedString:
+				result += t.Value
+				endSpan = nextTok.Span
+				ep.parser.AdvanceToken() // consume the string
+			default:
+				return result, endSpan
+			}
+		}
+	} else if dialects.SupportsStringLiteralConcatenationWithNewline(dialect) {
+		// Newline-based concatenation (e.g., Redshift):
+		// 'a'
+		// 'b' -> 'ab'
+		afterNewline := false
+		for {
+			// Use PeekTokenNoSkip to see whitespace tokens (including newlines)
+			nextTok := ep.parser.PeekTokenNoSkip()
+			switch t := nextTok.Token.(type) {
+			case token.TokenWhitespace:
+				if t.Whitespace.Type == token.Newline {
+					afterNewline = true
+				}
+				// Use NextTokenNoSkip to consume whitespace
+				ep.parser.NextTokenNoSkip()
+			case token.TokenSingleQuotedString:
+				if afterNewline {
+					result += t.Value
+					endSpan = nextTok.Span
+					ep.parser.NextTokenNoSkip() // consume the string
+					afterNewline = false
+					// After concatenating, continue the loop to check for more newlines + strings
+				} else {
+					return result, endSpan
+				}
+			case token.TokenDoubleQuotedString:
+				if afterNewline {
+					result += t.Value
+					endSpan = nextTok.Span
+					ep.parser.NextTokenNoSkip() // consume the string
+					afterNewline = false
+					// After concatenating, continue the loop to check for more newlines + strings
+				} else {
+					return result, endSpan
+				}
+			default:
+				return result, endSpan
+			}
+		}
+	}
+
+	return result, endSpan
 }
 
 // parseLiteralString parses a string literal

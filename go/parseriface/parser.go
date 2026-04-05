@@ -43,6 +43,8 @@ type Parser interface {
 	PeekTokenRef() *token.TokenWithSpan
 	PeekNthToken(n int) token.TokenWithSpan
 	PeekNthTokenRef(n int) *token.TokenWithSpan
+	PeekTokenNoSkip() token.TokenWithSpan
+	PeekNthTokenNoSkip(n int) token.TokenWithSpan
 	NextToken() token.TokenWithSpan
 	NextTokenNoSkip() *token.TokenWithSpan
 	AdvanceToken()
@@ -152,6 +154,8 @@ const (
 	PrecedenceAnd Precedence = 10
 	// PrecedenceOr - Logical OR (lowest precedence)
 	PrecedenceOr Precedence = 5
+	// PrecedenceCollate - COLLATE operator (between AT TIME ZONE and ::)
+	PrecedenceCollate Precedence = 42
 )
 
 // NestedIdentifierQuote represents a nested identifier with outer and optional inner quotes

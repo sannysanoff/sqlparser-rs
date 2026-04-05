@@ -137,6 +137,11 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 			return dialect.PrecValue(parseriface.PrecedenceLike), nil
 		case "AT":
 			return dialect.PrecValue(parseriface.PrecedenceAtTz), nil
+		case "COLLATE":
+			// COLLATE is only valid outside column definition context
+			if !ep.parser.InColumnDefinitionState() {
+				return dialect.PrecValue(parseriface.PrecedenceCollate), nil
+			}
 		case "NOTNULL":
 			if dialects.SupportsNotnullOperator(dialect) {
 				return dialect.PrecValue(parseriface.PrecedenceIs), nil
