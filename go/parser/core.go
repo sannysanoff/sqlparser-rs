@@ -276,16 +276,12 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 			switch tok := nextTok.Token.(type) {
 			case token.TokenMul:
 				// Handle qualified wildcard like foo.*
-				if dialects.SupportsSelectWildcardExcept(dialect) {
-					endingWildcard = &token.TokenWithSpan{
-						Token: tok,
-						Span:  nextTok.Span,
-					}
-					ep.parser.AdvanceToken()
-				} else {
-					// Put back the period for context parsing
-					ep.parser.PrevToken()
+				// This is standard SQL and should work in all dialects
+				endingWildcard = &token.TokenWithSpan{
+					Token: tok,
+					Span:  nextTok.Span,
 				}
+				ep.parser.AdvanceToken()
 				goto done
 
 			case token.TokenSingleQuotedString:

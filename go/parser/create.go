@@ -99,6 +99,15 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 		return parseCreateOperator(p)
 	case p.PeekKeyword("USER"):
 		return parseCreateUser(p, orReplace)
+	case p.PeekKeyword("PROCEDURE"):
+		return parseCreateProcedure(p, false)
+	case p.PeekKeyword("MATERIALIZED"):
+		// CREATE MATERIALIZED VIEW
+		p.NextToken() // consume MATERIALIZED
+		if !p.PeekKeyword("VIEW") {
+			return nil, p.ExpectedRef("VIEW after MATERIALIZED", p.PeekTokenRef())
+		}
+		return parseCreateView(p, orReplace, temporary, true) // isMaterialized=true
 	default:
 		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, FUNCTION, ROLE, or other CREATE target", p.PeekTokenRef())
 	}
@@ -274,7 +283,9 @@ func isTableConstraint(p *Parser) bool {
 
 // parseCreateView parses CREATE VIEW
 // Reference: src/parser/mod.rs parse_create_view
-func parseCreateView(p *Parser, orReplace, temporary bool) (ast.Statement, error) {
+func parseCreateView(p *Parser, orReplace, temporary bool, materialized ...bool) (ast.Statement, error) {
+	isMaterialized := len(materialized) > 0 && materialized[0]
+
 	// VIEW keyword is expected (already checked by caller)
 	if _, err := p.ExpectKeyword("VIEW"); err != nil {
 		return nil, err
@@ -333,12 +344,13 @@ func parseCreateView(p *Parser, orReplace, temporary bool) (ast.Statement, error
 	}
 
 	return &statement.CreateView{
-		OrReplace:   orReplace,
-		Temporary:   temporary,
-		IfNotExists: ifNotExists,
-		Name:        name,
-		Columns:     columns,
-		Query:       q,
+		OrReplace:    orReplace,
+		Temporary:    temporary,
+		Materialized: isMaterialized,
+		IfNotExists:  ifNotExists,
+		Name:         name,
+		Columns:      columns,
+		Query:        q,
 	}, nil
 }
 
@@ -2689,5 +2701,160 @@ func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
 		IfNotExists: ifNotExists,
 		Name:        name,
 		Options:     options,
+	}, nil
+}
+
+// parseCreateProcedure parses CREATE PROCEDURE
+// Reference: src/parser/mod.rs:19319 parse_create_procedure
+func parseCreateProcedure(p *Parser, orAlter bool) (ast.Statement, error) {
+	// Consume PROCEDURE keyword
+	if _, err := p.ExpectKeyword("PROCEDURE"); err != nil {
+		return nil, err
+	}
+
+	// Parse procedure name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional parameters
+	params, err := parseProcedureParams(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional LANGUAGE clause
+	var language *ast.Ident
+	if p.ParseKeyword("LANGUAGE") {
+		lang, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		language = lang
+	}
+
+	// Expect AS keyword
+	if _, err := p.ExpectKeyword("AS"); err != nil {
+		return nil, err
+	}
+
+	// Parse the procedure body
+	// For now, just skip tokens until we hit END
+	// Full implementation would parse actual procedure statements
+	for {
+		if p.PeekKeyword("END") {
+			p.NextToken() // consume END
+			break
+		}
+		p.NextToken()
+	}
+
+	return &statement.CreateProcedure{
+		OrAlter:  orAlter,
+		Name:     name,
+		Params:   params,
+		Language: language,
+		Body:     &expr.ConditionalStatements{}, // TODO: properly parse body
+	}, nil
+}
+
+// parseProcedureParams parses procedure parameters: (name TYPE, ...)
+func parseProcedureParams(p *Parser) ([]*expr.ProcedureParam, error) {
+	// Check for opening paren
+	if !p.ConsumeToken(token.TokenLParen{}) {
+		// No parameters
+		return nil, nil
+	}
+
+	// Check for empty params: ()
+	if p.ConsumeToken(token.TokenRParen{}) {
+		return []*expr.ProcedureParam{}, nil
+	}
+
+	var params []*expr.ProcedureParam
+
+	for {
+		// Parse parameter
+		param, err := parseProcedureParam(p)
+		if err != nil {
+			return nil, err
+		}
+		params = append(params, param)
+
+		// Check for comma or closing paren
+		if p.ConsumeToken(token.TokenComma{}) {
+			// Continue to next parameter
+			// Check for trailing comma with closing paren
+			if p.ConsumeToken(token.TokenRParen{}) {
+				break
+			}
+		} else if p.ConsumeToken(token.TokenRParen{}) {
+			break
+		} else {
+			return nil, fmt.Errorf("expected ',' or ')' after parameter definition")
+		}
+	}
+
+	return params, nil
+}
+
+// parseProcedureParam parses a single procedure parameter
+func parseProcedureParam(p *Parser) (*expr.ProcedureParam, error) {
+	spanStart := p.GetCurrentToken().Span
+
+	// Check for parameter mode: IN, OUT, INOUT
+	var mode *expr.ArgMode
+	if p.PeekKeyword("IN") {
+		p.NextToken()
+		// Check for INOUT after IN
+		if p.PeekKeyword("OUT") {
+			p.NextToken()
+			m := expr.ArgModeInOut
+			mode = &m
+		} else {
+			m := expr.ArgModeIn
+			mode = &m
+		}
+	} else if p.PeekKeyword("OUT") {
+		p.NextToken()
+		m := expr.ArgModeOut
+		mode = &m
+	}
+
+	// Parse parameter name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to expr.Ident
+	exprName := &expr.Ident{
+		SpanVal:    name.Span(),
+		Value:      name.Value,
+		QuoteStyle: name.QuoteStyle,
+	}
+
+	// Parse data type
+	dtype, err := p.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for default value: = expression
+	var defaultVal expr.Expr
+	if p.ConsumeToken(token.TokenEq{}) {
+		defaultVal, err = NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &expr.ProcedureParam{
+		SpanVal:  token.Span{Start: spanStart.Start, End: p.GetCurrentToken().Span.End},
+		Name:     exprName,
+		DataType: dtype,
+		Mode:     mode,
+		Default:  defaultVal,
 	}, nil
 }

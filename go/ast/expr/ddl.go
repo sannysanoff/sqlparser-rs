@@ -804,11 +804,35 @@ func (r *RemoteProperty) Span() token.Span { return token.Span{} }
 func (r *RemoteProperty) String() string   { return "" }
 
 // ProcedureParam represents procedure parameter.
-type ProcedureParam struct{}
+type ProcedureParam struct {
+	SpanVal  token.Span
+	Name     *Ident
+	DataType interface{} // datatype.DataType - using interface{} to avoid import cycle
+	Mode     *ArgMode    // IN, OUT, INOUT
+	Default  Expr        // Optional default value
+}
 
 func (p *ProcedureParam) exprNode()        {}
-func (p *ProcedureParam) Span() token.Span { return token.Span{} }
-func (p *ProcedureParam) String() string   { return "" }
+func (p *ProcedureParam) Span() token.Span { return p.SpanVal }
+func (p *ProcedureParam) String() string {
+	var sb strings.Builder
+	if p.Mode != nil {
+		sb.WriteString(p.Mode.String())
+		sb.WriteString(" ")
+	}
+	sb.WriteString(p.Name.String())
+	if p.DataType != nil {
+		sb.WriteString(" ")
+		if dt, ok := p.DataType.(fmt.Stringer); ok {
+			sb.WriteString(dt.String())
+		}
+	}
+	if p.Default != nil {
+		sb.WriteString(" = ")
+		sb.WriteString(p.Default.String())
+	}
+	return sb.String()
+}
 
 // ExecuteAs represents EXECUTE AS clause.
 type ExecuteAs int

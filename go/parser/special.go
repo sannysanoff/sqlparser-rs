@@ -185,6 +185,9 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 		if ep.parser.PeekKeyword("ABSENT") {
 			break // ABSENT ON NULL
 		}
+		if ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT") {
+			break // IGNORE NULLS / RESPECT NULLS
+		}
 
 		// Parse argument
 		arg, err := ep.parseFunctionArg()
@@ -200,7 +203,13 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 
 	// Parse any clauses
 	for {
-		if ep.parser.PeekKeyword("ORDER") {
+		if ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT") {
+			clause, err := ep.parseNullTreatmentClause()
+			if err != nil {
+				return nil, nil, err
+			}
+			clauses = append(clauses, clause)
+		} else if ep.parser.PeekKeyword("ORDER") {
 			clause, err := ep.parseOrderByClause()
 			if err != nil {
 				return nil, nil, err
@@ -438,11 +447,12 @@ func (ep *ExpressionParser) parseOrderByClause() (expr.FunctionArgumentClause, e
 		return nil, err
 	}
 
-	// TODO: orderBy is []*OrderByExpr but OrderByClause.OrderBy expects []Expr
-	// This is a design issue that needs to be fixed in the AST types
-	// For now, we create an empty slice
-	_ = orderBy
-	return &expr.OrderByClause{OrderBy: []expr.Expr{}}, nil
+	// Convert []*OrderByExpr to []Expr
+	orderByExprs := make([]expr.Expr, len(orderBy))
+	for i, ob := range orderBy {
+		orderByExprs[i] = ob
+	}
+	return &expr.OrderByClause{OrderBy: orderByExprs}, nil
 }
 
 // parseCommaSeparatedOrderByExprs parses a comma-separated list of ORDER BY expressions
@@ -567,6 +577,26 @@ func (ep *ExpressionParser) parseHavingClause() (expr.FunctionArgumentClause, er
 			Expr:  boundExpr,
 		},
 	}, nil
+}
+
+// parseNullTreatmentClause parses IGNORE/RESPECT NULLS clause
+func (ep *ExpressionParser) parseNullTreatmentClause() (expr.FunctionArgumentClause, error) {
+	var treatment expr.NullTreatment
+	if ep.parser.ParseKeyword("IGNORE") {
+		if !ep.parser.ParseKeyword("NULLS") {
+			return nil, fmt.Errorf("expected NULLS after IGNORE")
+		}
+		treatment = expr.NullTreatmentIgnore
+	} else if ep.parser.ParseKeyword("RESPECT") {
+		if !ep.parser.ParseKeyword("NULLS") {
+			return nil, fmt.Errorf("expected NULLS after RESPECT")
+		}
+		treatment = expr.NullTreatmentRespect
+	} else {
+		return nil, fmt.Errorf("expected IGNORE or RESPECT")
+	}
+
+	return &expr.IgnoreOrRespectNullsClause{Treatment: treatment}, nil
 }
 
 // parseJsonReturningClause parses RETURNING clause for JSON functions

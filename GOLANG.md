@@ -976,29 +976,81 @@ Implemented critical parser fixes and completed major missing DDL statement pars
 
 ---
 
+### April 8, 2026 - Aggregate Function Argument Clauses and Qualified Wildcards
+
+Implemented critical fixes for aggregate/window function argument parsing and qualified wildcards:
+
+1. **ORDER BY Clause in Function Arguments** (parser/special.go):
+   - Fixed `parseOrderByClause()` to properly convert `[]*expr.OrderByExpr` to `[]expr.Expr`
+   - The parsed ORDER BY expressions were being discarded, causing empty ORDER BY output
+   - Now correctly outputs expressions like `FIRST_VALUE(x ORDER BY x)` instead of `FIRST_VALUE(x ORDER BY )`
+   - **+4 tests passing** (TestParseAggWithOrderBy and related tests)
+
+2. **Qualified Wildcard in Function Arguments** (parser/core.go):
+   - Removed incorrect dialect check `dialects.SupportsSelectWildcardExcept(dialect)` 
+   - Qualified wildcards like `COUNT(Employee.*)` are standard SQL and should work in all dialects
+   - The check was meant for `SELECT * EXCEPT (cols)` syntax (BigQuery/DuckDB extension), not for `table.*`
+   - **+1 test passing** (TestParseCountWildcard)
+
+3. **IGNORE/RESPECT NULLS as FunctionArgumentClause** (parser/special.go):
+   - Added `parseNullTreatmentClause()` to parse IGNORE/RESPECT NULLS inside function argument list
+   - This is parsed as a `FunctionArgumentClause` (like ORDER BY), not as a suffix after the closing `)`
+   - Added break check for IGNORE/RESPECT in the argument parsing loop
+   - **+1 test passing** (TestParseWindowFunctionNullTreatmentArg)
+
+**Key Pattern Documentation:**
+- **Pattern Y: Function Argument Clauses** - Aggregate/window functions can have multiple clauses inside the parentheses: ORDER BY, LIMIT, IGNORE/RESPECT NULLS, SEPARATOR, ON OVERFLOW, HAVING, RETURNING. These must be parsed as `FunctionArgumentClause` items within `parseFunctionArgs()`, not as separate suffixes after the closing `)`.
+- **Pattern Z: Qualified Wildcards Are Standard SQL** - The `table.*` syntax is standard SQL and works in all dialects. Don't gate it behind dialect-specific feature flags meant for extensions like `SELECT * EXCEPT (cols)`.
+
+**Result:** +6 tests now passing. Pass rate improved from 42% to 43% (352/813 tests passing)
+
+---
+
+### April 8, 2026 - CREATE PROCEDURE and CREATE MATERIALIZED VIEW
+
+Implemented parsers for missing CREATE statement types:
+
+1. **CREATE MATERIALIZED VIEW** (parser/create.go):
+   - Added `MATERIALIZED` case to `parseCreate()` to handle `CREATE MATERIALIZED VIEW` syntax
+   - Updated `parseCreateView()` to accept optional `materialized` parameter
+   - The `CreateView` AST type already had `Materialized` field - just needed parser support
+   - **+2 tests passing** (TestParseCreateOrReplaceMaterializedView, TestParseCreateMaterializedView)
+
+2. **CREATE PROCEDURE** (parser/create.go, ast/expr/ddl.go):
+   - Implemented `parseCreateProcedure()` following Rust `parse_create_procedure` (src/parser/mod.rs:19319)
+   - Added `parseProcedureParams()` to parse parameter lists: `(IN a INTEGER, OUT b TEXT)`
+   - Added `parseProcedureParam()` to parse individual parameters with mode, name, type, and default
+   - Updated `ProcedureParam` AST type to include proper fields: `Name`, `DataType`, `Mode`, `Default`
+   - **Result:** Basic CREATE PROCEDURE parsing now works
+
+**Key Pattern Documentation:**
+- **Pattern AA: CREATE Statement Routing** - The `parseCreate()` function uses a switch statement on `p.PeekKeyword()` to route to specific CREATE parsers. When adding new CREATE types, add the case before the `default` clause that returns the error.
+
+---
+
 ## Current Status
 
-**Overall Progress: ~42% Test Pass Rate** (~468 tests failing)
+**Overall Progress: ~43% Test Pass Rate** (~461 tests failing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
 | **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
-| **DDL Tests**    | 🔄 In Progress   | ~120    | ~300  | **40%**   |
-| **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
-| **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
-| **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
-| **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **~42% Complete** | **~345**| 813   | **~42%** |
+| **DDL Tests**    | 🔄 In Progress   | 22      | 81    | **27%**   |
+| **DML Tests**    | 🔄 In Progress   | 18      | 33    | **55%**   |
+| **Query Tests**  | 🔄 In Progress   | 39      | 58    | **67%**   |
+| **MySQL**        | 🔄 In Progress   | 60      | 125   | **48%**   |
+| **PostgreSQL**   | 🔄 In Progress   | 42      | 157   | **27%**   |
+| **Snowflake**    | 🔄 In Progress   | 17      | 97    | **18%**   |
+| **TOTAL**        | **~43% Complete** | **354** | 813   | **~44%** |
 
 **Line Counts:**
 
-- Rust Source: 66,842 lines
-- Go Source: 68,196 lines (102% of Rust - AST types added)
+- Rust Source: 67,345 lines
+- Go Source: 82,760 lines (123% of Rust - AST types and interfaces added)
 - Rust Tests: 49,886 lines
-- Go Tests: 13,893 lines (28%)
+- Go Tests: ~15,000 lines (30%)
 
-**Recent Focus:** SELECT projection parsing, CREATE POLICY/CONNECTOR DDL statements
+**Recent Focus:** Aggregate function clauses, qualified wildcards, function argument parsing
 
 ---
 
@@ -1549,10 +1601,10 @@ go build ./...                      # Build everything
 
 **Version:** 1.0  
 **Last Updated:** April 8, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total ~345/813 (~42%)**
+**Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~354/813 (~44%)**
 
 **Line Counts:**
-- Rust Source: 66,842 lines  
-- Go Source: 68,196 lines (102% of Rust - AST types added)  
-- Go Tests: 13,893 lines  
+- Rust Source: 67,345 lines  
+- Go Source: 82,760 lines (123% of Rust - AST types and interfaces added)  
+- Go Tests: ~15,000 lines (30%)  
 - Rust Tests: 49,886 lines
