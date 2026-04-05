@@ -1015,7 +1015,7 @@ func extractQueryFromStatement(stmt ast.Statement) *query.Query {
 
 ## Current Status
 
-**Overall Progress: ~45% Test Pass Rate** (~444 tests failing)
+**Overall Progress: ~46% Test Pass Rate** (370 tests passing, 443 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -1024,18 +1024,56 @@ func extractQueryFromStatement(stmt ast.Statement) *query.Query {
 | **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
 | **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
 | **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
+| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **27%**   |
 | **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **~45% Complete** | **~369**| 813   | **~45%** |
+| **TOTAL**        | **~46% Complete** | **370** | 813   | **~46%** |
 
 **Line Counts:**
 
-- Rust Source: 67,345 lines
-- Go Source: 70,952 lines (105% of Rust - added DECLARE and statement parsers)
-- Rust Tests: 50,071 lines
-- Go Tests: 14,131 lines (28%)
+- Rust Source: ~20,899 lines (parser/mod.rs) + ~4,517 lines (tokenizer.rs) = ~25,416 total
+- Go Source: ~70,952 lines (implementation exceeds Rust due to AST type duplication for interfaces)
+- Go Tests: ~14,300 lines (29% of Rust test coverage)
+- Rust Tests: ~49,886 lines
 
-**Recent Focus:** DECLARE statement parsing, CACHE/UNCACHE/MSCK statements, and CLOSE statement
+**Recent Focus:** RAISE statement (completed), Method expressions, Geometric operators, Pipe operators
+
+---
+
+### April 5, 2026 - Implementation Plan: Major Missing Parser Chunks
+
+Based on test failure analysis, implementing the following chunks will bring maximum test coverage:
+
+1. **RAISE Statement** (~1 test) - SQLite-specific, simple implementation
+2. **Method Expressions** (~5+ tests) - For `CAST(...).value(...)` syntax 
+3. **Geometric Operators** (~5+ tests) - PostgreSQL-specific (#, ##, etc.)
+4. **Pipe Operators** (~10+ tests) - DuckDB-specific (|>)
+5. **FOR XML Clause** (~3+ tests) - MSSQL-specific
+6. **JSON_OBJECT Improvements** (~5+ tests) - Named arguments with `:` syntax
+
+---
+
+---
+
+### April 5, 2026 - RAISE Statement Implementation
+
+Implemented RAISE statement parser following Rust reference (src/parser/mod.rs:883-894):
+
+1. **RAISE AST Type Update** (ast/statement/misc.go):
+   - Updated `RaiseStatement` struct with `UsingMessage` boolean flag
+   - Implemented proper `String()` method supporting both formats:
+     - `RAISE USING MESSAGE = expr`
+     - `RAISE expr`
+     - `RAISE` (no message)
+
+2. **RAISE Parser** (parser/parser.go parseRaise):
+   - Parses `RAISE [USING MESSAGE = expr | expr]` syntax
+   - Properly handles error case: `RAISE USING MESSAGE error` (without =) produces error
+   - Tracks whether USING MESSAGE syntax was used via `UsingMessage` flag
+   - **+1 test passing** (TestParseRaiseStatement)
+
+**Key Pattern Documentation:**
+- **Pattern BH: Optional Expression with Keywords** - When a statement has an optional expression that could be confused with following keywords, check for clause-starting keywords before attempting expression parsing.
+- **Pattern BI: Error Case Testing** - Always test error cases where malformed syntax should produce errors. Use explicit error returns rather than silent failures.
 
 ---
 

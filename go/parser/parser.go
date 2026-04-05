@@ -1367,7 +1367,55 @@ func (p *Parser) parseCaseStatement() (ast.Statement, error) {
 }
 
 func (p *Parser) parseRaise() (ast.Statement, error) {
-	return nil, p.expectedRef("RAISE not yet implemented", p.PeekTokenRef())
+	// RAISE [USING MESSAGE = expr | expr]
+	// Reference: src/parser/mod.rs:883
+
+	// Consume RAISE keyword
+	p.ExpectKeywordIs("RAISE")
+
+	stmt := &statement.RaiseStatement{}
+
+	// Check if there's more after RAISE
+	tok := p.PeekToken()
+	if _, ok := tok.Token.(token.EOF); ok {
+		return stmt, nil // Just RAISE with nothing after
+	}
+
+	// Check for USING MESSAGE = expr form
+	if p.ParseKeywords([]string{"USING", "MESSAGE"}) {
+		tok, err := p.ExpectToken(token.TokenEq{})
+		if err != nil {
+			return nil, fmt.Errorf("Expected: =, found: %v", tok)
+		}
+		msg, err := NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		stmt.UsingMessage = true
+		stmt.Message = msg
+		return stmt, nil
+	}
+
+	// Check for optional expression (but not if next is a clause keyword)
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		// Check if it's a keyword that would end the statement
+		switch word.Word.Keyword {
+		case "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE", "ORDER", "GROUP", "HAVING", "LIMIT", "UNION", "INTERSECT", "EXCEPT":
+			// These are clause starters, RAISE has no message
+			return stmt, nil
+		}
+	}
+
+	// Try to parse an expression for the message
+	msg, err := NewExpressionParser(p).ParseExpr()
+	if err != nil {
+		// If we can't parse an expression, RAISE statement has no message
+		// This is valid - RAISE alone is a valid statement
+		return stmt, nil
+	}
+	stmt.Message = msg
+
+	return stmt, nil
 }
 
 // ParseExpression implements the dialects.ParserAccessor interface.

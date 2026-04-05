@@ -323,24 +323,28 @@ func (w *WhileStatement) String() string {
 // ============================================================================
 
 // RaiseStatement represents a RAISE statement
+// Reference: src/ast/mod.rs:2840
 type RaiseStatement struct {
 	BaseStatement
-	Level   *expr.RaiseLevel
+	// UsingMessage indicates whether the USING MESSAGE = syntax was used
+	UsingMessage bool
+	// Message is the expression provided to RAISE
 	Message expr.Expr
-	Using   []*expr.RaiseUsing
 }
 
 func (r *RaiseStatement) statementNode() {}
 
 func (r *RaiseStatement) String() string {
 	var f strings.Builder
-	f.WriteString("RAISE ")
-	if r.Level != nil {
-		f.WriteString(r.Level.String())
-		f.WriteString(" ")
-	}
+	f.WriteString("RAISE")
 	if r.Message != nil {
-		f.WriteString(r.Message.String())
+		if r.UsingMessage {
+			f.WriteString(" USING MESSAGE = ")
+			f.WriteString(r.Message.String())
+		} else {
+			f.WriteString(" ")
+			f.WriteString(r.Message.String())
+		}
 	}
 	return f.String()
 }
