@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/user/sqlparser/ast/expr"
@@ -822,26 +823,137 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 				"DAY", "DAYS", "HOUR", "HOURS", "MINUTE", "MINUTES",
 				"SECOND", "SECONDS":
 				ep.parser.AdvanceToken() // consume the unit
+				unitStr := string(unit)
 
-				// Check for optional precision (n)
+				// Parse optional precision for the leading unit
+				var leadingPrecision, fracPrecision *uint64
 				nextTok2 := ep.parser.PeekTokenRef()
 				if _, ok := nextTok2.Token.(token.TokenLParen); ok {
 					ep.parser.AdvanceToken() // consume (
-					ep.parser.AdvanceToken() // consume precision number
+
+					// Parse the first number (leading precision)
+					precTok := ep.parser.NextToken()
+					if numTok, ok := precTok.Token.(token.TokenNumber); ok {
+						n, _ := strconv.ParseUint(numTok.Value, 10, 64)
+						leadingPrecision = &n
+					}
+
+					// Check for comma and second number (fractional seconds precision for SECOND)
+					nextTok3 := ep.parser.PeekTokenRef()
+					if _, ok := nextTok3.Token.(token.TokenComma); ok {
+						ep.parser.AdvanceToken() // consume ,
+						fracTok := ep.parser.NextToken()
+						if numTok, ok := fracTok.Token.(token.TokenNumber); ok {
+							n, _ := strconv.ParseUint(numTok.Value, 10, 64)
+							fracPrecision = &n
+						}
+					}
+
 					// Consume ) if present
 					ep.parser.ConsumeToken(token.TokenRParen{})
 				}
 
-				unitStr := string(unit)
+				// Special handling for SECOND: when leading field is SECOND, we don't allow TO clause
+				// SQL mandates special format: SECOND [( <leading precision> [ , <fractional seconds precision>] )]
+				if unit == "SECOND" || unit == "SECONDS" {
+					// Check if next token is TO - this is an error for SECOND
+					nextTokCheck := ep.parser.PeekTokenRef()
+					if wordCheck, ok := nextTokCheck.Token.(token.TokenWord); ok && wordCheck.Word.Keyword == "TO" {
+						// SECOND TO SECOND is not allowed - let normal parsing handle the error
+						restore()
+						return nil, false
+					}
+
+					return &expr.IntervalExpr{
+						SpanVal: mergeSpans(peekTok.Span, ep.parser.GetCurrentToken().Span),
+						Value: &expr.ValueExpr{
+							SpanVal: stringTok.Span,
+							Value:   strVal,
+						},
+						LeadingField:               &unitStr,
+						LeadingPrecision:           leadingPrecision,
+						FractionalSecondsPrecision: fracPrecision,
+					}, true
+				}
+
+				// Check for TO clause (e.g., YEAR TO MONTH) - not applicable for SECOND
+				nextTok3 := ep.parser.PeekTokenRef()
+				if word3, ok := nextTok3.Token.(token.TokenWord); ok && word3.Word.Keyword == "TO" {
+					ep.parser.AdvanceToken() // consume TO
+					nextTok4 := ep.parser.PeekTokenRef()
+					if word4, ok := nextTok4.Token.(token.TokenWord); ok {
+						lastUnit := word4.Word.Keyword
+						switch lastUnit {
+						case "YEAR", "YEARS", "MONTH", "MONTHS", "WEEK", "WEEKS",
+							"DAY", "DAYS", "HOUR", "HOURS", "MINUTE", "MINUTES",
+							"SECOND", "SECONDS":
+							ep.parser.AdvanceToken() // consume last unit
+							lastUnitStr := string(lastUnit)
+
+							// Check for optional precision on last unit
+							// Only SECOND can have precision on the last field
+							// Also, having precision on both leading and last (non-SECOND) field is an error
+							nextTok5 := ep.parser.PeekTokenRef()
+							hasLastPrecision := false
+							if _, ok := nextTok5.Token.(token.TokenLParen); ok {
+								// If leading field already has precision and last field is not SECOND, error
+								if leadingPrecision != nil && lastUnit != "SECOND" && lastUnit != "SECONDS" {
+									// Let normal parsing handle the error
+									restore()
+									return nil, false
+								}
+
+								ep.parser.AdvanceToken() // consume (
+								lastPrecTok := ep.parser.NextToken()
+								if numTok, ok := lastPrecTok.Token.(token.TokenNumber); ok {
+									n, _ := strconv.ParseUint(numTok.Value, 10, 64)
+									fracPrecision = &n
+									hasLastPrecision = true
+								}
+								// Consume ) if present
+								ep.parser.ConsumeToken(token.TokenRParen{})
+							}
+
+							// If we have precision on both sides for non-SECOND, let normal parsing error
+							if leadingPrecision != nil && hasLastPrecision &&
+								lastUnit != "SECOND" && lastUnit != "SECONDS" {
+								restore()
+								return nil, false
+							}
+
+							return &expr.IntervalExpr{
+								SpanVal: mergeSpans(peekTok.Span, ep.parser.GetCurrentToken().Span),
+								Value: &expr.ValueExpr{
+									SpanVal: stringTok.Span,
+									Value:   strVal,
+								},
+								LeadingField:               &unitStr,
+								LeadingPrecision:           leadingPrecision,
+								LastField:                  &lastUnitStr,
+								FractionalSecondsPrecision: fracPrecision,
+							}, true
+						}
+					}
+				}
+
 				return &expr.IntervalExpr{
 					SpanVal: mergeSpans(peekTok.Span, ep.parser.GetCurrentToken().Span),
 					Value: &expr.ValueExpr{
 						SpanVal: stringTok.Span,
 						Value:   strVal,
 					},
-					LeadingField: &unitStr,
+					LeadingField:               &unitStr,
+					LeadingPrecision:           leadingPrecision,
+					FractionalSecondsPrecision: fracPrecision,
 				}, true
 			}
+		}
+
+		// INTERVAL without unit - for dialects that require qualifiers,
+		// let the normal INTERVAL parsing handle this (which will error)
+		if dialects.RequireIntervalQualifier(ep.parser.GetDialect()) {
+			restore()
+			return nil, false
 		}
 
 		// INTERVAL without unit - return basic interval

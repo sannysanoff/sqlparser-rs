@@ -73,6 +73,17 @@ func (i *IntervalExpr) String() string {
 	sb.WriteString("INTERVAL ")
 	sb.WriteString(i.Value.String())
 
+	// Special handling for SECOND with both precisions (e.g., SECOND (5, 4))
+	if i.LeadingField != nil && *i.LeadingField == "SECOND" &&
+		i.LeadingPrecision != nil && i.FractionalSecondsPrecision != nil {
+		sb.WriteString(" SECOND (")
+		sb.WriteString(fmt.Sprintf("%d", *i.LeadingPrecision))
+		sb.WriteString(", ")
+		sb.WriteString(fmt.Sprintf("%d", *i.FractionalSecondsPrecision))
+		sb.WriteString(")")
+		return sb.String()
+	}
+
 	if i.LeadingField != nil {
 		sb.WriteString(" ")
 		sb.WriteString(*i.LeadingField)

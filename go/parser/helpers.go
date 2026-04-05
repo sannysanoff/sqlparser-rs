@@ -236,14 +236,28 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 	// Parse TO clause for range
 	var lastField *string
 	if leadingField != nil && ep.parser.ParseKeyword("TO") {
+		// SECOND TO SECOND is not allowed - SQL mandates special format SECOND (precision, frac_precision)
+		if leadingField != nil && *leadingField == "SECOND" {
+			return nil, fmt.Errorf("syntax error at word: TO")
+		}
+
 		unit := ep.parseTemporalUnit()
 		lastField = &unit
+
+		// Check for precision on last field - only allowed for SECOND
+		// For other fields, having precision on both sides is an error
 		if *lastField == "SECOND" {
 			fp, err := ep.parseOptionalPrecision()
 			if err != nil {
 				return nil, err
 			}
 			fracPrecision = fp
+		} else {
+			// For non-SECOND fields, check if there's precision on last field (which is an error)
+			nextTok := ep.parser.PeekTokenRef()
+			if _, ok := nextTok.Token.(token.TokenLParen); ok {
+				return nil, fmt.Errorf("syntax error at word: (")
+			}
 		}
 	}
 
