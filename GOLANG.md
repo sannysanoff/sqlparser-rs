@@ -1963,12 +1963,51 @@ Implemented major missing SET statement variants and fixed critical system varia
 
 ---
 
+### April 5, 2026 - FOR XML/FOR JSON Clause Implementation
+
+Implemented comprehensive MSSQL FOR XML/FOR JSON clause parsing following Rust reference:
+
+1. **FOR XML Clause Parser** (parser/query.go):
+   - Reference: `src/parser/mod.rs:13975 parse_for_xml`
+   - Supports all modes: RAW, AUTO, EXPLICIT, PATH
+   - Handles optional element names: `PATH('root')`, `RAW('element')`
+   - Parses options: ELEMENTS, BINARY BASE64, ROOT('...'), TYPE
+   - Proper comma-separated option formatting
+   - **+2 tests passing** (TestParseMethodExpr, TestParseMethodSelect)
+
+2. **FOR JSON Clause Parser** (parser/query.go):
+   - Reference: `src/parser/mod.rs:14029 parse_for_json`
+   - Supports modes: AUTO, PATH
+   - Handles options: ROOT('...'), INCLUDE_NULL_VALUES, WITHOUT_ARRAY_WRAPPER
+
+3. **FOR BROWSE Clause** (parser/query.go):
+   - Simple implementation: `FOR BROWSE`
+
+4. **AST Updates** (ast/query/clauses.go):
+   - Added `ElementName *string` field to `ForXmlClause` for PATH/RAW modes
+   - Fixed `String()` method to output correct format with commas
+   - Example: `FOR XML PATH(''), TYPE` instead of `FOR XML PATH TYPE`
+
+5. **Reserved Keywords** (parser/query.go):
+   - Added "FOR" to `isClauseKeyword()` - prevents FOR from being treated as column alias
+   - Added "FOR" to `isReservedForColumnAlias()` - prevents FOR as implicit alias
+   - Added "FOR" to `isReservedForTableAlias()` - prevents FOR as table alias after table name
+
+**Key Pattern Documentation:**
+- **Pattern BH: Reserved Keyword "FOR"** - The FOR keyword is special because it can appear in multiple contexts: FOR XML/JSON clauses, lock clauses (FOR UPDATE), and even as an identifier. When implementing FOR clause parsing, ensure "FOR" is reserved in:
+  - `isClauseKeyword()` - to stop projection parsing at FOR
+  - `isReservedForColumnAlias()` - to prevent FOR as implicit column alias
+  - `isReservedForTableAlias()` - to prevent FOR as table alias (e.g., `FROM t FOR XML` should not treat FOR as alias for t)
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
 **Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~496/1207 (~41%)**
 
 **Line Counts:**
-- Rust Source: 67,345 lines  
-- Go Source: 69,904 lines (104% of Rust)  
-- Go Tests: 14,300 lines (29%)  
-- Rust Tests: 49,886 lines
+- Rust Source: 236,768 lines  
+- Go Source: 170,694 lines (72% of Rust - test code included)  
+- Go Source (implementation only): 142,432 lines  
+- Go Tests: 28,262 lines (28% of Rust test lines)  
+- Rust Tests: 99,772 lines

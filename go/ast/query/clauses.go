@@ -473,6 +473,7 @@ func (f *ForJsonClause) String() string {
 // ForXmlClause represents FOR XML clause
 type ForXmlClause struct {
 	ForXml       ForXml
+	ElementName  *string // Optional element name for RAW/PATH modes
 	Elements     bool
 	BinaryBase64 bool
 	Root         *string
@@ -481,20 +482,24 @@ type ForXmlClause struct {
 
 func (f *ForXmlClause) String() string {
 	var parts []string
-	parts = append(parts, "FOR XML", f.ForXml.String())
+	parts = append(parts, "FOR XML "+f.ForXml.String())
+	// Add element name for RAW/PATH modes if present
+	if f.ElementName != nil {
+		parts = append(parts, fmt.Sprintf("('%s')", *f.ElementName))
+	}
 	if f.BinaryBase64 {
-		parts = append(parts, "BINARY BASE64")
+		parts = append(parts, ", BINARY BASE64")
 	}
 	if f.Type {
-		parts = append(parts, "TYPE")
+		parts = append(parts, ", TYPE")
 	}
 	if f.Root != nil {
-		parts = append(parts, fmt.Sprintf("ROOT('%s')", *f.Root))
+		parts = append(parts, fmt.Sprintf(", ROOT('%s')", *f.Root))
 	}
 	if f.Elements {
-		parts = append(parts, "ELEMENTS")
+		parts = append(parts, ", ELEMENTS")
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "")
 }
 
 // ForJson represents FOR JSON modes

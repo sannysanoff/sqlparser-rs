@@ -33,6 +33,7 @@ type SelectStatement struct {
 	ast.BaseStatement
 	query.Select
 	LimitClause   query.LimitClause
+	ForClause     *query.ForClause     // MSSQL FOR XML/FOR JSON clause
 	PipeOperators []query.PipeOperator // Pipe operators for |> syntax
 }
 
@@ -46,6 +47,12 @@ func (s *SelectStatement) String() string {
 	str := s.Select.String()
 	if s.LimitClause != nil {
 		str = str + " " + s.LimitClause.String()
+	}
+	if s.ForClause != nil {
+		str = str + " " + s.ForClause.String()
+	}
+	for _, pipe := range s.PipeOperators {
+		str = str + " |> " + pipe.String()
 	}
 	return str
 }
@@ -130,14 +137,16 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Check if we need to create a Query wrapper (for WITH clause or pipe operators)
+	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, or FOR clause)
 	needsQueryWrapper := withClause != nil
 
-	// Get pipe operators from SelectStatement if present
+	// Get pipe operators and FOR clause from SelectStatement if present
 	var pipeOperators []query.PipeOperator
+	var forClause *query.ForClause
 	if selStmt, ok := body.(*SelectStatement); ok {
 		pipeOperators = selStmt.PipeOperators
-		if len(pipeOperators) > 0 {
+		forClause = selStmt.ForClause
+		if len(pipeOperators) > 0 || forClause != nil {
 			needsQueryWrapper = true
 		}
 	}
@@ -151,6 +160,7 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 					Body: &query.SelectSetExpr{
 						Select: &selStmt.Select,
 					},
+					ForClause:     forClause,
 					PipeOperators: pipeOperators,
 				},
 			}, nil
@@ -368,6 +378,35 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse FOR clause (MSSQL FOR XML/FOR JSON/FOR BROWSE)
+	// Reference: src/parser/mod.rs:13682-13691
+	var forClause *query.ForClause
+	for p.ParseKeyword("FOR") {
+		// Try to parse as FOR XML/JSON/BROWSE
+		if p.ParseKeyword("XML") {
+			fc, err := parseForXml(p)
+			if err != nil {
+				return nil, err
+			}
+			forClause = fc
+			break
+		} else if p.ParseKeyword("JSON") {
+			fc, err := parseForJson(p)
+			if err != nil {
+				return nil, err
+			}
+			forClause = fc
+			break
+		} else if p.ParseKeyword("BROWSE") {
+			forClause = &query.ForClause{Type: &query.ForBrowseClause{}}
+			break
+		} else {
+			// It's a LOCK clause, not FOR XML/JSON/BROWSE
+			// TODO: parse lock clauses
+			break
+		}
+	}
+
 	// Parse pipe operators (BigQuery/DuckDB |> syntax)
 	pipeOperators, err := parsePipeOperators(p)
 	if err != nil {
@@ -388,6 +427,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			Flavor:              query.SelectFlavorStandard,
 		},
 		LimitClause:   limitClause,
+		ForClause:     forClause,
 		PipeOperators: pipeOperators,
 	}, nil
 }
@@ -545,6 +585,7 @@ func isClauseKeyword(keyword string) bool {
 		"FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
 		"ORDER": true, "LIMIT": true, "UNION": true, "INTERSECT": true,
 		"EXCEPT": true, "WINDOW": true, "QUALIFY": true, "INTO": true,
+		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, or lock clauses
 	}
 	return clauseKeywords[keyword]
 }
@@ -561,6 +602,7 @@ func isReservedForColumnAlias(keyword string) bool {
 		"BETWEEN": true, "LIKE": true, "ILIKE": true, "IS": true,
 		"NULL": true, "TRUE": true, "FALSE": true,
 		"WINDOW": true, "QUALIFY": true, "INTO": true,
+		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
 	}
 	return reserved[keyword]
 }
@@ -1797,6 +1839,7 @@ func isReservedForTableAlias(keyword string) bool {
 		"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true,
 		"WINDOW": true, "QUALIFY": true, "SET": true,
 		"PIVOT": true, "UNPIVOT": true, "MATCH_RECOGNIZE": true, "SEMANTIC_VIEW": true,
+		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
 	}
 	return reserved[keyword]
 }
@@ -2257,8 +2300,172 @@ func parseOffsetClause(p *Parser) (interface{}, error) {
 	return nil, nil
 }
 
-func parseForClause(p *Parser) (interface{}, error) {
-	return nil, nil
+// parseForClause parses MSSQL FOR XML, FOR JSON, or FOR BROWSE clause
+// Reference: src/parser/mod.rs:13962 parse_for_clause
+func parseForClause(p *Parser) (*query.ForClause, error) {
+	if !p.ParseKeyword("FOR") {
+		return nil, nil
+	}
+
+	// Check for XML
+	if p.ParseKeyword("XML") {
+		return parseForXml(p)
+	}
+
+	// Check for JSON
+	if p.ParseKeyword("JSON") {
+		return parseForJson(p)
+	}
+
+	// Check for BROWSE
+	if p.ParseKeyword("BROWSE") {
+		return &query.ForClause{Type: &query.ForBrowseClause{}}, nil
+	}
+
+	// Not a recognized FOR clause - we consumed FOR but it wasn't valid
+	// This is an error, but for now just return nil
+	return nil, fmt.Errorf("expected XML, JSON, or BROWSE after FOR")
+}
+
+// parseForXml parses FOR XML clause
+// Reference: src/parser/mod.rs:13975 parse_for_xml
+func parseForXml(p *Parser) (*query.ForClause, error) {
+	var forXml query.ForXml
+	var elementName *string
+
+	// Parse mode: RAW, AUTO, EXPLICIT, or PATH
+	if p.ParseKeyword("RAW") {
+		// Check for optional element name: RAW('name')
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			p.AdvanceToken() // consume (
+			str, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			elementName = &str
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+		forXml = query.ForXmlRaw
+	} else if p.ParseKeyword("AUTO") {
+		forXml = query.ForXmlAuto
+	} else if p.ParseKeyword("EXPLICIT") {
+		forXml = query.ForXmlExplicit
+	} else if p.ParseKeyword("PATH") {
+		// Check for optional element name: PATH('name')
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			p.AdvanceToken() // consume (
+			str, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			elementName = &str
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+		forXml = query.ForXmlPath
+	} else {
+		return nil, fmt.Errorf("expected FOR XML [RAW | AUTO | EXPLICIT | PATH]")
+	}
+
+	// Parse optional options: ELEMENTS, BINARY BASE64, ROOT('...'), TYPE
+	elements := false
+	binaryBase64 := false
+	var root *string
+	typeFlag := false
+
+	for p.ConsumeToken(token.TokenComma{}) {
+		if p.ParseKeyword("ELEMENTS") {
+			elements = true
+		} else if p.ParseKeyword("BINARY") {
+			if !p.ParseKeyword("BASE64") {
+				return nil, fmt.Errorf("expected BASE64 after BINARY")
+			}
+			binaryBase64 = true
+		} else if p.ParseKeyword("ROOT") {
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			str, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			root = &str
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else if p.ParseKeyword("TYPE") {
+			typeFlag = true
+		} else {
+			// Unknown option, break
+			break
+		}
+	}
+
+	return &query.ForClause{
+		Type: &query.ForXmlClause{
+			ForXml:       forXml,
+			ElementName:  elementName,
+			Elements:     elements,
+			BinaryBase64: binaryBase64,
+			Root:         root,
+			Type:         typeFlag,
+		},
+	}, nil
+}
+
+// parseForJson parses FOR JSON clause
+// Reference: src/parser/mod.rs:14029 parse_for_json
+func parseForJson(p *Parser) (*query.ForClause, error) {
+	var forJson query.ForJson
+
+	// Parse mode: AUTO or PATH
+	if p.ParseKeyword("AUTO") {
+		forJson = query.ForJsonAuto
+	} else if p.ParseKeyword("PATH") {
+		forJson = query.ForJsonPath
+	} else {
+		return nil, fmt.Errorf("expected FOR JSON [AUTO | PATH]")
+	}
+
+	// Parse optional options: ROOT('...'), INCLUDE_NULL_VALUES, WITHOUT_ARRAY_WRAPPER
+	var root *string
+	includeNullValues := false
+	withoutArrayWrapper := false
+
+	for p.ConsumeToken(token.TokenComma{}) {
+		if p.ParseKeyword("ROOT") {
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			str, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			root = &str
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else if p.ParseKeyword("INCLUDE_NULL_VALUES") {
+			includeNullValues = true
+		} else if p.ParseKeyword("WITHOUT_ARRAY_WRAPPER") {
+			withoutArrayWrapper = true
+		} else {
+			// Unknown option, break
+			break
+		}
+	}
+
+	return &query.ForClause{
+		Type: &query.ForJsonClause{
+			ForJson:             forJson,
+			Root:                root,
+			IncludeNullValues:   includeNullValues,
+			WithoutArrayWrapper: withoutArrayWrapper,
+		},
+	}, nil
 }
 
 func parseOrderByExpr(p *Parser) (interface{}, error) {
