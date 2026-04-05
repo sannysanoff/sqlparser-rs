@@ -511,7 +511,7 @@ func parseDelete(p *Parser, tok token.TokenWithSpan) (ast.Statement, error) {
 }
 
 // parseDeleteInternal parses a DELETE statement
-// Basic syntax: DELETE FROM table [WHERE condition]
+// Reference: src/parser/mod.rs:13432
 func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statement, error) {
 	// Parse optimizer hints if present
 	hintsInterface, err := maybeParseOptimizerHints(p)
@@ -527,38 +527,77 @@ func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statem
 		}
 	}
 
-	// Optional FROM keyword (required by most dialects but optional in BigQuery)
-	hasFromKeyword := p.ParseKeyword("FROM")
-
-	// Parse table name(s)
+	// FROM keyword is optional in BigQuery, Oracle, and Generic dialects
+	// Reference: src/parser/mod.rs:13434-13446
 	var tables []*ast.ObjectName
-	tableName, err := p.ParseObjectName()
-	if err != nil {
-		return nil, err
-	}
-	tables = append(tables, tableName)
+	var withFromKeyword bool
 
-	// Check for additional tables (multi-table DELETE - MySQL style)
-	// Example: DELETE t1, t2 FROM t1, t2 WHERE ...
-	if p.ConsumeToken(token.TokenComma{}) {
-		err = p.ParseCommaSeparated(func() error {
-			t, err := p.ParseObjectName()
+	if !p.ParseKeyword("FROM") {
+		// FROM is optional in some dialects
+		dialectName := p.dialect.Dialect()
+		if dialectName == "bigquery" || dialectName == "oracle" || dialectName == "generic" {
+			// BigQuery style: DELETE table WHERE ... (no FROM)
+			withFromKeyword = false
+		} else {
+			// MySQL style multi-table delete: DELETE t1, t2 FROM t1, t2 WHERE ...
+			// Parse table list first
+			tableName, err := p.ParseObjectName()
 			if err != nil {
-				return err
+				return nil, err
 			}
-			tables = append(tables, t)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+			tables = append(tables, tableName)
 
-		// For multi-table delete, expect FROM keyword after table list
-		if !hasFromKeyword {
+			// Check for additional tables
+			for p.ConsumeToken(token.TokenComma{}) {
+				t, err := p.ParseObjectName()
+				if err != nil {
+					return nil, err
+				}
+				tables = append(tables, t)
+			}
+
+			// Expect FROM after table list
 			if _, err := p.ExpectKeyword("FROM"); err != nil {
 				return nil, err
 			}
-			hasFromKeyword = true
+			withFromKeyword = true
+		}
+	} else {
+		withFromKeyword = true
+	}
+
+	// Parse FROM tables (if not already parsed as multi-table list)
+	var fromTables []query.TableWithJoins
+	if len(tables) == 0 || withFromKeyword {
+		from, err := parseTableWithJoinsList(p)
+		if err != nil {
+			return nil, err
+		}
+		fromTables = from
+	}
+
+	// If no tables were parsed (single-table delete), extract from FROM clause
+	if len(tables) == 0 && len(fromTables) > 0 {
+		for _, twj := range fromTables {
+			if tf, ok := twj.Relation.(*query.TableTableFactor); ok {
+				objName := queryObjectNameToAst(tf.Name)
+				tables = append(tables, objName)
+			}
+		}
+	}
+
+	// Parse optional OUTPUT clause (SQL Server style)
+	output, err := maybeParseOutputClause(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional USING clause (PostgreSQL style: DELETE FROM t USING t2 WHERE ...)
+	var using []query.TableWithJoins
+	if p.ParseKeyword("USING") {
+		using, err = parseTableWithJoinsList(p)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -571,6 +610,19 @@ func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statem
 		selection, err = ep.ParseExpr()
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// Parse optional RETURNING clause (PostgreSQL style)
+	var returning []*query.SelectItem
+	if p.ParseKeyword("RETURNING") {
+		items, err := parseProjection(p)
+		if err != nil {
+			return nil, err
+		}
+		for i := range items {
+			item := items[i]
+			returning = append(returning, &item)
 		}
 	}
 
@@ -590,7 +642,6 @@ func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statem
 	// Parse optional LIMIT clause (MySQL)
 	var limit query.LimitClause
 	if p.ParseKeyword("LIMIT") {
-		// Check for MySQL LIMIT offset,limit syntax
 		firstExpr, err := ep.ParseExpr()
 		if err != nil {
 			return nil, err
@@ -614,32 +665,28 @@ func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statem
 		}
 	}
 
-	// Parse optional RETURNING clause (PostgreSQL style)
-	var returning []*query.SelectItem
-	if p.ParseKeyword("RETURNING") {
-		items, err := parseProjection(p)
-		if err != nil {
-			return nil, err
-		}
-		// Convert []query.SelectItem to []*query.SelectItem
-		for i := range items {
-			item := items[i]
-			returning = append(returning, &item)
-		}
+	// Convert using from []query.TableWithJoins to []*query.TableWithJoins
+	var usingPtrs []*query.TableWithJoins
+	for i := range using {
+		usingPtrs = append(usingPtrs, &using[i])
 	}
 
+	// Build the Delete statement
+	// Note: The Go AST doesn't have a separate FromTable type like Rust,
+	// so we store the tables directly in the Tables field
 	delete := &statement.Delete{
 		Tables:    tables,
+		Using:     usingPtrs,
 		Selection: selection,
 		Returning: returning,
 		OrderBy:   orderBy,
 		Limit:     limit,
+		Output:    output,
 	}
 	delete.SetSpan(deleteToken.Span)
 
-	// Store optimizer hints and from keyword info if fields exist (they might not yet)
-	_ = optimizerHints // Avoid unused variable error if field doesn't exist yet
-	_ = hasFromKeyword
+	// Store optimizer hints - they may need to be added to the AST struct
+	_ = optimizerHints
 
 	return delete, nil
 }
@@ -738,6 +785,7 @@ func parseAssignmentsWithParser(p *Parser, ep *ExpressionParser) ([]*expr.Assign
 
 // maybeParseOutputClause tries to parse an OUTPUT clause if present
 // Returns nil if no OUTPUT clause is found
+// Reference: src/parser/merge.rs:235
 func maybeParseOutputClause(p *Parser) (*expr.OutputClause, error) {
 	tok := p.PeekToken()
 	word, ok := tok.Token.(token.TokenWord)
@@ -746,11 +794,8 @@ func maybeParseOutputClause(p *Parser) (*expr.OutputClause, error) {
 	}
 
 	if string(word.Word.Keyword) == "OUTPUT" {
-		p.AdvanceToken() // consume OUTPUT
-		// Call the internal parser from merge.go
-		// Note: This is defined in merge.go but we need to export it or duplicate it
-		// For now, just return nil to avoid compilation error
-		return nil, nil
+		p.AdvanceToken()                          // consume OUTPUT
+		return parseOutputClauseInternal(p, true) // true = is OUTPUT clause
 	}
 
 	return nil, nil

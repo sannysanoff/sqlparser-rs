@@ -986,7 +986,13 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 		p.AdvanceToken()
 		// Preserve original case for all dialects
 		// This matches the Rust reference implementation
-		return &ast.Ident{Value: word.Word.Value}, nil
+		ident := &ast.Ident{Value: word.Word.Value}
+		// If the word has a quote style, set it on the identifier
+		if word.Word.QuoteStyle != nil {
+			quoteStyle := rune(*word.Word.QuoteStyle)
+			ident.QuoteStyle = &quoteStyle
+		}
+		return ident, nil
 	}
 	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }

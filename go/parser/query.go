@@ -194,8 +194,14 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse DISTINCT / ALL (optional)
-	p.ParseKeyword("DISTINCT")
-	p.ParseKeyword("ALL")
+	var distinct *query.Distinct
+	if p.ParseKeyword("DISTINCT") {
+		distinctVal := query.DistinctDistinct
+		distinct = &distinctVal
+	} else if p.ParseKeyword("ALL") {
+		distinctVal := query.DistinctAll
+		distinct = &distinctVal
+	}
 
 	// Parse projection (select list)
 	projection, err := parseProjection(p)
@@ -370,6 +376,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 
 	return &SelectStatement{
 		Select: query.Select{
+			Distinct:            distinct,
 			Projection:          projection,
 			From:                from,
 			Selection:           selection,

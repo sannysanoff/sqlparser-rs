@@ -2738,22 +2738,96 @@ func (d *Declare) Span() token.Span { return token.Span{} }
 func (d *Declare) String() string   { return "" }
 
 // FetchDirection represents FETCH direction.
-type FetchDirection int
+type FetchDirection struct {
+	Kind  FetchDirectionKind
+	Limit *Expr // Optional limit value for Count, Absolute, Relative, Forward, Backward
+}
+
+// FetchDirectionKind represents the kind of fetch direction.
+type FetchDirectionKind int
 
 const (
-	FetchDirectionNone FetchDirection = iota
+	FetchDirectionCount FetchDirectionKind = iota
+	FetchDirectionNext
+	FetchDirectionPrior
+	FetchDirectionFirst
+	FetchDirectionLast
+	FetchDirectionAbsolute
+	FetchDirectionRelative
+	FetchDirectionAll
+	FetchDirectionForward
+	FetchDirectionForwardAll
+	FetchDirectionBackward
+	FetchDirectionBackwardAll
 )
 
-func (f FetchDirection) String() string { return "" }
+func (f *FetchDirection) String() string {
+	if f == nil {
+		return ""
+	}
+	var sb strings.Builder
+	switch f.Kind {
+	case FetchDirectionCount:
+		if f.Limit != nil {
+			sb.WriteString((*f.Limit).String())
+		}
+	case FetchDirectionNext:
+		sb.WriteString("NEXT")
+	case FetchDirectionPrior:
+		sb.WriteString("PRIOR")
+	case FetchDirectionFirst:
+		sb.WriteString("FIRST")
+	case FetchDirectionLast:
+		sb.WriteString("LAST")
+	case FetchDirectionAbsolute:
+		sb.WriteString("ABSOLUTE ")
+		if f.Limit != nil {
+			sb.WriteString((*f.Limit).String())
+		}
+	case FetchDirectionRelative:
+		sb.WriteString("RELATIVE ")
+		if f.Limit != nil {
+			sb.WriteString((*f.Limit).String())
+		}
+	case FetchDirectionAll:
+		sb.WriteString("ALL")
+	case FetchDirectionForward:
+		sb.WriteString("FORWARD")
+		if f.Limit != nil {
+			sb.WriteString(" ")
+			sb.WriteString((*f.Limit).String())
+		}
+	case FetchDirectionForwardAll:
+		sb.WriteString("FORWARD ALL")
+	case FetchDirectionBackward:
+		sb.WriteString("BACKWARD")
+		if f.Limit != nil {
+			sb.WriteString(" ")
+			sb.WriteString((*f.Limit).String())
+		}
+	case FetchDirectionBackwardAll:
+		sb.WriteString("BACKWARD ALL")
+	}
+	return sb.String()
+}
 
 // FetchPosition represents FETCH position.
 type FetchPosition int
 
 const (
-	FetchPositionNone FetchPosition = iota
+	FetchPositionFrom FetchPosition = iota
+	FetchPositionIn
 )
 
-func (f FetchPosition) String() string { return "" }
+func (f FetchPosition) String() string {
+	switch f {
+	case FetchPositionFrom:
+		return "FROM"
+	case FetchPositionIn:
+		return "IN"
+	}
+	return ""
+}
 
 // FlushType represents FLUSH type.
 type FlushType int

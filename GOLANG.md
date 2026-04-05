@@ -597,28 +597,154 @@ Reference: `parser/utils.go`, `parser/parser.go` for parser API methods.
 
 ---
 
+### Pattern Q: Discarding Parsed Keywords Without Storing in AST
+
+**Problem:** Parser consumes keywords like DISTINCT but doesn't store them, causing incorrect String() output.
+
+**Example - SELECT DISTINCT:**
+
+```go
+// INCORRECT - keyword consumed but not stored
+func parseSelect(p *Parser) (ast.Statement, error) {
+    p.ExpectKeyword("SELECT")
+    p.ParseKeyword("DISTINCT")  // Consumed but discarded!
+    p.ParseKeyword("ALL")        // Consumed but discarded!
+    projection, _ := parseProjection(p)
+    return &SelectStatement{Select: query.Select{
+        Projection: projection,  // Distinct field is nil!
+    }}, nil
+}
+// Result: "SELECT DISTINCT name" becomes "SELECT name" in output
+
+// CORRECT - store the parsed distinct/all values
+func parseSelect(p *Parser) (ast.Statement, error) {
+    p.ExpectKeyword("SELECT")
+    var distinct *query.Distinct
+    if p.ParseKeyword("DISTINCT") {
+        d := query.DistinctDistinct
+        distinct = &d
+    } else if p.ParseKeyword("ALL") {
+        d := query.DistinctAll
+        distinct = &d
+    }
+    projection, _ := parseProjection(p)
+    return &SelectStatement{Select: query.Select{
+        Distinct:   distinct,     // Now properly stored!
+        Projection: projection,
+    }}, nil
+}
+// Result: "SELECT DISTINCT name" stays as "SELECT DISTINCT name"
+```
+
+**Key Lesson:** Always store parsed modifiers in the AST. Check the Rust implementation to see which fields should be set for each parsed keyword. Reference: `src/parser/mod.rs` for keyword handling.
+
+---
+
+### Pattern R: Not Preserving QuoteStyle in Identifiers
+
+**Problem:** When parsing quoted identifiers like `"table"`, the QuoteStyle is not preserved in the AST, causing incorrect output.
+
+**Example - Quoted Identifiers:**
+
+```go
+// INCORRECT - drops quote information
+func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
+    tok := p.PeekToken()
+    if word, ok := tok.Token.(token.TokenWord); ok {
+        p.AdvanceToken()
+        return &ast.Ident{Value: word.Word.Value}, nil  // QuoteStyle lost!
+    }
+    return nil, fmt.Errorf("expected identifier")
+}
+// Result: "table" (with quotes) becomes table (without quotes)
+
+// CORRECT - preserve QuoteStyle
+func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
+    tok := p.PeekToken()
+    if word, ok := tok.Token.(token.TokenWord); ok {
+        p.AdvanceToken()
+        ident := &ast.Ident{Value: word.Word.Value}
+        if word.Word.QuoteStyle != nil {
+            quoteStyle := rune(*word.Word.QuoteStyle)
+            ident.QuoteStyle = &quoteStyle  // Preserve it!
+        }
+        return ident, nil
+    }
+    return nil, fmt.Errorf("expected identifier")
+}
+// Result: "table" stays as "table" in String() output
+```
+
+**Key Lesson:** The tokenizer stores quote information in `TokenWord.Word.QuoteStyle`. Always copy this to `ast.Ident.QuoteStyle` for proper round-trip serialization. Reference: `ast/ident.go` for QuoteStyle handling.
+
+---
+
 ## Current Status
 
-**Overall Progress: 40% Test Pass Rate** (325/813 tests passing)
+**Overall Progress: 39% Test Pass Rate** (469/1199 tests passing)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
 | **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
-| **Common Tests** | 🔄 In Progress   | ~200    | ~435  | **46%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~40     | ~157  | **25%**   |
-| **MySQL**        | 🔄 In Progress   | ~57     | ~125  | **46%**   |
-| **Snowflake**    | 🔄 In Progress   | ~16     | ~97   | **16%**   |
-| **TOTAL**        | **40% Complete** | **325** | 813   | **40%**   |
+| **DDL Tests**    | 🔄 In Progress   | ~120    | ~300  | **40%**   |
+| **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
+| **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
+| **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
+| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
+| **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
+| **TOTAL**        | **39% Complete** | **469** | 1199  | **39%**   |
 
 **Line Counts:**
 
 - Rust Source: 67,345 lines
-- Go Source: 65,372 lines (97% of Rust)
-- Go Tests: 14,281 lines (28% of Rust tests)
+- Go Source: 66,406 lines (99% of Rust)
+- Go Tests: 14,112 lines (28% of Rust tests)
 
 ---
 
 ## Recent Progress
+
+### April 6, 2026 - DISTINCT/FETCH/DELETE Parser Fixes
+
+Implemented critical parser fixes for SELECT DISTINCT, FETCH statement, and DELETE statement:
+
+1. **SELECT DISTINCT/ALL Fix** (query.go):
+   - Problem: `DISTINCT` and `ALL` keywords were being parsed but discarded (not stored in AST)
+   - Root cause: Parser consumed keywords without setting `Select.Distinct` field
+   - Fix: Store parsed DISTINCT/ALL in `*query.Distinct` and pass to Select struct
+   - **+5 tests passing** (all DISTINCT tests now pass)
+   - Pattern: Always store parsed keywords in appropriate AST fields, never discard
+
+2. **FETCH Statement Implementation** (misc.go, expr/ddl.go):
+   - Full parser per Rust `parse_fetch_statement` (src/parser/mod.rs:7838)
+   - Supports all FETCH directions: NEXT, PRIOR, FIRST, LAST, ABSOLUTE n, RELATIVE n
+   - Supports FORWARD/FORWARD ALL, BACKWARD/BACKWARD ALL, ALL, COUNT
+   - Proper position parsing: FROM cursor_name, IN cursor_name
+   - Optional INTO clause for storing results
+   - Fixed `FetchDirection` and `FetchPosition` types to be proper structs with String() methods
+   - **New functionality**: FETCH statements now parseable
+   - Pattern: When implementing statement parsers, follow Rust's exact token order and error messages
+
+3. **DELETE Statement Improvements** (dml.go):
+   - Proper FROM keyword handling per dialect (optional in BigQuery/Oracle/Generic)
+   - Multi-table DELETE support: `DELETE t1, t2 FROM t1, t2 WHERE ...`
+   - USING clause support: `DELETE FROM t USING t2 WHERE ...`
+   - OUTPUT clause support (SQL Server style): `DELETE ... OUTPUT deleted.* INTO @table`
+   - Fixed table name extraction from TableWithJoins for single-table DELETE
+   - Pattern: Dialect-specific features must check `dialect.Dialect()` or use dialect capability methods
+
+4. **Quoted Identifier Fix** (parser.go):
+   - Fixed `ParseIdentifier()` to preserve `QuoteStyle` from TokenWord
+   - Double-quoted identifiers like `"table"` now preserve quotes in AST
+   - String() output properly renders quoted identifiers
+   - Pattern: When creating Ident from TokenWord, always copy QuoteStyle field
+
+**Key Pattern Documentation:**
+- **AST Field Preservation**: When parsing tokens that modify the statement (like DISTINCT), always store them in the AST. Never consume without storing.
+- **Dialect-Specific Parsing**: Check dialect capabilities before parsing dialect-specific syntax. Use `p.dialect.Dialect()` for dialect name checks.
+- **Token to AST Conversion**: When converting TokenWord to ast.Ident, preserve all metadata including QuoteStyle for proper round-trip serialization.
+
+---
 
 ### April 5, 2026 - CREATE TRIGGER and CREATE OPERATOR Implementation
 
@@ -878,13 +1004,17 @@ sqlparser-go/
 
 ## Test Porting Status
 
-| Phase | Test Suite     | Tests | Status                    |
-| ----- | -------------- | ----- | ------------------------- |
-| 1     | Common         | 435   | ✅ 97% ported, 40% passing |
-| 2     | PostgreSQL     | 157   | 🔄 22% passing            |
-| 2     | MySQL          | 125   | 🔄 46% passing            |
-| 2     | Snowflake      | 97    | 🔄 14% passing            |
-| 3-4   | Other dialects | 444   | ⏳ Pending                 |
+| Test Suite       | Tests | Status                    |
+| ---------------- | ----- | ------------------------- |
+| **tests**        | ~50   | 🔄 Mixed results          |
+| **tests/ddl**    | ~300  | 🔄 ~40% passing           |
+| **tests/dml**    | ~150  | 🔄 ~53% passing           |
+| **tests/query**  | ~350  | 🔄 ~43% passing           |
+| **tests/mysql**  | ~125  | 🔄 ~48% passing           |
+| **tests/postgres**| ~157 | 🔄 ~29% passing           |
+| **tests/snowflake**| ~97  | 🔄 ~19% passing           |
+| **tests/regression**| ~120 | 🔄 Mixed results          |
+| **TOTAL**        | 1199  | **39% passing**           |
 
 **Completed:** Tokenizer (29/29), TPC-H (44/44, 100%), AST types (131 statements, 69 expressions, 117 data types), 14 dialects, Fuzz testing.
 
@@ -943,10 +1073,10 @@ go build ./...                      # Build everything
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 5, 2026  
-**Status:** TPC-H fixture issue, Common ~46%, PostgreSQL ~25%, MySQL ~46%, Snowflake ~16%, **Total 325/813 (40%)**
+**Last Updated:** April 6, 2026  
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total 469/1199 (39%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines
-- Go Source: 65,372 lines (97% of Rust)
-- Go Tests: 14,281 lines
+- Go Source: 66,406 lines (99% of Rust)
+- Go Tests: 14,112 lines

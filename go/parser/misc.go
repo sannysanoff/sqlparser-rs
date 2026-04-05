@@ -695,6 +695,100 @@ func parseClose(p *Parser) (ast.Statement, error) {
 }
 
 // parseFetch parses FETCH statements
+// Reference: src/parser/mod.rs:7838
 func parseFetch(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("FETCH statement parsing not yet fully implemented")
+	// Parse direction
+	var direction *expr.FetchDirection
+
+	if p.ParseKeyword("NEXT") {
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionNext}
+	} else if p.ParseKeyword("PRIOR") {
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionPrior}
+	} else if p.ParseKeyword("FIRST") {
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionFirst}
+	} else if p.ParseKeyword("LAST") {
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionLast}
+	} else if p.ParseKeyword("ABSOLUTE") {
+		ep := NewExpressionParser(p)
+		limit, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionAbsolute, Limit: &limit}
+	} else if p.ParseKeyword("RELATIVE") {
+		ep := NewExpressionParser(p)
+		limit, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionRelative, Limit: &limit}
+	} else if p.ParseKeyword("FORWARD") {
+		if p.ParseKeyword("ALL") {
+			direction = &expr.FetchDirection{Kind: expr.FetchDirectionForwardAll}
+		} else {
+			ep := NewExpressionParser(p)
+			limit, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			direction = &expr.FetchDirection{Kind: expr.FetchDirectionForward, Limit: &limit}
+		}
+	} else if p.ParseKeyword("BACKWARD") {
+		if p.ParseKeyword("ALL") {
+			direction = &expr.FetchDirection{Kind: expr.FetchDirectionBackwardAll}
+		} else {
+			ep := NewExpressionParser(p)
+			limit, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			direction = &expr.FetchDirection{Kind: expr.FetchDirectionBackward, Limit: &limit}
+		}
+	} else if p.ParseKeyword("ALL") {
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionAll}
+	} else {
+		// Default: parse a count value
+		ep := NewExpressionParser(p)
+		limit, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		direction = &expr.FetchDirection{Kind: expr.FetchDirectionCount, Limit: &limit}
+	}
+
+	// Parse position (FROM or IN)
+	var position *expr.FetchPosition
+	if p.PeekKeyword("FROM") {
+		p.AdvanceToken() // consume FROM
+		pos := expr.FetchPositionFrom
+		position = &pos
+	} else if p.PeekKeyword("IN") {
+		p.AdvanceToken() // consume IN
+		pos := expr.FetchPositionIn
+		position = &pos
+	} else {
+		return nil, p.Expected("FROM or IN", p.PeekToken())
+	}
+
+	// Parse cursor name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional INTO clause
+	var into *ast.ObjectName
+	if p.ParseKeyword("INTO") {
+		into, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.Fetch{
+		Name:      name,
+		Direction: direction,
+		Position:  position,
+		Into:      into,
+	}, nil
 }
