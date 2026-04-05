@@ -1725,14 +1725,54 @@ func (s *SecretOption) exprNode()        {}
 func (s *SecretOption) Span() token.Span { return token.Span{} }
 func (s *SecretOption) String() string   { return "" }
 
-// CreatePolicyCommand represents CREATE POLICY command.
+// CreatePolicyType represents CREATE POLICY type (PERMISSIVE or RESTRICTIVE).
+type CreatePolicyType int
+
+const (
+	CreatePolicyTypeNone CreatePolicyType = iota
+	CreatePolicyTypePermissive
+	CreatePolicyTypeRestrictive
+)
+
+func (c CreatePolicyType) String() string {
+	switch c {
+	case CreatePolicyTypePermissive:
+		return "PERMISSIVE"
+	case CreatePolicyTypeRestrictive:
+		return "RESTRICTIVE"
+	default:
+		return ""
+	}
+}
+
+// CreatePolicyCommand represents CREATE POLICY command (FOR clause).
 type CreatePolicyCommand int
 
 const (
 	CreatePolicyCommandNone CreatePolicyCommand = iota
+	CreatePolicyCommandAll
+	CreatePolicyCommandSelect
+	CreatePolicyCommandInsert
+	CreatePolicyCommandUpdate
+	CreatePolicyCommandDelete
 )
 
-func (c CreatePolicyCommand) String() string { return "" }
+func (c CreatePolicyCommand) String() string {
+	switch c {
+	case CreatePolicyCommandAll:
+		return "ALL"
+	case CreatePolicyCommandSelect:
+		return "SELECT"
+	case CreatePolicyCommandInsert:
+		return "INSERT"
+	case CreatePolicyCommandUpdate:
+		return "UPDATE"
+	case CreatePolicyCommandDelete:
+		return "DELETE"
+	default:
+		return ""
+	}
+}
 
 // RoleName represents role name.
 type RoleName struct {
@@ -1742,6 +1782,41 @@ type RoleName struct {
 func (r *RoleName) exprNode()        {}
 func (r *RoleName) Span() token.Span { return token.Span{} }
 func (r *RoleName) String() string   { return r.Name }
+
+// OwnerKind represents the type of owner for ALTER TABLE ... OWNER TO
+type OwnerKind int
+
+const (
+	OwnerKindIdent OwnerKind = iota
+	OwnerKindCurrentRole
+	OwnerKindCurrentUser
+	OwnerKindSessionUser
+)
+
+// Owner represents a new owner specification for ALTER TABLE ... OWNER TO
+type Owner struct {
+	Kind  OwnerKind
+	Ident *ast.Ident // Only set when Kind is OwnerKindIdent
+}
+
+func (o *Owner) exprNode()        {}
+func (o *Owner) Span() token.Span { return token.Span{} }
+
+func (o *Owner) String() string {
+	switch o.Kind {
+	case OwnerKindCurrentRole:
+		return "CURRENT_ROLE"
+	case OwnerKindCurrentUser:
+		return "CURRENT_USER"
+	case OwnerKindSessionUser:
+		return "SESSION_USER"
+	default:
+		if o.Ident != nil {
+			return o.Ident.String()
+		}
+		return ""
+	}
+}
 
 // OperatorPurpose represents the purpose of an operator in an operator class.
 type OperatorPurpose int

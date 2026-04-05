@@ -419,12 +419,13 @@ func parseProjection(p *Parser) ([]query.SelectItem, error) {
 			break
 		}
 
-		// Check if next token is a reserved keyword (trailing comma check)
+		// Check if next token is a clause-starting keyword (trailing comma check)
 		// This prevents eating a comma before a clause keyword like FROM, WHERE, etc.
+		// We only check for clause keywords, not expression keywords like NULL.
 		nextTok := p.PeekToken()
 		if isWordToken(nextTok.Token) {
 			word := getWordValue(nextTok.Token)
-			if word != "" && isReservedForColumnAlias(word) {
+			if word != "" && isClauseKeyword(word) {
 				// Put back the comma - it's not a separator but part of the next clause
 				p.PrevToken()
 				break
@@ -532,6 +533,20 @@ func getWordValue(tok token.Token) string {
 		return word.Word.Value
 	}
 	return ""
+}
+
+// isClauseKeyword checks if a keyword starts a new clause (FROM, WHERE, etc.)
+// This is used for trailing comma detection in projection parsing.
+// Unlike isReservedForColumnAlias, this only includes clause-starting keywords,
+// not expression keywords like NULL, TRUE, etc.
+func isClauseKeyword(keyword string) bool {
+	keyword = strings.ToUpper(keyword)
+	clauseKeywords := map[string]bool{
+		"FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
+		"ORDER": true, "LIMIT": true, "UNION": true, "INTERSECT": true,
+		"EXCEPT": true, "WINDOW": true, "QUALIFY": true, "INTO": true,
+	}
+	return clauseKeywords[keyword]
 }
 
 // isReservedForColumnAlias checks if a keyword cannot be used as a column alias

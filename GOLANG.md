@@ -868,6 +868,59 @@ Always check the Rust reference when implementing identifier parsing.
 
 ---
 
+### Pattern W: Clause Keywords vs Reserved Keywords for Column Aliases
+
+**Problem:** The trailing comma check in projection parsing incorrectly uses `isReservedForColumnAlias()` which includes expression keywords like `NULL`, `TRUE`, `FALSE`, causing premature termination of the SELECT list.
+
+**Example - SELECT with NULL expression:**
+
+```go
+// INCORRECT - stops after first expression when seeing NULL
+func parseProjection(p *Parser) ([]query.SelectItem, error) {
+    for {
+        item, err := parseSelectItem(p)
+        items = append(items, item)
+        if !p.ConsumeToken(token.TokenComma{}) {
+            break
+        }
+        // WRONG: isReservedForColumnAlias includes NULL, TRUE, etc.
+        if isReservedForColumnAlias(word) {
+            p.PrevToken()
+            break  // Stops here incorrectly!
+        }
+    }
+}
+// Result: "SELECT a LIKE b, NULL FROM t" only parses "a LIKE b"
+```
+
+```go
+// CORRECT - use isClauseKeyword for trailing comma check
+func parseProjection(p *Parser) ([]query.SelectItem, error) {
+    for {
+        item, err := parseSelectItem(p)
+        items = append(items, item)
+        if !p.ConsumeToken(token.TokenComma{}) {
+            break
+        }
+        // Check if next token is a CLAUSE keyword (FROM, WHERE, etc.)
+        // NOT expression keywords like NULL
+        if isClauseKeyword(word) {  // Only checks FROM, WHERE, GROUP, etc.
+            p.PrevToken()
+            break
+        }
+    }
+}
+// Result: "SELECT a LIKE b, NULL FROM t" parses both expressions
+```
+
+**Key Lesson:** Distinguish between:
+- **Clause keywords** (FROM, WHERE, GROUP, ORDER, LIMIT, UNION, etc.) - these signal end of projection
+- **Reserved keywords for column aliases** (NULL, TRUE, FALSE, LIKE, etc.) - these can appear in expressions
+
+The trailing comma check should only use clause keywords, not all reserved keywords. Reference: `src/parser/mod.rs:4800-4807` for Rust's `parse_projection`.
+
+---
+
 ## Current Status
 
 **Overall Progress: ~42% Test Pass Rate** (~469 tests failing)
@@ -891,6 +944,61 @@ Always check the Rust reference when implementing identifier parsing.
 - Go Tests: 14,131 lines (28%)
 
 **Recent Focus:** CAST expressions with complex data types, named function arguments, and JSON_OBJECT parsing
+
+---
+
+### April 8, 2026 - Projection Comma Handling and CREATE POLICY/CONNECTOR
+
+Implemented critical parser fixes and completed major missing DDL statement parsers:
+
+1. **SELECT Projection Clause Keyword Fix** (parser/query.go):
+   - Fixed `parseProjection()` to use `isClauseKeyword()` instead of `isReservedForColumnAlias()` for trailing comma detection
+   - The bug caused premature termination of SELECT lists when expression keywords like `NULL`, `TRUE`, `FALSE` appeared after commas
+   - Added new `isClauseKeyword()` function that only checks for clause-starting keywords (FROM, WHERE, GROUP, ORDER, LIMIT, UNION, etc.)
+   - **+1 test passing** (TestParseNullLike now correctly parses `SELECT a LIKE NULL AS x, NULL LIKE b AS y FROM t`)
+   - **Pattern W** documented: Clause keywords vs Reserved keywords distinction
+
+2. **CREATE POLICY Statement** (parser/create.go, ast/statement/ddl.go, ast/expr/ddl.go):
+   - Full implementation per Rust `parse_create_policy` (src/parser/mod.rs:6853)
+   - Supports: `CREATE POLICY name ON table [AS PERMISSIVE|RESTRICTIVE] [FOR ALL|SELECT|INSERT|UPDATE|DELETE] [TO role[,...]] [USING (expr)] [WITH CHECK (expr)]`
+   - Added new AST types: `CreatePolicyType` (Permissive/Restrictive), `CreatePolicyCommand` (All/Select/Insert/Update/Delete)
+   - Added `Owner` type with support for CURRENT_USER, CURRENT_ROLE, SESSION_USER, and identifiers
+   - Added `parseOwner()` helper function
+   - Fixed `CreatePolicy` String() method to output complete SQL
+
+3. **CREATE CONNECTOR Statement** (parser/create.go, ast/statement/ddl.go):
+   - Full implementation per Rust `parse_create_connector` (src/parser/mod.rs:6938)
+   - Supports: `CREATE CONNECTOR [IF NOT EXISTS] name [TYPE 'type'] [URL 'url'] [COMMENT 'comment'] [WITH DCPROPERTIES (k=v, ...)]`
+   - Fixed `CreateConnector` struct to include all fields: ConnectorType, URL, Comment, WithDCProperties
+   - Fixed String() method to output complete SQL with all optional clauses
+
+**Result:** Major parser chunks now implemented. Fixed critical SELECT parsing bug that affected any SELECT with NULL expressions.
+
+---
+
+## Current Status
+
+**Overall Progress: ~42% Test Pass Rate** (~468 tests failing)
+
+| Test Suite       | Status           | Passing | Total | Pass Rate |
+| ---------------- | ---------------- | ------- | ----- | --------- |
+| **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
+| **DDL Tests**    | 🔄 In Progress   | ~120    | ~300  | **40%**   |
+| **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
+| **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
+| **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
+| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
+| **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
+| **TOTAL**        | **~42% Complete** | **~345**| 813   | **~42%** |
+
+**Line Counts:**
+
+- Rust Source: 66,842 lines
+- Go Source: 68,196 lines (102% of Rust - AST types added)
+- Rust Tests: 49,886 lines
+- Go Tests: 13,893 lines (28%)
+
+**Recent Focus:** SELECT projection parsing, CREATE POLICY/CONNECTOR DDL statements
 
 ---
 
@@ -1440,11 +1548,11 @@ go build ./...                      # Build everything
 ---
 
 **Version:** 1.0  
-**Last Updated:** April 7, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total ~339/813 (~42%)**
+**Last Updated:** April 8, 2026  
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~29%, Snowflake ~19%, **Total ~345/813 (~42%)**
 
 **Line Counts:**
-- Rust Source: 67,345 lines  
-- Go Source: 68,233 lines (101% of Rust - data types added)  
-- Go Tests: 14,131 lines  
+- Rust Source: 66,842 lines  
+- Go Source: 68,196 lines (102% of Rust - AST types added)  
+- Go Tests: 13,893 lines  
 - Rust Tests: 49,886 lines

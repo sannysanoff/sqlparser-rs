@@ -1564,7 +1564,136 @@ func parseTriggerExecBody(p *Parser) (*expr.TriggerExecBody, error) {
 }
 
 func parseCreatePolicy(p *Parser, orReplace bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE POLICY not yet implemented", p.PeekTokenRef())
+	// Parse policy name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse ON keyword and table name
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, err
+	}
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional AS PERMISSIVE/RESTRICTIVE
+	var policyType *expr.CreatePolicyType
+	if p.ParseKeyword("AS") {
+		if p.ParseKeyword("PERMISSIVE") {
+			pt := expr.CreatePolicyTypePermissive
+			policyType = &pt
+		} else if p.ParseKeyword("RESTRICTIVE") {
+			pt := expr.CreatePolicyTypeRestrictive
+			policyType = &pt
+		} else {
+			return nil, p.Expected("PERMISSIVE or RESTRICTIVE after AS", p.PeekToken())
+		}
+	}
+
+	// Parse optional FOR ALL|SELECT|INSERT|UPDATE|DELETE
+	var command *expr.CreatePolicyCommand
+	if p.ParseKeyword("FOR") {
+		if p.ParseKeyword("ALL") {
+			cmd := expr.CreatePolicyCommandAll
+			command = &cmd
+		} else if p.ParseKeyword("SELECT") {
+			cmd := expr.CreatePolicyCommandSelect
+			command = &cmd
+		} else if p.ParseKeyword("INSERT") {
+			cmd := expr.CreatePolicyCommandInsert
+			command = &cmd
+		} else if p.ParseKeyword("UPDATE") {
+			cmd := expr.CreatePolicyCommandUpdate
+			command = &cmd
+		} else if p.ParseKeyword("DELETE") {
+			cmd := expr.CreatePolicyCommandDelete
+			command = &cmd
+		} else {
+			return nil, p.Expected("ALL, SELECT, INSERT, UPDATE, or DELETE after FOR", p.PeekToken())
+		}
+	}
+
+	// Parse optional TO clause (role names)
+	var to []*expr.Owner
+	if p.ParseKeyword("TO") {
+		for {
+			owner, err := parseOwner(p)
+			if err != nil {
+				return nil, err
+			}
+			to = append(to, owner)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+	}
+
+	// Parse optional USING (expression)
+	var usingExpr expr.Expr
+	if p.ParseKeyword("USING") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		ep := NewExpressionParser(p)
+		usingExpr, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse optional WITH CHECK (expression)
+	var withCheckExpr expr.Expr
+	if p.ParseKeywords([]string{"WITH", "CHECK"}) {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		ep := NewExpressionParser(p)
+		withCheckExpr, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.CreatePolicy{
+		OrReplace:  orReplace,
+		Name:       name,
+		TableName:  tableName,
+		PolicyType: policyType,
+		Command:    command,
+		To:         to,
+		Using:      usingExpr,
+		WithCheck:  withCheckExpr,
+	}, nil
+}
+
+// parseOwner parses an owner specification (CURRENT_USER, CURRENT_ROLE, SESSION_USER, or identifier)
+// Reference: src/parser/mod.rs:6795
+func parseOwner(p *Parser) (*expr.Owner, error) {
+	if p.ParseKeyword("CURRENT_USER") {
+		return &expr.Owner{Kind: expr.OwnerKindCurrentUser}, nil
+	}
+	if p.ParseKeyword("CURRENT_ROLE") {
+		return &expr.Owner{Kind: expr.OwnerKindCurrentRole}, nil
+	}
+	if p.ParseKeyword("SESSION_USER") {
+		return &expr.Owner{Kind: expr.OwnerKindSessionUser}, nil
+	}
+
+	// Otherwise, parse as identifier
+	ident, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, p.Expected("CURRENT_USER, CURRENT_ROLE, SESSION_USER, or identifier", p.PeekToken())
+	}
+	return &expr.Owner{Kind: expr.OwnerKindIdent, Ident: ident}, nil
 }
 
 func parseCreateFunction(p *Parser, orReplace, temporary bool) (ast.Statement, error) {
@@ -1935,7 +2064,105 @@ func parseCreateSecret(p *Parser, orReplace, temporary bool) (ast.Statement, err
 }
 
 func parseCreateConnector(p *Parser, orReplace bool) (ast.Statement, error) {
-	return nil, p.expectedRef("CREATE CONNECTOR not yet implemented", p.PeekTokenRef())
+	// Check for IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse connector name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional TYPE 'datasource_type'
+	var connectorType *string
+	if p.ParseKeyword("TYPE") {
+		tok := p.PeekToken()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			connectorType = &str.Value
+		} else {
+			return nil, p.Expected("string literal after TYPE", tok)
+		}
+	}
+
+	// Parse optional URL 'datasource_url'
+	var url *string
+	if p.ParseKeyword("URL") {
+		tok := p.PeekToken()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			url = &str.Value
+		} else {
+			return nil, p.Expected("string literal after URL", tok)
+		}
+	}
+
+	// Parse optional COMMENT 'comment'
+	var comment *string
+	if p.ParseKeyword("COMMENT") {
+		// Optional = sign
+		p.ParseKeyword("=")
+		tok := p.PeekToken()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			comment = &str.Value
+		} else {
+			return nil, p.Expected("string literal after COMMENT", tok)
+		}
+	}
+
+	// Parse optional WITH DCPROPERTIES (property_name=property_value, ...)
+	var dcProperties []*expr.SqlOption
+	if p.ParseKeywords([]string{"WITH", "DCPROPERTIES"}) {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		for {
+			// Parse property name
+			propName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Expect =
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse property value (identifier or string)
+			var propValue expr.Expr
+			tok := p.PeekToken()
+			if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+				p.AdvanceToken()
+				propValue = &expr.ValueExpr{
+					Value: str.Value,
+				}
+			} else {
+				propVal, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, err
+				}
+				propValue = &expr.Ident{Value: propVal.Value}
+			}
+			dcProperties = append(dcProperties, &expr.SqlOption{
+				Name:  &expr.Ident{Value: propName.Value},
+				Value: propValue,
+			})
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return &statement.CreateConnector{
+		IfNotExists:      ifNotExists,
+		Name:             name,
+		ConnectorType:    connectorType,
+		URL:              url,
+		Comment:          comment,
+		WithDCProperties: dcProperties,
+	}, nil
 }
 
 func parseCreateOperator(p *Parser) (ast.Statement, error) {

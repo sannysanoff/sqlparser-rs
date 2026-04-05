@@ -1312,17 +1312,14 @@ func (c *CreateServerStatement) String() string {
 // CreatePolicy represents a CREATE POLICY statement
 type CreatePolicy struct {
 	BaseStatement
-	OrReplace          bool
-	Name               *ast.Ident
-	TableName          *ast.ObjectName
-	Permissive         *bool
-	Command            *expr.CreatePolicyCommand
-	RoleNames          []*expr.RoleName
-	Using              expr.Expr
-	WithCheck          expr.Expr
-	ExternalSchema     *string
-	ExternalTable      *string
-	ExternalDataFormat *string
+	OrReplace  bool
+	Name       *ast.Ident
+	TableName  *ast.ObjectName
+	PolicyType *expr.CreatePolicyType
+	Command    *expr.CreatePolicyCommand
+	To         []*expr.Owner
+	Using      expr.Expr
+	WithCheck  expr.Expr
 }
 
 func (c *CreatePolicy) statementNode() {}
@@ -1336,6 +1333,33 @@ func (c *CreatePolicy) String() string {
 	f.WriteString(c.Name.String())
 	f.WriteString(" ON ")
 	f.WriteString(c.TableName.String())
+	if c.PolicyType != nil {
+		f.WriteString(" AS ")
+		f.WriteString(c.PolicyType.String())
+	}
+	if c.Command != nil {
+		f.WriteString(" FOR ")
+		f.WriteString(c.Command.String())
+	}
+	if len(c.To) > 0 {
+		f.WriteString(" TO ")
+		for i, role := range c.To {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(role.String())
+		}
+	}
+	if c.Using != nil {
+		f.WriteString(" USING (")
+		f.WriteString(c.Using.String())
+		f.WriteString(")")
+	}
+	if c.WithCheck != nil {
+		f.WriteString(" WITH CHECK (")
+		f.WriteString(c.WithCheck.String())
+		f.WriteString(")")
+	}
 	return f.String()
 }
 
@@ -1346,10 +1370,12 @@ func (c *CreatePolicy) String() string {
 // CreateConnector represents a CREATE CONNECTOR statement (Hive)
 type CreateConnector struct {
 	BaseStatement
-	IfNotExists bool
-	Name        *ast.Ident
-	URL         string
-	Options     []*expr.SqlOption
+	IfNotExists      bool
+	Name             *ast.Ident
+	ConnectorType    *string
+	URL              *string
+	Comment          *string
+	WithDCProperties []*expr.SqlOption
 }
 
 func (c *CreateConnector) statementNode() {}
@@ -1361,6 +1387,33 @@ func (c *CreateConnector) String() string {
 		f.WriteString("IF NOT EXISTS ")
 	}
 	f.WriteString(c.Name.String())
+	if c.ConnectorType != nil {
+		f.WriteString(" TYPE '")
+		f.WriteString(*c.ConnectorType)
+		f.WriteString("'")
+	}
+	if c.URL != nil {
+		f.WriteString(" URL '")
+		f.WriteString(*c.URL)
+		f.WriteString("'")
+	}
+	if c.Comment != nil {
+		f.WriteString(" COMMENT '")
+		f.WriteString(*c.Comment)
+		f.WriteString("'")
+	}
+	if len(c.WithDCProperties) > 0 {
+		f.WriteString(" WITH DCPROPERTIES(")
+		for i, opt := range c.WithDCProperties {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.Name.String())
+			f.WriteString("=")
+			f.WriteString(opt.Value.String())
+		}
+		f.WriteString(")")
+	}
 	return f.String()
 }
 
