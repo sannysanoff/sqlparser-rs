@@ -1471,6 +1471,18 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 		}
 		return ident, nil
 	}
+	// Following Rust pattern: accept quoted strings as identifiers
+	// Reference: src/parser/mod.rs:12926
+	if singleStr, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+		p.AdvanceToken()
+		quoteStyle := rune('\'')
+		return &ast.Ident{Value: singleStr.Value, QuoteStyle: &quoteStyle}, nil
+	}
+	if doubleStr, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
+		p.AdvanceToken()
+		quoteStyle := rune('"')
+		return &ast.Ident{Value: doubleStr.Value, QuoteStyle: &quoteStyle}, nil
+	}
 	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
 }
 

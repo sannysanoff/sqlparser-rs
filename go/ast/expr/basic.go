@@ -68,6 +68,28 @@ func (c *CompoundIdentifier) String() string {
 	return strings.Join(parts, ".")
 }
 
+// SystemVariable represents a system variable reference like @@var or @@global.var (MySQL-specific).
+type SystemVariable struct {
+	SpanVal token.Span
+	// Name is the system variable name (e.g., "sql_mode" or "global.sql_mode")
+	Name *CompoundIdentifier
+}
+
+func (s *SystemVariable) exprNode() {}
+
+// Span returns the source span for this expression.
+func (s *SystemVariable) Span() token.Span {
+	return s.SpanVal
+}
+
+// String returns the SQL representation (e.g., "@@sql_mode" or "@@global.sql_mode").
+func (s *SystemVariable) String() string {
+	if s.Name == nil {
+		return "@@"
+	}
+	return "@@" + s.Name.String()
+}
+
 // ValueExpr represents a literal value expression (Expr::Value in Rust).
 type ValueExpr struct {
 	SpanVal token.Span

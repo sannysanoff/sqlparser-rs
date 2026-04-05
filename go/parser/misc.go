@@ -500,37 +500,91 @@ func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
 }
 
 // parseSet parses SET statements
+// Reference: src/parser/mod.rs:14784
 func parseSet(p *Parser) (ast.Statement, error) {
-	// SET [ SESSION | LOCAL | GLOBAL ] variable = value [, ...]
-	// SET [ SESSION | LOCAL ] TIME ZONE { value | LOCAL | DEFAULT }
+	// Check for HIVEVAR modifier first
+	hivevar := p.ParseKeyword("HIVEVAR")
+	if hivevar {
+		// Expect colon after HIVEVAR
+		if _, err := p.ExpectToken(token.TokenColon{}); err != nil {
+			return nil, err
+		}
+	}
 
-	setStmt := &statement.Set{}
-
-	// Parse optional scope modifiers
-	if p.ParseKeyword("SESSION") {
-		setStmt.Session = true
-	} else if p.ParseKeyword("LOCAL") {
-		setStmt.Local = true
-	} else if p.ParseKeyword("GLOBAL") {
-		setStmt.Global = true
+	// Parse optional scope modifiers (SESSION, LOCAL, GLOBAL)
+	var session, local, global bool
+	if !hivevar {
+		if p.ParseKeyword("SESSION") {
+			session = true
+		} else if p.ParseKeyword("LOCAL") {
+			local = true
+		} else if p.ParseKeyword("GLOBAL") {
+			global = true
+		}
 	}
 
 	// Check for SET TIME ZONE
 	if p.PeekKeyword("TIME") {
-		// Save position in case this isn't TIME ZONE
 		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
-			setStmt.TimeZone = true
-			// Parse the timezone value
+			// SET [ SESSION | LOCAL ] TIME ZONE { value | LOCAL | DEFAULT }
 			exprParser := NewExpressionParser(p)
 			val, err := exprParser.ParseExpr()
 			if err != nil {
 				return nil, err
 			}
-			setStmt.Values = []expr.Expr{val}
-			return setStmt, nil
+			return &statement.Set{
+				Session:  session,
+				Local:    local,
+				TimeZone: true,
+				Values:   []expr.Expr{val},
+				HiveVar:  hivevar,
+			}, nil
 		}
 		// Backtrack if it wasn't TIME ZONE
 		p.PrevToken()
+	}
+
+	// Check for SET TRANSACTION SNAPSHOT or SET SESSION CHARACTERISTICS AS TRANSACTION
+	if p.ParseKeyword("TRANSACTION") {
+		setTrans := &statement.SetTransaction{
+			Session: session,
+			Local:   local,
+		}
+
+		// Check for SNAPSHOT
+		if p.ParseKeyword("SNAPSHOT") {
+			exprParser := NewExpressionParser(p)
+			snapshot, err := exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			setTrans.Snapshot = snapshot
+			return setTrans, nil
+		}
+
+		// Parse transaction modes
+		modes, err := p.parseTransactionModes()
+		if err != nil {
+			return nil, err
+		}
+		setTrans.Modes = modes
+		return setTrans, nil
+	}
+
+	// Check for SET CHARACTERISTICS AS TRANSACTION
+	if p.ParseKeyword("CHARACTERISTICS") {
+		if err := p.ExpectKeywords([]string{"AS", "TRANSACTION"}); err != nil {
+			return nil, err
+		}
+		setTrans := &statement.SetTransaction{
+			Session: true, // SET CHARACTERISTICS AS TRANSACTION is always SESSION
+		}
+		modes, err := p.parseTransactionModes()
+		if err != nil {
+			return nil, err
+		}
+		setTrans.Modes = modes
+		return setTrans, nil
 	}
 
 	// Check for SET NAMES (MySQL specific)
@@ -564,6 +618,122 @@ func parseSet(p *Parser) (ast.Statement, error) {
 		return setNamesStmt, nil
 	}
 
+	// Check for SET AUTHORIZATION
+	if p.ParseKeyword("AUTHORIZATION") {
+		// SET { SESSION | LOCAL } AUTHORIZATION { user_name | DEFAULT }
+		if !session && !local {
+			return nil, fmt.Errorf("expected SESSION, LOCAL, or other scope modifier before AUTHORIZATION")
+		}
+
+		setAuth := &statement.SetSessionAuthorization{
+			Session: session,
+			Local:   local,
+		}
+
+		if p.ParseKeyword("DEFAULT") {
+			setAuth.Default = true
+		} else {
+			user, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected user name or DEFAULT after AUTHORIZATION: %w", err)
+			}
+			setAuth.User = user
+		}
+		return setAuth, nil
+	}
+
+	// Check for SET ROLE
+	if p.ParseKeyword("ROLE") {
+		// SET [ SESSION | LOCAL ] ROLE { role_name | NONE }
+		setRole := &statement.SetRole{
+			Session: session,
+			Local:   local,
+		}
+
+		if p.ParseKeyword("NONE") {
+			setRole.None = true
+		} else {
+			role, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected role name or NONE after ROLE: %w", err)
+			}
+			setRole.Role = role
+		}
+		return setRole, nil
+	}
+
+	// Check for parenthesized assignments: SET (a, b, c) = (1, 2, 3)
+	if p.GetDialect().SupportsParenthesizedSetVariables() {
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			// Parse parenthesized variable list
+			p.AdvanceToken() // consume (
+			vars := []string{}
+			for {
+				ident, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, err
+				}
+				vars = append(vars, ident.Value)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse = or TO
+			if !p.ParseKeyword("TO") {
+				if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+					return nil, err
+				}
+			}
+
+			// Expect (
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse values
+			exprParser := NewExpressionParser(p)
+			values := []expr.Expr{}
+			for {
+				val, err := exprParser.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				values = append(values, val)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+
+			// Expect )
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			// Build SET statement with multiple variables
+			setStmt := &statement.Set{
+				Session: session,
+				Local:   local,
+				Global:  global,
+				HiveVar: hivevar,
+			}
+			// Store the first variable name and values as a comma-separated list
+			if len(vars) > 0 {
+				setStmt.Variable = &ast.ObjectName{
+					Parts: []ast.ObjectNamePart{
+						&ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: vars[0]}},
+					},
+				}
+			}
+			setStmt.Values = values
+			return setStmt, nil
+		}
+	}
+
+	// Standard SET variable = value [, ...]
 	// Parse variable name - handle @variable syntax for MySQL/MS SQL
 	var varName *ast.ObjectName
 	tok := p.PeekToken().Token
@@ -583,7 +753,6 @@ func parseSet(p *Parser) (ast.Statement, error) {
 		}
 		varName = objName
 	}
-	setStmt.Variable = varName
 
 	// Parse = or TO
 	if !p.ParseKeyword("TO") {
@@ -594,24 +763,162 @@ func parseSet(p *Parser) (ast.Statement, error) {
 
 	// Parse one or more values (comma-separated)
 	exprParser := NewExpressionParser(p)
+	values := []expr.Expr{}
 	for {
 		val, err := exprParser.ParseExpr()
 		if err != nil {
 			return nil, err
 		}
-		setStmt.Values = append(setStmt.Values, val)
+		values = append(values, val)
 
 		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	return setStmt, nil
+	return &statement.Set{
+		Variable: varName,
+		Values:   values,
+		Local:    local,
+		Session:  session,
+		Global:   global,
+		HiveVar:  hivevar,
+	}, nil
+}
+
+// parseTransactionModes parses transaction mode options
+func (p *Parser) parseTransactionModes() ([]expr.TransactionMode, error) {
+	modes := []expr.TransactionMode{}
+	for {
+		// Check for ISOLATION LEVEL
+		if p.ParseKeyword("ISOLATION") {
+			if err := p.ExpectKeywordIs("LEVEL"); err != nil {
+				return nil, err
+			}
+			switch {
+			case p.ParseKeyword("READ"):
+				if p.ParseKeyword("UNCOMMITTED") {
+					modes = append(modes, expr.TransactionModeReadUncommitted)
+				} else if p.ParseKeyword("COMMITTED") {
+					modes = append(modes, expr.TransactionModeReadCommitted)
+				}
+			case p.ParseKeyword("REPEATABLE"):
+				if err := p.ExpectKeywordIs("READ"); err != nil {
+					return nil, err
+				}
+				modes = append(modes, expr.TransactionModeRepeatableRead)
+			case p.ParseKeyword("SERIALIZABLE"):
+				modes = append(modes, expr.TransactionModeSerializable)
+			case p.ParseKeyword("SNAPSHOT"):
+				modes = append(modes, expr.TransactionModeSnapshot)
+			}
+		} else if p.ParseKeyword("READ") {
+			// READ ONLY / READ WRITE
+			if p.ParseKeyword("ONLY") {
+				modes = append(modes, expr.TransactionModeReadOnly)
+			} else if p.ParseKeyword("WRITE") {
+				modes = append(modes, expr.TransactionModeReadWrite)
+			}
+		} else if p.ParseKeyword("NOT") {
+			if p.ParseKeyword("DEFERRABLE") {
+				modes = append(modes, expr.TransactionModeNotDeferrable)
+			}
+		} else if p.ParseKeyword("DEFERRABLE") {
+			modes = append(modes, expr.TransactionModeDeferrable)
+		} else {
+			break
+		}
+
+		// Consume optional comma between modes
+		p.ConsumeToken(token.TokenComma{})
+	}
+	return modes, nil
 }
 
 // parseUse parses USE statements
+// Reference: src/parser/mod.rs:15226
 func parseUse(p *Parser) (ast.Statement, error) {
-	return nil, fmt.Errorf("USE statement parsing not yet fully implemented")
+	dialect := p.GetDialect().Dialect()
+
+	// HiveDialect accepts USE DEFAULT
+	if dialect == "hive" {
+		if p.ParseKeyword("DEFAULT") {
+			return &statement.Use{Default: true}, nil
+		}
+	}
+
+	// Check for dialect-specific keywords
+	var parsedKeyword string
+	switch dialect {
+	case "snowflake":
+		if p.ParseKeyword("DATABASE") {
+			parsedKeyword = "DATABASE"
+		} else if p.ParseKeyword("SCHEMA") {
+			parsedKeyword = "SCHEMA"
+		} else if p.ParseKeyword("WAREHOUSE") {
+			parsedKeyword = "WAREHOUSE"
+		} else if p.ParseKeyword("ROLE") {
+			parsedKeyword = "ROLE"
+		} else if p.ParseKeyword("SECONDARY") {
+			// Parse SECONDARY ROLES
+			if !p.ParseKeyword("ROLES") && !p.ParseKeyword("ROLE") {
+				return nil, fmt.Errorf("expected ROLES or ROLE after SECONDARY")
+			}
+			secRoles := &statement.SecondaryRoles{}
+			if p.ParseKeyword("NONE") {
+				secRoles.None = true
+			} else if p.ParseKeyword("ALL") {
+				secRoles.All = true
+			} else {
+				// Parse comma-separated role list
+				roles := []*ast.Ident{}
+				for {
+					role, err := p.ParseIdentifier()
+					if err != nil {
+						return nil, err
+					}
+					roles = append(roles, role)
+					if !p.ConsumeToken(token.TokenComma{}) {
+						break
+					}
+				}
+				secRoles.Roles = roles
+			}
+			return &statement.Use{SecondaryRoles: secRoles}, nil
+		}
+	case "databricks":
+		if p.ParseKeyword("CATALOG") {
+			parsedKeyword = "CATALOG"
+		} else if p.ParseKeyword("DATABASE") {
+			parsedKeyword = "DATABASE"
+		} else if p.ParseKeyword("SCHEMA") {
+			parsedKeyword = "SCHEMA"
+		}
+	}
+
+	// Parse object name
+	objName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	useStmt := &statement.Use{}
+	switch parsedKeyword {
+	case "CATALOG":
+		useStmt.Catalog = objName
+	case "DATABASE":
+		useStmt.Database = objName
+	case "SCHEMA":
+		useStmt.Schema = objName
+	case "WAREHOUSE":
+		useStmt.Warehouse = objName
+	case "ROLE":
+		useStmt.Role = objName
+	default:
+		useStmt.Object = objName
+	}
+
+	return useStmt, nil
 }
 
 // parseAnalyze parses ANALYZE statements

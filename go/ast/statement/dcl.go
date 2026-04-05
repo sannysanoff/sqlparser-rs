@@ -276,10 +276,30 @@ func (a *AlterUser) String() string {
 // USE
 // ============================================================================
 
-// Use represents a USE statement
+// SecondaryRoles represents secondary roles for USE SECONDARY ROLES
+type SecondaryRoles struct {
+	All   bool
+	None  bool
+	Roles []*ast.Ident
+}
+
+// Use represents a USE statement for switching database/schema/context.
+// Supports: USE [DATABASE|SCHEMA|WAREHOUSE|ROLE|CATALOG] name
+//
+//	USE SECONDARY ROLES { ALL | NONE | role1, role2, ... }
+//	USE DEFAULT
+//	USE object_name
 type Use struct {
 	BaseStatement
-	DbName *ast.Ident
+	DbName         *ast.Ident
+	Catalog        *ast.ObjectName
+	Database       *ast.ObjectName
+	Schema         *ast.ObjectName
+	Warehouse      *ast.ObjectName
+	Role           *ast.ObjectName
+	SecondaryRoles *SecondaryRoles
+	Default        bool
+	Object         *ast.ObjectName
 }
 
 func (u *Use) statementNode() {}
@@ -287,7 +307,43 @@ func (u *Use) statementNode() {}
 func (u *Use) String() string {
 	var f strings.Builder
 	f.WriteString("USE ")
-	f.WriteString(u.DbName.String())
+	if u.Default {
+		f.WriteString("DEFAULT")
+	} else if u.Catalog != nil {
+		f.WriteString("CATALOG ")
+		f.WriteString(u.Catalog.String())
+	} else if u.Database != nil {
+		f.WriteString("DATABASE ")
+		f.WriteString(u.Database.String())
+	} else if u.Schema != nil {
+		f.WriteString("SCHEMA ")
+		f.WriteString(u.Schema.String())
+	} else if u.Warehouse != nil {
+		f.WriteString("WAREHOUSE ")
+		f.WriteString(u.Warehouse.String())
+	} else if u.Role != nil {
+		f.WriteString("ROLE ")
+		f.WriteString(u.Role.String())
+	} else if u.SecondaryRoles != nil {
+		f.WriteString("SECONDARY ")
+		if u.SecondaryRoles.All {
+			f.WriteString("ROLES ALL")
+		} else if u.SecondaryRoles.None {
+			f.WriteString("ROLES NONE")
+		} else if len(u.SecondaryRoles.Roles) > 0 {
+			f.WriteString("ROLES ")
+			for i, role := range u.SecondaryRoles.Roles {
+				if i > 0 {
+					f.WriteString(", ")
+				}
+				f.WriteString(role.String())
+			}
+		}
+	} else if u.DbName != nil {
+		f.WriteString(u.DbName.String())
+	} else if u.Object != nil {
+		f.WriteString(u.Object.String())
+	}
 	return f.String()
 }
 

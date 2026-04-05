@@ -33,6 +33,7 @@ type Expr interface {
 // These are declared in basic.go
 var _ Expr = (*Identifier)(nil)
 var _ Expr = (*CompoundIdentifier)(nil)
+var _ Expr = (*SystemVariable)(nil)
 var _ Expr = (*ValueExpr)(nil)
 var _ Expr = (*QualifiedWildcard)(nil)
 var _ Expr = (*Wildcard)(nil)

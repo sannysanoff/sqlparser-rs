@@ -1988,3 +1988,113 @@ func (r *Reset) String() string {
 	f.WriteString(r.Statement.String())
 	return f.String()
 }
+
+// ============================================================================
+// SET TRANSACTION
+// ============================================================================
+
+// SetTransaction represents a SET TRANSACTION statement.
+// Syntax: SET [ SESSION | LOCAL ] TRANSACTION [ modes ] [ SNAPSHOT value ]
+type SetTransaction struct {
+	BaseStatement
+	Modes    []expr.TransactionMode
+	Snapshot expr.Expr
+	Session  bool
+	Local    bool
+}
+
+func (s *SetTransaction) statementNode() {}
+
+func (s *SetTransaction) String() string {
+	var f strings.Builder
+	f.WriteString("SET ")
+	if s.Session {
+		f.WriteString("SESSION ")
+	}
+	if s.Local {
+		f.WriteString("LOCAL ")
+	}
+	f.WriteString("TRANSACTION")
+	if len(s.Modes) > 0 {
+		f.WriteString(" ")
+		for i, mode := range s.Modes {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(mode.String())
+		}
+	}
+	if s.Snapshot != nil {
+		f.WriteString(" SNAPSHOT ")
+		f.WriteString(s.Snapshot.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// SET SESSION AUTHORIZATION
+// ============================================================================
+
+// SetSessionAuthorization represents a SET SESSION AUTHORIZATION statement.
+// Syntax: SET { SESSION | LOCAL } AUTHORIZATION { user_name | DEFAULT }
+type SetSessionAuthorization struct {
+	BaseStatement
+	Local   bool
+	Session bool
+	User    *ast.Ident
+	Default bool
+}
+
+func (s *SetSessionAuthorization) statementNode() {}
+
+func (s *SetSessionAuthorization) String() string {
+	var f strings.Builder
+	f.WriteString("SET ")
+	if s.Session {
+		f.WriteString("SESSION ")
+	}
+	if s.Local {
+		f.WriteString("LOCAL ")
+	}
+	f.WriteString("AUTHORIZATION ")
+	if s.Default {
+		f.WriteString("DEFAULT")
+	} else if s.User != nil {
+		f.WriteString(s.User.String())
+	}
+	return f.String()
+}
+
+// ============================================================================
+// SET ROLE
+// ============================================================================
+
+// SetRole represents a SET ROLE statement.
+// Syntax: SET [ SESSION | LOCAL ] ROLE { role_name | NONE }
+type SetRole struct {
+	BaseStatement
+	Local   bool
+	Session bool
+	Role    *ast.Ident
+	None    bool
+}
+
+func (s *SetRole) statementNode() {}
+
+func (s *SetRole) String() string {
+	var f strings.Builder
+	f.WriteString("SET ")
+	if s.Session {
+		f.WriteString("SESSION ")
+	}
+	if s.Local {
+		f.WriteString("LOCAL ")
+	}
+	f.WriteString("ROLE ")
+	if s.None {
+		f.WriteString("NONE")
+	} else if s.Role != nil {
+		f.WriteString(s.Role.String())
+	}
+	return f.String()
+}

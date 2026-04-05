@@ -1686,12 +1686,55 @@ Implemented major missing parser chunks for PIVOT and UNPIVOT table operations f
 
 ---
 
+## April 5, 2026 - SET Statement Enhancements and System Variable Support
+
+Implemented major missing SET statement variants and fixed critical system variable tokenization issues:
+
+1. **SET TRANSACTION with SNAPSHOT** (parser/misc.go, ast/statement/misc.go):
+   - Added `SetTransaction` AST type with support for transaction modes and SNAPSHOT
+   - Implemented `parseTransactionModes()` supporting ISOLATION LEVEL, READ ONLY/WRITE, DEFERRABLE
+   - Syntax: `SET [SESSION|LOCAL] TRANSACTION [modes] [SNAPSHOT value]`
+   - Also supports: `SET SESSION CHARACTERISTICS AS TRANSACTION [modes]`
+
+2. **SET SESSION AUTHORIZATION** (parser/misc.go, ast/statement/misc.go):
+   - Added `SetSessionAuthorization` AST type
+   - Syntax: `SET {SESSION|LOCAL} AUTHORIZATION { username | DEFAULT }`
+   - Updated `ParseIdentifier()` to accept quoted strings as identifiers (Pattern V)
+
+3. **SET ROLE** (parser/misc.go, ast/statement/misc.go):
+   - Added `SetRole` AST type
+   - Syntax: `SET [SESSION|LOCAL] ROLE { rolename | NONE }`
+
+4. **USE Statement** (parser/misc.go, ast/statement/dcl.go):
+   - Extended `Use` AST type with comprehensive support for:
+     - `USE DATABASE name`, `USE SCHEMA name`, `USE CATALOG name` (Databricks)
+     - `USE WAREHOUSE name`, `USE ROLE name`, `USE SECONDARY ROLES {ALL|NONE|role,...}` (Snowflake)
+     - `USE DEFAULT` (Hive)
+     - `USE object_name` (Generic)
+   - Added `SecondaryRoles` helper type
+
+5. **@@ System Variable Tokenization Fix** (token/lexer.go, parser/prefix.go, ast/expr/basic.go):
+   - Fixed critical bug where `@@sql_mode` was being tokenized incorrectly as `@@sl_mode` (missing characters)
+   - Root cause: `tokenizeAtSign()` was calling `tokenizeIdentifierOrKeyword()` with wrong character consumption
+   - Solution: Return `TokenAtAt` as separate token, then let parser combine with identifier
+   - Added `SystemVariable` expression type to properly represent `@@var` and `@@global.var`
+   - String() output correctly shows `@@var` instead of `@.@.var`
+
+**Key Pattern Documentation:**
+- **Pattern V: Quoted Strings as Identifiers** - `ParseIdentifier()` must accept `TokenSingleQuotedString` and `TokenDoubleQuotedString` as valid identifiers (not just `TokenWord`), following Rust `parse_identifier()` in `src/parser/mod.rs:12926`. This is required for `SET SESSION AUTHORIZATION 'username'`.
+- **Pattern BF: Tokenizer Character Consumption** - When using `tokenizeIdentifierOrKeyword()`, be careful about character consumption. The function calls `state.Next()` twice to consume characters from the prefix. If the prefix is longer than 2 characters, the extra characters will be consumed from the input stream, causing character loss. Either use a 2-char prefix or handle tokenization differently.
+- **Pattern BG: System Variable Tokenization** - For MySQL-style `@@var`, tokenizer should produce two separate tokens: `TokenAtAt` and `TokenWord`. The parser's prefix handler for `TokenAtAt` then combines them into a `SystemVariable` expression. Don't try to tokenize `@@var` as a single identifier - it causes character loss issues.
+
+**Result:** +8 tests passing (TestParseSetVariables, TestParseSetSessionAuthorization, and 6 more). 448 failing subtests remaining (down from 456).
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 5, 2026  
 **Status:** TPC-H fixture issue, DDL ~27%, DML ~55%, Query ~67%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~18%, **Total ~496/1207 (~41%)**
 
 **Line Counts:**
 - Rust Source: 67,345 lines  
-- Go Source: 69,517 lines (103% of Rust)  
-- Go Tests: 14,131 lines (28%)  
+- Go Source: 69,904 lines (104% of Rust)  
+- Go Tests: 14,300 lines (29%)  
 - Rust Tests: 49,886 lines

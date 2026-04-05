@@ -189,6 +189,39 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		ep.parser.PrevToken()
 		return ep.parseValue()
 
+	case token.TokenAtAt:
+		// MySQL-style system variable reference: @@variable or @@global.variable
+		// Parse the identifier that follows @@
+		ident, err := ep.parseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected identifier after @@: %w", err)
+		}
+
+		// Check for .var (@@global.var syntax)
+		if ep.parser.ConsumeToken(token.TokenPeriod{}) {
+			scope := ident.Value
+			varName, err := ep.parseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected variable name after @@%s.: %w", scope, err)
+			}
+			return &expr.SystemVariable{
+				SpanVal: mergeSpans(nextTok.Span, varName.Span()),
+				Name: &expr.CompoundIdentifier{
+					SpanVal: mergeSpans(ident.Span(), varName.Span()),
+					Idents:  []*expr.Ident{ident, varName},
+				},
+			}, nil
+		}
+
+		// Simple @@var syntax
+		return &expr.SystemVariable{
+			SpanVal: mergeSpans(nextTok.Span, ident.Span()),
+			Name: &expr.CompoundIdentifier{
+				SpanVal: ident.Span(),
+				Idents:  []*expr.Ident{ident},
+			},
+		}, nil
+
 	case token.TokenTilde:
 		// Bitwise NOT
 		prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)

@@ -1268,6 +1268,15 @@ func (t *Tokenizer) tokenizeAtSign(state *State) (Token, error) {
 		return TokenAtSign{}, nil
 	}
 
+	// Handle @@ for non-geometric dialects (e.g., MySQL system variables @@var)
+	// Following Rust tokenizer logic at src/tokenizer.rs:1795-1802
+	// For MySQL-style variables, we want @@ as a separate token followed by identifier
+	if next == '@' {
+		state.Next()
+		// Always return TokenAtAt for @@ - let the parser handle @@var as two tokens
+		return TokenAtAt{}, nil
+	}
+
 	if next == '>' {
 		state.Next()
 		return TokenAtArrow{}, nil

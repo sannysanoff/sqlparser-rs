@@ -3197,6 +3197,8 @@ const (
 	TransactionModeSnapshot
 	TransactionModeReadOnly
 	TransactionModeReadWrite
+	TransactionModeDeferrable
+	TransactionModeNotDeferrable
 )
 
 func (t TransactionMode) String() string {
@@ -3215,6 +3217,10 @@ func (t TransactionMode) String() string {
 		return "READ ONLY"
 	case TransactionModeReadWrite:
 		return "READ WRITE"
+	case TransactionModeDeferrable:
+		return "DEFERRABLE"
+	case TransactionModeNotDeferrable:
+		return "NOT DEFERRABLE"
 	default:
 		return ""
 	}
