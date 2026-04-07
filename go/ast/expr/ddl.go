@@ -876,6 +876,30 @@ func (r *RoleOption) exprNode()        {}
 func (r *RoleOption) Span() token.Span { return token.Span{} }
 func (r *RoleOption) String() string   { return "" }
 
+// ReplicaIdentityType represents the type of replica identity for ALTER TABLE REPLICA IDENTITY
+type ReplicaIdentityType int
+
+const (
+	ReplicaIdentityNothing ReplicaIdentityType = iota
+	ReplicaIdentityFull
+	ReplicaIdentityDefault
+	ReplicaIdentityIndex
+)
+
+func (r ReplicaIdentityType) String() string {
+	switch r {
+	case ReplicaIdentityNothing:
+		return "NOTHING"
+	case ReplicaIdentityFull:
+		return "FULL"
+	case ReplicaIdentityDefault:
+		return "DEFAULT"
+	case ReplicaIdentityIndex:
+		return "USING INDEX"
+	}
+	return ""
+}
+
 // AlterTableOperation represents ALTER TABLE operation.
 type AlterTableOperation struct {
 	// Operation type
@@ -936,6 +960,13 @@ type AlterTableOperation struct {
 	ModifyOptions        []*ColumnOption
 	ModifyColumnPosition *MySQLColumnPosition
 
+	// Fields for Enable/Disable operations (PostgreSQL)
+	DisableEnableName *ast.Ident // Name of rule or trigger
+
+	// Fields for ReplicaIdentity (PostgreSQL)
+	ReplicaIdentity      ReplicaIdentityType
+	ReplicaIdentityIndex *ast.Ident
+
 	// Span
 	SpanVal token.Span
 }
@@ -967,6 +998,11 @@ const (
 	AlterTableOpEnableTrigger
 	AlterTableOpDisableRule
 	AlterTableOpEnableRule
+	AlterTableOpEnableAlwaysRule
+	AlterTableOpEnableReplicaRule
+	AlterTableOpEnableAlwaysTrigger
+	AlterTableOpEnableReplicaTrigger
+	AlterTableOpReplicaIdentity
 	AlterTableOpValidateConstraint
 )
 
@@ -1192,6 +1228,86 @@ func (a *AlterTableOperation) String() string {
 		if a.ModifyColumnPosition != nil {
 			buf.WriteString(" ")
 			buf.WriteString(a.ModifyColumnPosition.String())
+		}
+		return buf.String()
+	case AlterTableOpDisableRowLevelSecurity:
+		return "DISABLE ROW LEVEL SECURITY"
+	case AlterTableOpEnableRowLevelSecurity:
+		return "ENABLE ROW LEVEL SECURITY"
+	case AlterTableOpForceRowLevelSecurity:
+		return "FORCE ROW LEVEL SECURITY"
+	case AlterTableOpNoForceRowLevelSecurity:
+		return "NO FORCE ROW LEVEL SECURITY"
+	case AlterTableOpDisableTrigger:
+		var buf strings.Builder
+		buf.WriteString("DISABLE TRIGGER ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableTrigger:
+		var buf strings.Builder
+		buf.WriteString("ENABLE TRIGGER ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableAlwaysTrigger:
+		var buf strings.Builder
+		buf.WriteString("ENABLE ALWAYS TRIGGER ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableReplicaTrigger:
+		var buf strings.Builder
+		buf.WriteString("ENABLE REPLICA TRIGGER ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpDisableRule:
+		var buf strings.Builder
+		buf.WriteString("DISABLE RULE ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableRule:
+		var buf strings.Builder
+		buf.WriteString("ENABLE RULE ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableAlwaysRule:
+		var buf strings.Builder
+		buf.WriteString("ENABLE ALWAYS RULE ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpEnableReplicaRule:
+		var buf strings.Builder
+		buf.WriteString("ENABLE REPLICA RULE ")
+		if a.DisableEnableName != nil {
+			buf.WriteString(a.DisableEnableName.String())
+		}
+		return buf.String()
+	case AlterTableOpReplicaIdentity:
+		var buf strings.Builder
+		buf.WriteString("REPLICA IDENTITY ")
+		buf.WriteString(a.ReplicaIdentity.String())
+		if a.ReplicaIdentity == ReplicaIdentityIndex && a.ReplicaIdentityIndex != nil {
+			buf.WriteString(" ")
+			buf.WriteString(a.ReplicaIdentityIndex.String())
+		}
+		return buf.String()
+	case AlterTableOpValidateConstraint:
+		var buf strings.Builder
+		buf.WriteString("VALIDATE CONSTRAINT ")
+		if a.DropConstraintName != nil {
+			buf.WriteString(a.DropConstraintName.String())
 		}
 		return buf.String()
 	default:
@@ -2657,6 +2773,9 @@ const (
 	CopyLegacyOptionEscape
 	CopyLegacyOptionExtension
 	CopyLegacyOptionFixedWidth
+	CopyLegacyOptionForceNotNull
+	CopyLegacyOptionForceNull
+	CopyLegacyOptionForceQuote
 	CopyLegacyOptionGzip
 	CopyLegacyOptionHeader
 	CopyLegacyOptionIamRole
@@ -2668,6 +2787,7 @@ const (
 	CopyLegacyOptionParallel
 	CopyLegacyOptionParquet
 	CopyLegacyOptionPartitionBy
+	CopyLegacyOptionQuote
 	CopyLegacyOptionRegion
 	CopyLegacyOptionRemoveQuotes
 	CopyLegacyOptionRowGroupSize
@@ -2733,6 +2853,9 @@ func (c *CopyLegacyOption) String() string {
 	case CopyLegacyOptionEncrypted:
 		return "ENCRYPTED"
 	case CopyLegacyOptionEscape:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("ESCAPE '%s'", escapeSingleQuote(val))
+		}
 		return "ESCAPE"
 	case CopyLegacyOptionExtension:
 		if val, ok := c.Value.(string); ok {
@@ -2744,6 +2867,21 @@ func (c *CopyLegacyOption) String() string {
 			return fmt.Sprintf("FIXEDWIDTH '%s'", escapeSingleQuote(val))
 		}
 		return "FIXEDWIDTH"
+	case CopyLegacyOptionForceNotNull:
+		if val, ok := c.Value.(*ast.Ident); ok {
+			return fmt.Sprintf("FORCE NOT NULL %s", val.String())
+		}
+		return "FORCE NOT NULL"
+	case CopyLegacyOptionForceNull:
+		if val, ok := c.Value.(*ast.Ident); ok {
+			return fmt.Sprintf("FORCE NULL %s", val.String())
+		}
+		return "FORCE NULL"
+	case CopyLegacyOptionForceQuote:
+		if val, ok := c.Value.(*ast.Ident); ok {
+			return fmt.Sprintf("FORCE QUOTE %s", val.String())
+		}
+		return "FORCE QUOTE"
 	case CopyLegacyOptionGzip:
 		return "GZIP"
 	case CopyLegacyOptionHeader:
@@ -2785,6 +2923,11 @@ func (c *CopyLegacyOption) String() string {
 		return "PARALLEL"
 	case CopyLegacyOptionParquet:
 		return "PARQUET"
+	case CopyLegacyOptionQuote:
+		if val, ok := c.Value.(string); ok {
+			return fmt.Sprintf("QUOTE '%s'", escapeSingleQuote(val))
+		}
+		return "QUOTE"
 	case CopyLegacyOptionRegion:
 		if val, ok := c.Value.(string); ok {
 			return fmt.Sprintf("REGION '%s'", escapeSingleQuote(val))

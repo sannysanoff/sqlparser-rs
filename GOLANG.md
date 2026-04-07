@@ -1393,9 +1393,40 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 
 ---
 
+### Pattern CI: Dialect Backslash Escape Settings
+
+**Problem:** PostgreSQL dialect was returning `true` for `SupportsStringLiteralBackslashEscape()`, but PostgreSQL only supports backslash escapes in E'...' escape strings, not regular '...' strings. This caused `'
+'` to be treated as an unterminated string instead of a string containing a backslash.
+
+**Example - PostgreSQL COPY Statement:**
+
+```go
+// INCORRECT - enables backslash escapes for all strings
+func (d *PostgreSqlDialect) SupportsStringLiteralBackslashEscape() bool {
+	return true  // WRONG! PostgreSQL doesn't use backslash in regular strings
+}
+// Result: "COPY ... ESCAPE '\'" fails with "Unterminated string literal"
+// The \' is interpreted as escape+quote, consuming the closing quote!
+
+// CORRECT - only E'...' strings have backslash escapes in PostgreSQL
+func (d *PostgreSqlDialect) SupportsStringLiteralBackslashEscape() bool {
+	return false  // Use default behavior (no backslash escapes)
+}
+// Result: "COPY ... ESCAPE '\'" parses correctly as: ESCAPE '\' (string containing backslash)
+```
+
+**Key Lesson:** Check the Rust dialect implementation for `supports_string_literal_backslash_escape()`. PostgreSQL returns `false` (default), while Snowflake/DuckDB return `true`. This affects how `'` is tokenized in string literals.
+
+**Reference:** 
+- `src/dialect/mod.rs:278` - Default implementation returns `false`
+- `src/dialect/postgresql.rs` - No override, uses default (false)
+- `src/dialect/snowflake.rs` - Returns `true`
+
+---
+
 ## Current Status (April 7, 2026)
 
-**Overall Progress: ~54% Test Pass Rate** (440 tests passing, 373 failing out of 813 total)
+**Overall Progress: ~54.9% Test Pass Rate** (446 tests passing, 367 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -1404,17 +1435,44 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 | **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
 | **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
 | **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
-| **tests/postgres**| 🔄 In Progress  | 53      | 157   | **34%**   |
+| **tests/postgres**| 🔄 In Progress  | 59      | 157   | **38%**   |
 | **tests/snowflake**| 🔄 In Progress | 34      | 97    | **35%**   |
 | **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
-| **TOTAL**        | **~54% Complete** | **440** | 813   | **~54%** |
+| **TOTAL**        | **~55% Complete** | **446** | 813   | **~55%** |
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 74,079 lines (110% of Rust - AST types and interfaces)
+- Rust Source: 66,842 lines (parser + dialects + AST)
+- Go Source: 74,002 lines (111% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
-- Go Tests: 14,149 lines (28.3% of Rust test coverage)
+- Go Tests: 14,149 lines (28.4% of Rust test coverage)
+
+### April 7, 2026 - PostgreSQL COPY and ALTER TABLE Operations
+
+Implemented comprehensive PostgreSQL parser features:
+
+1. **PostgreSQL COPY Statement Fixes** (parser/copy.go, ast/expr/ddl.go):
+   - Fixed `QUOTE 'char'` legacy option parsing
+   - Fixed `ESCAPE 'char'` with value parsing (was not parsing the character value)
+   - Added `FORCE NOT NULL column` support
+   - Added `FORCE QUOTE column` support
+   - Added missing `CopyLegacyOptionQuote`, `CopyLegacyOptionForceNotNull`, `CopyLegacyOptionForceQuote` AST types
+   - **+2 tests passing** (TestPostgresCopyFromBeforeV90, TestPostgresCopyToBeforeV90)
+
+2. **PostgreSQL ALTER TABLE ENABLE/DISABLE Operations** (parser/alter.go, ast/expr/ddl.go):
+   - Implemented `parseAlterTableDisable()` for `DISABLE { ROW LEVEL SECURITY | RULE name | TRIGGER name }`
+   - Implemented `parseAlterTableEnable()` for `ENABLE { ALWAYS | REPLICA }? { ROW LEVEL SECURITY | RULE name | TRIGGER name }`
+   - Implemented `parseAlterTableReplicaIdentity()` for `REPLICA IDENTITY { NOTHING | FULL | DEFAULT | USING INDEX index_name }`
+   - Added `parseAlterTableOperation()` cases for FORCE ROW LEVEL SECURITY and NO FORCE ROW LEVEL SECURITY
+   - Added `DisableEnableName` field to `AlterTableOperation` struct
+   - Added `ReplicaIdentityType` and `ReplicaIdentity`/`ReplicaIdentityIndex` fields
+   - Added missing enum values: `AlterTableOpEnableAlwaysRule`, `AlterTableOpEnableReplicaRule`, `AlterTableOpEnableAlwaysTrigger`, `AlterTableOpEnableReplicaTrigger`, `AlterTableOpReplicaIdentity`
+   - **+4 tests passing** (TestPostgresAlterTableDisable, TestPostgresAlterTableReplicaIdentity, TestPostgresAlterTableEnableTrigger, TestPostgresAlterTableDisableTrigger)
+
+3. **PostgreSQL Dialect Backslash Escape Fix** (dialects/postgresql/postgresql.go):
+   - **Critical Fix**: Changed `SupportsStringLiteralBackslashEscape()` from `true` to `false`
+   - PostgreSQL only supports backslash escapes in E'...' escape strings, not regular '...' strings
+   - This was causing `'"
 
 **Major Missing Parser Chunks (Priority Order):**
 

@@ -312,11 +312,11 @@ func tryParseCopyLegacyOption(p *Parser) (*expr.CopyLegacyOption, error) {
 	kw := p.ParseOneOfKeywords([]string{
 		"BINARY", "CSV", "DELIMITER", "ESCAPE", "HEADER", "JSON",
 		"NULL", "PARQUET", "GZIP", "BZIP2", "ZSTD", "EMPTYASNULL", "BLANKSASNULL",
-		"REMOVEQUOTES", "ADDQUOTES", "IGNOREHEADER", "DATEFORMAT", "TIMEFORMAT",
+		"QUOTE", "REMOVEQUOTES", "ADDQUOTES", "IGNOREHEADER", "DATEFORMAT", "TIMEFORMAT",
 		"TRUNCATECOLUMNS", "COMPUPDATE", "STATUPDATE", "PARALLEL", "MAXFILESIZE",
 		"REGION", "IAM_ROLE", "MANIFEST", "CREDENTIALS", "FIXEDWIDTH", "EXTENSION",
 		"ACCEPTANYDATE", "ACCEPTINVCHARS", "ALLOWOVERWRITE", "CLEANPATH", "ENCRYPTED",
-		"ROWGROUPSIZE", "PARTITION", "PARTITIONBY",
+		"ROWGROUPSIZE", "PARTITION", "PARTITIONBY", "FORCE",
 	})
 
 	switch kw {
@@ -335,7 +335,47 @@ func tryParseCopyLegacyOption(p *Parser) (*expr.CopyLegacyOption, error) {
 			Value:      string(ch),
 		}, nil
 	case "ESCAPE":
-		return &expr.CopyLegacyOption{OptionType: expr.CopyLegacyOptionEscape}, nil
+		ch, err := p.ParseLiteralChar()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.CopyLegacyOption{
+			OptionType: expr.CopyLegacyOptionEscape,
+			Value:      string(ch),
+		}, nil
+	case "QUOTE":
+		p.ParseKeyword("AS")
+		ch, err := p.ParseLiteralChar()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.CopyLegacyOption{
+			OptionType: expr.CopyLegacyOptionQuote,
+			Value:      string(ch),
+		}, nil
+	case "FORCE":
+		// FORCE NOT NULL column | FORCE QUOTE column
+		if p.ParseKeywords([]string{"NOT", "NULL"}) {
+			col, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			return &expr.CopyLegacyOption{
+				OptionType: expr.CopyLegacyOptionForceNotNull,
+				Value:      col,
+			}, nil
+		}
+		if p.ParseKeyword("QUOTE") {
+			col, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			return &expr.CopyLegacyOption{
+				OptionType: expr.CopyLegacyOptionForceQuote,
+				Value:      col,
+			}, nil
+		}
+		return nil, fmt.Errorf("expected NOT NULL or QUOTE after FORCE")
 	case "HEADER":
 		return &expr.CopyLegacyOption{OptionType: expr.CopyLegacyOptionHeader}, nil
 	case "JSON":

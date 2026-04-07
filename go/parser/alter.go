@@ -142,6 +142,32 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return parseAlterTableMySqlOptions(p, op)
 	}
 
+	// PostgreSQL ENABLE/DISABLE operations
+	if p.ParseKeyword("DISABLE") {
+		return parseAlterTableDisable(p, op)
+	}
+
+	if p.ParseKeyword("ENABLE") {
+		return parseAlterTableEnable(p, op)
+	}
+
+	// PostgreSQL REPLICA IDENTITY
+	if p.ParseKeywords([]string{"REPLICA", "IDENTITY"}) {
+		return parseAlterTableReplicaIdentity(p, op)
+	}
+
+	// PostgreSQL FORCE ROW LEVEL SECURITY
+	if p.ParseKeywords([]string{"FORCE", "ROW", "LEVEL", "SECURITY"}) {
+		op.Op = expr.AlterTableOpForceRowLevelSecurity
+		return op, nil
+	}
+
+	// PostgreSQL NO FORCE ROW LEVEL SECURITY
+	if p.ParseKeywords([]string{"NO", "FORCE", "ROW", "LEVEL", "SECURITY"}) {
+		op.Op = expr.AlterTableOpNoForceRowLevelSecurity
+		return op, nil
+	}
+
 	return nil, fmt.Errorf("unknown ALTER TABLE operation")
 }
 
@@ -1228,4 +1254,113 @@ func parseAlterOperatorFamily(p *Parser) (ast.Statement, error) {
 
 	// Simplified: just return a placeholder
 	return &statement.AlterOperatorFamily{}, nil
+}
+
+// parseAlterTableDisable parses DISABLE { ROW LEVEL SECURITY | RULE | TRIGGER }
+// Reference: src/parser/mod.rs:10150
+func parseAlterTableDisable(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	if p.ParseKeywords([]string{"ROW", "LEVEL", "SECURITY"}) {
+		op.Op = expr.AlterTableOpDisableRowLevelSecurity
+		return op, nil
+	}
+
+	if p.ParseKeyword("RULE") {
+		op.Op = expr.AlterTableOpDisableRule
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		op.DisableEnableName = name
+		return op, nil
+	}
+
+	if p.ParseKeyword("TRIGGER") {
+		op.Op = expr.AlterTableOpDisableTrigger
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		op.DisableEnableName = name
+		return op, nil
+	}
+
+	return nil, fmt.Errorf("expected ROW LEVEL SECURITY, RULE, or TRIGGER after DISABLE")
+}
+
+// parseAlterTableEnable parses ENABLE { ALWAYS | REPLICA }? { ROW LEVEL SECURITY | RULE | TRIGGER }
+// Reference: src/parser/mod.rs:10165
+func parseAlterTableEnable(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	// Check for ALWAYS or REPLICA prefix
+	isAlways := false
+	isReplica := false
+
+	if p.ParseKeyword("ALWAYS") {
+		isAlways = true
+	} else if p.ParseKeyword("REPLICA") {
+		isReplica = true
+	}
+
+	if p.ParseKeywords([]string{"ROW", "LEVEL", "SECURITY"}) {
+		op.Op = expr.AlterTableOpEnableRowLevelSecurity
+		return op, nil
+	}
+
+	if p.ParseKeyword("RULE") {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		op.DisableEnableName = name
+		if isAlways {
+			op.Op = expr.AlterTableOpEnableAlwaysRule
+		} else if isReplica {
+			op.Op = expr.AlterTableOpEnableReplicaRule
+		} else {
+			op.Op = expr.AlterTableOpEnableRule
+		}
+		return op, nil
+	}
+
+	if p.ParseKeyword("TRIGGER") {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		op.DisableEnableName = name
+		if isAlways {
+			op.Op = expr.AlterTableOpEnableAlwaysTrigger
+		} else if isReplica {
+			op.Op = expr.AlterTableOpEnableReplicaTrigger
+		} else {
+			op.Op = expr.AlterTableOpEnableTrigger
+		}
+		return op, nil
+	}
+
+	return nil, fmt.Errorf("expected ALWAYS, REPLICA, ROW LEVEL SECURITY, RULE, or TRIGGER after ENABLE")
+}
+
+// parseAlterTableReplicaIdentity parses REPLICA IDENTITY { NOTHING | FULL | DEFAULT | USING INDEX index_name }
+// Reference: src/parser/mod.rs:10508
+func parseAlterTableReplicaIdentity(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpReplicaIdentity
+
+	if p.ParseKeyword("NOTHING") {
+		op.ReplicaIdentity = expr.ReplicaIdentityNothing
+	} else if p.ParseKeyword("FULL") {
+		op.ReplicaIdentity = expr.ReplicaIdentityFull
+	} else if p.ParseKeyword("DEFAULT") {
+		op.ReplicaIdentity = expr.ReplicaIdentityDefault
+	} else if p.ParseKeywords([]string{"USING", "INDEX"}) {
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		op.ReplicaIdentity = expr.ReplicaIdentityIndex
+		op.ReplicaIdentityIndex = name
+	} else {
+		return nil, fmt.Errorf("expected NOTHING, FULL, DEFAULT, or USING INDEX after REPLICA IDENTITY")
+	}
+
+	return op, nil
 }

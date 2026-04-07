@@ -255,9 +255,10 @@ func (d *PostgreSqlDialect) IsIdentifierGeneratingFunctionName(ident *ast.Ident,
 	return false
 }
 
-// SupportsStringLiteralBackslashEscape returns true for PostgreSqlDialect.
+// SupportsStringLiteralBackslashEscape returns false for PostgreSqlDialect.
+// PostgreSQL only supports backslash escapes in E'...' escape strings, not regular strings.
 func (d *PostgreSqlDialect) SupportsStringLiteralBackslashEscape() bool {
-	return true
+	return false
 }
 
 // IgnoresWildcardEscapes returns false for PostgreSqlDialect.
