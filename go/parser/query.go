@@ -337,7 +337,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			modifiers := parseGroupByModifiers(p)
 			// Check for GROUPING SETS after modifiers
 			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
-				modifiers = append(modifiers, *groupingSets)
+				modifiers = append(modifiers, groupingSets)
 			}
 			groupBy = &query.GroupByAll{
 				Modifiers: modifiers,
@@ -351,7 +351,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			modifiers := parseGroupByModifiers(p)
 			// Check for GROUPING SETS after modifiers
 			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
-				modifiers = append(modifiers, *groupingSets)
+				modifiers = append(modifiers, groupingSets)
 			}
 			groupBy = &query.GroupByExpressions{
 				Expressions: groupExprs,
@@ -483,31 +483,86 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
-	// Parse FOR clause (MSSQL FOR XML/FOR JSON/FOR BROWSE)
-	// Reference: src/parser/mod.rs:13682-13691
+	// Parse FOR clause (MSSQL FOR XML/FOR JSON/FOR BROWSE or lock clauses FOR UPDATE/FOR SHARE)
+	// Reference: src/parser/mod.rs:13682-13691, 18493-18519
 	var forClause *query.ForClause
-	for p.ParseKeyword("FOR") {
-		// Try to parse as FOR XML/JSON/BROWSE
-		if p.ParseKeyword("XML") {
-			fc, err := parseForXml(p)
-			if err != nil {
-				return nil, err
+	var locks []query.LockClause
+
+	for {
+		if p.ParseKeyword("FOR") {
+			// Try to parse as FOR XML/JSON/BROWSE
+			if p.ParseKeyword("XML") {
+				fc, err := parseForXml(p)
+				if err != nil {
+					return nil, err
+				}
+				forClause = fc
+				break
+			} else if p.ParseKeyword("JSON") {
+				fc, err := parseForJson(p)
+				if err != nil {
+					return nil, err
+				}
+				forClause = fc
+				break
+			} else if p.ParseKeyword("BROWSE") {
+				forClause = &query.ForClause{Type: &query.ForBrowseClause{}}
+				break
+			} else if p.ParseKeyword("UPDATE") {
+				// FOR UPDATE lock clause
+				lock := query.LockClause{
+					LockType: query.LockTypeUpdate,
+				}
+				// Optional OF table_name
+				if p.ParseKeyword("OF") {
+					objName, err := p.ParseObjectName()
+					if err != nil {
+						return nil, err
+					}
+					queryName := astObjectNameToQuery(objName)
+					lock.Of = &queryName
+				}
+				// Optional NOWAIT or SKIP LOCKED
+				if p.ParseKeyword("NOWAIT") {
+					nb := query.NonBlockNowait
+					lock.Nonblock = &nb
+				} else if p.ParseKeyword("SKIP") {
+					if p.ParseKeyword("LOCKED") {
+						nb := query.NonBlockSkipLocked
+						lock.Nonblock = &nb
+					}
+				}
+				locks = append(locks, lock)
+			} else if p.ParseKeyword("SHARE") {
+				// FOR SHARE lock clause
+				lock := query.LockClause{
+					LockType: query.LockTypeShare,
+				}
+				// Optional OF table_name
+				if p.ParseKeyword("OF") {
+					objName, err := p.ParseObjectName()
+					if err != nil {
+						return nil, err
+					}
+					queryName := astObjectNameToQuery(objName)
+					lock.Of = &queryName
+				}
+				// Optional NOWAIT or SKIP LOCKED
+				if p.ParseKeyword("NOWAIT") {
+					nb := query.NonBlockNowait
+					lock.Nonblock = &nb
+				} else if p.ParseKeyword("SKIP") {
+					if p.ParseKeyword("LOCKED") {
+						nb := query.NonBlockSkipLocked
+						lock.Nonblock = &nb
+					}
+				}
+				locks = append(locks, lock)
+			} else {
+				// Unknown FOR clause
+				break
 			}
-			forClause = fc
-			break
-		} else if p.ParseKeyword("JSON") {
-			fc, err := parseForJson(p)
-			if err != nil {
-				return nil, err
-			}
-			forClause = fc
-			break
-		} else if p.ParseKeyword("BROWSE") {
-			forClause = &query.ForClause{Type: &query.ForBrowseClause{}}
-			break
 		} else {
-			// It's a LOCK clause, not FOR XML/JSON/BROWSE
-			// TODO: parse lock clauses
 			break
 		}
 	}
@@ -531,6 +586,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			Qualify:             qualify,
 			WindowBeforeQualify: windowBeforeQualify,
 			Flavor:              query.SelectFlavorStandard,
+			Locks:               locks,
 		},
 		LimitClause:   limitClause,
 		ForClause:     forClause,
@@ -1980,11 +2036,11 @@ func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
 	for {
 		if p.ParseKeyword("WITH") {
 			if p.ParseKeyword("ROLLUP") {
-				modifiers = append(modifiers, query.GroupByWithModifierRollup)
+				modifiers = append(modifiers, query.SimpleGroupByModifierRollup)
 			} else if p.ParseKeyword("CUBE") {
-				modifiers = append(modifiers, query.GroupByWithModifierCube)
+				modifiers = append(modifiers, query.SimpleGroupByModifierCube)
 			} else if p.ParseKeyword("TOTALS") {
-				modifiers = append(modifiers, query.GroupByWithModifierTotals)
+				modifiers = append(modifiers, query.SimpleGroupByModifierTotals)
 			} else {
 				// Unknown WITH clause, backtrack
 				break
@@ -1999,7 +2055,7 @@ func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
 
 // parseGroupingSetsModifier parses optional GROUPING SETS modifier
 // Reference: src/parser/mod.rs:12590-12603
-func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
+func parseGroupingSetsModifier(p *Parser) query.GroupByWithModifier {
 	if !p.ParseKeyword("GROUPING") {
 		return nil
 	}
@@ -2013,6 +2069,7 @@ func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
 	}
 
 	ep := NewExpressionParser(p)
+	var sets [][]expr.Expr
 
 	for {
 		// Parse each set - either a tuple or a single expression
@@ -2024,14 +2081,17 @@ func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
 			nextTok := p.PeekTokenRef()
 			if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
 				p.AdvanceToken() // consume )
-				// Empty tuple parsed
+				// Empty tuple
+				sets = append(sets, []expr.Expr{})
 			} else {
 				// Non-empty tuple - parse expressions
+				var tupleExprs []expr.Expr
 				for {
-					_, err := ep.ParseExpr()
+					e, err := ep.ParseExpr()
 					if err != nil {
 						return nil
 					}
+					tupleExprs = append(tupleExprs, e)
 					if !p.ConsumeToken(token.TokenComma{}) {
 						break
 					}
@@ -2039,13 +2099,15 @@ func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
 				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 					return nil
 				}
+				sets = append(sets, tupleExprs)
 			}
 		} else {
-			// Single expression: a
-			_, err := ep.ParseExpr()
+			// Single expression: a - wrap in a single-element slice
+			e, err := ep.ParseExpr()
 			if err != nil {
 				return nil
 			}
+			sets = append(sets, []expr.Expr{e})
 		}
 
 		// Check for comma to continue to next set
@@ -2058,8 +2120,15 @@ func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
 		return nil
 	}
 
-	modifier := query.GroupByWithModifierGroupingSets
-	return &modifier
+	// Create the GROUPING SETS expression
+	groupingSetsExpr := &expr.GroupingSets{
+		Sets:    sets,
+		SpanVal: p.GetCurrentToken().Span,
+	}
+
+	return &query.GroupingSetsModifier{
+		Expr: &queryExprWrapper{expr: groupingSetsExpr},
+	}
 }
 
 // isSubqueryStart checks if next token starts a subquery

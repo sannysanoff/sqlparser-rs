@@ -646,44 +646,64 @@ func (g *GroupByExpressions) String() string {
 	return strings.Join(parts, " ")
 }
 
-// GroupByWithModifier represents modifiers for GROUP BY (WITH ROLLUP, CUBE, TOTALS)
-type GroupByWithModifier int
+// GroupByWithModifier is an interface for GROUP BY modifiers (ROLLUP, CUBE, TOTALS, GROUPING SETS)
+type GroupByWithModifier interface {
+	fmt.Stringer
+	groupByModifierNode()
+}
+
+// SimpleGroupByModifier represents simple modifiers like WITH ROLLUP, WITH CUBE, WITH TOTALS
+type SimpleGroupByModifier int
 
 const (
-	GroupByWithModifierRollup GroupByWithModifier = iota
-	GroupByWithModifierCube
-	GroupByWithModifierTotals
-	GroupByWithModifierGroupingSets
+	SimpleGroupByModifierRollup SimpleGroupByModifier = iota
+	SimpleGroupByModifierCube
+	SimpleGroupByModifierTotals
 )
 
-func (g GroupByWithModifier) String() string {
-	switch g {
-	case GroupByWithModifierRollup:
+func (s SimpleGroupByModifier) groupByModifierNode() {}
+
+func (s SimpleGroupByModifier) String() string {
+	switch s {
+	case SimpleGroupByModifierRollup:
 		return "WITH ROLLUP"
-	case GroupByWithModifierCube:
+	case SimpleGroupByModifierCube:
 		return "WITH CUBE"
-	case GroupByWithModifierTotals:
+	case SimpleGroupByModifierTotals:
 		return "WITH TOTALS"
 	default:
 		return ""
 	}
 }
 
+// GroupingSetsModifier represents GROUPING SETS modifier with its expression
+type GroupingSetsModifier struct {
+	Expr Expr
+}
+
+func (g *GroupingSetsModifier) groupByModifierNode() {}
+
+func (g *GroupingSetsModifier) String() string {
+	return g.Expr.String()
+}
+
+// GroupByWithModifierWithExpr represents modifiers that include expressions
+// Deprecated: Use GroupingSetsModifier for GROUPING SETS, SimpleGroupByModifier for others
 type GroupByWithModifierWithExpr struct {
-	Modifier GroupByWithModifier
+	Modifier int // 0=ROLLUP, 1=CUBE, 2=TOTALS, 3=GROUPING SETS
 	Expr     Expr
 }
 
 func (g *GroupByWithModifierWithExpr) String() string {
 	switch g.Modifier {
-	case GroupByWithModifierRollup:
+	case 0:
 		return "WITH ROLLUP"
-	case GroupByWithModifierCube:
+	case 1:
 		return "WITH CUBE"
-	case GroupByWithModifierTotals:
+	case 2:
 		return "WITH TOTALS"
-	case GroupByWithModifierGroupingSets:
-		return fmt.Sprintf("%s", g.Expr.String())
+	case 3:
+		return g.Expr.String()
 	default:
 		return ""
 	}

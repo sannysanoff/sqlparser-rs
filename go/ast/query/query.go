@@ -279,6 +279,7 @@ type Select struct {
 	WindowBeforeQualify bool
 	ValueTableMode      ValueTableMode
 	Flavor              SelectFlavor
+	Locks               []LockClause
 }
 
 // Span returns the source span of this node
@@ -412,6 +413,11 @@ func (s *Select) String() string {
 			}
 			parts = append(parts, "WINDOW "+strings.Join(windows, ", "))
 		}
+	}
+
+	// Add FOR UPDATE/FOR SHARE lock clauses
+	for _, lock := range s.Locks {
+		parts = append(parts, lock.String())
 	}
 
 	return strings.Join(parts, " ")
