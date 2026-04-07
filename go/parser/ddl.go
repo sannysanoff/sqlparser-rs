@@ -22,6 +22,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/datatype"
@@ -272,33 +273,113 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 
 	// PRIMARY KEY (columns)
 	if p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
+		pkConstraint := &expr.PrimaryKeyConstraint{}
+
+		// Optional index name (MySQL)
+		if !p.PeekKeyword("USING") {
+			if ident, err := p.ParseIdentifier(); err == nil {
+				pkConstraint.IndexName = ident
+			}
+		}
+
+		// Optional USING index_type
+		if p.ParseKeyword("USING") {
+			if typeIdent, err := p.ParseIdentifier(); err == nil {
+				switch strings.ToUpper(typeIdent.Value) {
+				case "BTREE":
+					btree := expr.IndexTypeBTree
+					pkConstraint.IndexType = &btree
+				case "HASH":
+					hash := expr.IndexTypeHash
+					pkConstraint.IndexType = &hash
+				}
+			}
+		}
+
+		// Parse column list
 		cols, err := p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
 		}
-		_ = cols
+		// Convert []*ast.Ident to []*expr.IndexColumn
+		pkConstraint.Columns = make([]*expr.IndexColumn, len(cols))
+		for i, col := range cols {
+			pkConstraint.Columns[i] = &expr.IndexColumn{
+				Expr: &expr.Ident{Value: col.Value},
+			}
+		}
+
 		// Parse constraint characteristics
-		parseConstraintCharacteristics(p)
+		pkConstraint.Characteristics = parseConstraintCharacteristics(p)
+		constraint.Constraint = pkConstraint
 		return constraint, nil
 	}
 
 	// UNIQUE (columns)
 	if p.ParseKeyword("UNIQUE") {
+		uniqueConstraint := &expr.UniqueConstraint{}
+
+		// Optional NULLS [NOT] DISTINCT (PostgreSQL)
+		if p.ParseKeyword("NULLS") {
+			if p.ParseKeyword("NOT") {
+				if p.ParseKeyword("DISTINCT") {
+					uniqueConstraint.NullsDistinct = expr.NullsDistinctOptionNullsNotDistinct
+				}
+			} else if p.ParseKeyword("DISTINCT") {
+				uniqueConstraint.NullsDistinct = expr.NullsDistinctOptionNullsDistinct
+			}
+		}
+
+		// Optional index name (MySQL)
+		if !p.PeekKeyword("USING") && !p.PeekKeyword("(") {
+			if ident, err := p.ParseIdentifier(); err == nil {
+				uniqueConstraint.IndexName = ident
+			}
+		}
+
+		// Optional USING index_type
+		if p.ParseKeyword("USING") {
+			if typeIdent, err := p.ParseIdentifier(); err == nil {
+				switch strings.ToUpper(typeIdent.Value) {
+				case "BTREE":
+					btree := expr.IndexTypeBTree
+					uniqueConstraint.IndexType = &btree
+				case "HASH":
+					hash := expr.IndexTypeHash
+					uniqueConstraint.IndexType = &hash
+				}
+			}
+		}
+
+		// Parse column list
 		cols, err := p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
 		}
-		_ = cols
-		parseConstraintCharacteristics(p)
+		// Convert []*ast.Ident to []*expr.IndexColumn
+		uniqueConstraint.Columns = make([]*expr.IndexColumn, len(cols))
+		for i, col := range cols {
+			uniqueConstraint.Columns[i] = &expr.IndexColumn{
+				Expr: &expr.Ident{Value: col.Value},
+			}
+		}
+
+		// Parse constraint characteristics
+		uniqueConstraint.Characteristics = parseConstraintCharacteristics(p)
+		constraint.Constraint = uniqueConstraint
 		return constraint, nil
 	}
 
 	// FOREIGN KEY (columns) REFERENCES table [(cols)] [ON DELETE action] [ON UPDATE action]
 	if p.ParseKeywords([]string{"FOREIGN", "KEY"}) {
+		fkConstraint := &expr.ForeignKeyConstraint{}
+
+		// Parse column list
 		cols, err := p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
 		}
+		fkConstraint.Columns = cols
 
 		if !p.ParseKeyword("REFERENCES") {
 			return nil, fmt.Errorf("expected REFERENCES after FOREIGN KEY column list")
@@ -308,50 +389,72 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		if err != nil {
 			return nil, fmt.Errorf("expected table name after REFERENCES: %w", err)
 		}
+		fkConstraint.ForeignTable = refTable
 
 		// Parse optional reference columns
-		var refCols []*ast.Ident
 		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
-			refCols, err = p.ParseParenthesizedColumnList()
+			refCols, err := p.ParseParenthesizedColumnList()
 			if err != nil {
 				return nil, err
+			}
+			fkConstraint.ReferredColumns = refCols
+		}
+
+		// Parse MATCH kind (FULL | PARTIAL | SIMPLE)
+		if p.ParseKeyword("MATCH") {
+			if p.ParseKeyword("FULL") {
+				matchKind := expr.ConstraintReferenceMatchKindFull
+				fkConstraint.MatchKind = &matchKind
+			} else if p.ParseKeyword("PARTIAL") {
+				matchKind := expr.ConstraintReferenceMatchKindPartial
+				fkConstraint.MatchKind = &matchKind
+			} else if p.ParseKeyword("SIMPLE") {
+				matchKind := expr.ConstraintReferenceMatchKindSimple
+				fkConstraint.MatchKind = &matchKind
 			}
 		}
 
 		// Parse ON DELETE/ON UPDATE actions (in any order)
 		for {
 			if p.ParseKeywords([]string{"ON", "DELETE"}) {
-				_ = parseReferentialAction(p)
+				fkConstraint.OnDelete = parseReferentialAction(p)
 			} else if p.ParseKeywords([]string{"ON", "UPDATE"}) {
-				_ = parseReferentialAction(p)
+				fkConstraint.OnUpdate = parseReferentialAction(p)
 			} else {
 				break
 			}
 		}
 
 		// Parse constraint characteristics
-		parseConstraintCharacteristics(p)
-
-		_ = cols
-		_ = refTable
-		_ = refCols
+		fkConstraint.Characteristics = parseConstraintCharacteristics(p)
+		constraint.Constraint = fkConstraint
 		return constraint, nil
 	}
 
 	// CHECK (expr)
 	if p.ParseKeyword("CHECK") {
+		checkConstraint := &expr.CheckConstraint{}
+
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
 		exprParser := NewExpressionParser(p)
-		_, err := exprParser.ParseExpr()
+		checkExpr, err := exprParser.ParseExpr()
 		if err != nil {
 			return nil, fmt.Errorf("expected expression in CHECK constraint: %w", err)
 		}
+		checkConstraint.Expr = checkExpr
+
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
-		parseConstraintCharacteristics(p)
+
+		// Parse constraint characteristics (includes ENFORCED/NOT ENFORCED for MySQL)
+		characteristics := parseConstraintCharacteristics(p)
+		if characteristics != nil && characteristics.Enforced != nil {
+			checkConstraint.Enforced = characteristics.Enforced
+		}
+		constraint.Constraint = checkConstraint
 		return constraint, nil
 	}
 
@@ -359,90 +462,149 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 	// Reference: src/parser/mod.rs:9732-9756
 	if p.GetDialect().SupportsIndexHints() {
 		if p.ParseKeyword("INDEX") || p.ParseKeyword("KEY") {
+			indexConstraint := &expr.IndexConstraint{}
+
 			// Optional index name (skip if USING follows)
 			if !p.PeekKeyword("USING") {
-				p.ParseIdentifier()
+				if ident, err := p.ParseIdentifier(); err == nil {
+					indexConstraint.Name = ident
+				}
 			}
 
 			// Optional USING index_type (e.g., USING BTREE, USING HASH)
 			if p.ParseKeyword("USING") {
-				p.ParseIdentifier() // consume index type
+				if typeIdent, err := p.ParseIdentifier(); err == nil {
+					switch strings.ToUpper(typeIdent.Value) {
+					case "BTREE":
+						btree := expr.IndexTypeBTree
+						indexConstraint.IndexType = &btree
+					case "HASH":
+						hash := expr.IndexTypeHash
+						indexConstraint.IndexType = &hash
+					}
+				}
 			}
 
 			// Parse column list: (col1, col2, ...)
 			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 				return nil, err
 			}
-			_, err := parseCommaSeparatedIdents(p)
+			cols, err := parseCommaSeparatedIdents(p)
 			if err != nil {
 				return nil, err
+			}
+			// Convert []*ast.Ident to []*expr.IndexColumn
+			indexConstraint.Columns = make([]*expr.IndexColumn, len(cols))
+			for i, col := range cols {
+				indexConstraint.Columns[i] = &expr.IndexColumn{
+					Expr: &expr.Ident{Value: col.Value},
+				}
 			}
 			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
 
+			constraint.Constraint = indexConstraint
 			return constraint, nil
 		}
+	}
 
-		// MySQL-specific: FULLTEXT/SPATIAL index constraints
-		// Reference: src/parser/mod.rs:9758-9789
-		isFulltext := p.ParseKeyword("FULLTEXT")
-		isSpatial := p.ParseKeyword("SPATIAL")
-		if isFulltext || isSpatial {
-			// Optional INDEX/KEY keyword
-			if !p.ParseKeyword("INDEX") {
-				p.ParseKeyword("KEY")
-			}
-
-			// Optional index name
-			p.ParseIdentifier()
-
-			// Parse column list: (col1, col2, ...)
-			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
-				return nil, err
-			}
-			_, err := parseCommaSeparatedIdents(p)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-				return nil, err
-			}
-
-			return constraint, nil
+	// MySQL-specific: FULLTEXT/SPATIAL index constraints
+	// Reference: src/parser/mod.rs:9758-9789
+	isFulltext := p.ParseKeyword("FULLTEXT")
+	isSpatial := p.ParseKeyword("SPATIAL")
+	if isFulltext || isSpatial {
+		ftsConstraint := &expr.FullTextOrSpatialConstraint{
+			Fulltext: isFulltext,
 		}
+
+		// Optional INDEX/KEY keyword
+		if !p.ParseKeyword("INDEX") {
+			p.ParseKeyword("KEY")
+		}
+
+		// Optional index name
+		p.ParseIdentifier()
+
+		// Parse column list: (col1, col2, ...)
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		cols, err := parseCommaSeparatedIdents(p)
+		if err != nil {
+			return nil, err
+		}
+		// Convert []*ast.Ident to []*expr.IndexColumn
+		ftsConstraint.Columns = make([]*expr.IndexColumn, len(cols))
+		for i, col := range cols {
+			ftsConstraint.Columns[i] = &expr.IndexColumn{
+				Expr: &expr.Ident{Value: col.Value},
+			}
+		}
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		constraint.Constraint = ftsConstraint
+		return constraint, nil
 	}
 
 	return nil, fmt.Errorf("unknown table constraint")
 }
 
 // parseConstraintCharacteristics parses optional DEFERRABLE, INITIALLY DEFERRED/IMMEDIATE, ENFORCED/NOT ENFORCED
-func parseConstraintCharacteristics(p *Parser) {
+func parseConstraintCharacteristics(p *Parser) *expr.ConstraintCharacteristics {
+	characteristics := &expr.ConstraintCharacteristics{}
+	hasCharacteristics := false
+
 	for {
 		switch {
 		case p.ParseKeywords([]string{"NOT", "DEFERRABLE"}):
-			// NOT DEFERRABLE
+			notDeferrable := false
+			characteristics.Deferrable = &notDeferrable
+			hasCharacteristics = true
 		case p.ParseKeyword("DEFERRABLE"):
+			deferrable := true
+			characteristics.Deferrable = &deferrable
+			hasCharacteristics = true
 			// Check for INITIALLY DEFERRED/IMMEDIATE
 			if p.ParseKeyword("INITIALLY") {
 				if p.ParseKeyword("DEFERRED") {
-					// INITIALLY DEFERRED
+					initially := expr.ConstraintInitiallyOptionDeferred
+					characteristics.Initially = &initially
 				} else if p.ParseKeyword("IMMEDIATE") {
-					// INITIALLY IMMEDIATE
+					initially := expr.ConstraintInitiallyOptionImmediate
+					characteristics.Initially = &initially
 				}
 			}
 		case p.ParseKeyword("INITIALLY"):
+			hasCharacteristics = true
 			if p.ParseKeyword("DEFERRED") {
-				// INITIALLY DEFERRED
+				initially := expr.ConstraintInitiallyOptionDeferred
+				characteristics.Initially = &initially
 			} else if p.ParseKeyword("IMMEDIATE") {
-				// INITIALLY IMMEDIATE
+				initially := expr.ConstraintInitiallyOptionImmediate
+				characteristics.Initially = &initially
 			}
 		case p.ParseKeywords([]string{"NOT", "ENFORCED"}):
-			// NOT ENFORCED
+			notEnforced := false
+			characteristics.Enforced = &notEnforced
+			hasCharacteristics = true
 		case p.ParseKeyword("ENFORCED"):
-			// ENFORCED
+			enforced := true
+			characteristics.Enforced = &enforced
+			hasCharacteristics = true
+		case p.ParseKeyword("NOT") && p.PeekKeyword("VALID"):
+			// Handle NOT VALID (PostgreSQL)
+			p.ParseKeyword("VALID") // consume VALID
+			characteristics.NotValid = true
+			hasCharacteristics = true
 		default:
-			return
+			if hasCharacteristics {
+				return characteristics
+			}
+			return nil
 		}
 	}
 }

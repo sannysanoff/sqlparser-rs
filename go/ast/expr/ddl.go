@@ -84,7 +84,347 @@ func (t *TableConstraint) Span() token.Span {
 
 // String returns the SQL representation.
 func (t *TableConstraint) String() string {
-	return "CONSTRAINT"
+	var parts []string
+	if t.Name != nil {
+		parts = append(parts, fmt.Sprintf("CONSTRAINT %s", t.Name.String()))
+	}
+	if t.Constraint != nil {
+		switch c := t.Constraint.(type) {
+		case *PrimaryKeyConstraint:
+			parts = append(parts, c.String())
+		case *UniqueConstraint:
+			parts = append(parts, c.String())
+		case *ForeignKeyConstraint:
+			parts = append(parts, c.String())
+		case *CheckConstraint:
+			parts = append(parts, c.String())
+		case *IndexConstraint:
+			parts = append(parts, c.String())
+		case *FullTextOrSpatialConstraint:
+			parts = append(parts, c.String())
+		case fmt.Stringer:
+			parts = append(parts, c.String())
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// ============================================================================
+// Constraint Types
+// ============================================================================
+
+// PrimaryKeyConstraint represents a PRIMARY KEY constraint.
+// [CONSTRAINT [name]] PRIMARY KEY [index_name] [USING index_type] (columns) [index_options] [characteristics]
+type PrimaryKeyConstraint struct {
+	IndexName       *ast.Ident
+	IndexType       *IndexType
+	Columns         []*IndexColumn
+	IndexOptions    []*IndexOption
+	Characteristics *ConstraintCharacteristics
+}
+
+func (p *PrimaryKeyConstraint) String() string {
+	var parts []string
+	parts = append(parts, "PRIMARY KEY")
+	if p.IndexName != nil {
+		parts = append(parts, p.IndexName.String())
+	}
+	if p.IndexType != nil {
+		parts = append(parts, fmt.Sprintf("USING %s", p.IndexType.String()))
+	}
+	if len(p.Columns) > 0 {
+		colStrs := make([]string, len(p.Columns))
+		for i, col := range p.Columns {
+			colStrs[i] = col.String()
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+	}
+	for _, opt := range p.IndexOptions {
+		parts = append(parts, opt.String())
+	}
+	if p.Characteristics != nil {
+		parts = append(parts, p.Characteristics.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// UniqueConstraint represents a UNIQUE constraint.
+// [CONSTRAINT [name]] UNIQUE [NULLS [NOT] DISTINCT] [INDEX|KEY] [index_name] [USING index_type] (columns) [index_options] [characteristics]
+type UniqueConstraint struct {
+	NullsDistinct   NullsDistinctOption
+	IndexName       *ast.Ident
+	IndexType       *IndexType
+	Columns         []*IndexColumn
+	IndexOptions    []*IndexOption
+	Characteristics *ConstraintCharacteristics
+}
+
+func (u *UniqueConstraint) String() string {
+	var parts []string
+	parts = append(parts, "UNIQUE")
+	if u.NullsDistinct != NullsDistinctOptionNone {
+		parts = append(parts, u.NullsDistinct.String())
+	}
+	if u.IndexName != nil {
+		parts = append(parts, u.IndexName.String())
+	}
+	if u.IndexType != nil {
+		parts = append(parts, fmt.Sprintf("USING %s", u.IndexType.String()))
+	}
+	if len(u.Columns) > 0 {
+		colStrs := make([]string, len(u.Columns))
+		for i, col := range u.Columns {
+			colStrs[i] = col.String()
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+	}
+	for _, opt := range u.IndexOptions {
+		parts = append(parts, opt.String())
+	}
+	if u.Characteristics != nil {
+		parts = append(parts, u.Characteristics.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// ForeignKeyConstraint represents a FOREIGN KEY constraint.
+// [CONSTRAINT [name]] FOREIGN KEY (columns) REFERENCES table [(cols)] [MATCH kind] [ON DELETE action] [ON UPDATE action] [characteristics]
+type ForeignKeyConstraint struct {
+	IndexName       *ast.Ident
+	Columns         []*ast.Ident
+	ForeignTable    *ast.ObjectName
+	ReferredColumns []*ast.Ident
+	MatchKind       *ConstraintReferenceMatchKind
+	OnDelete        ReferentialAction
+	OnUpdate        ReferentialAction
+	Characteristics *ConstraintCharacteristics
+}
+
+func (f *ForeignKeyConstraint) String() string {
+	var parts []string
+	parts = append(parts, "FOREIGN KEY")
+	if f.IndexName != nil {
+		parts = append(parts, f.IndexName.String())
+	}
+	if len(f.Columns) > 0 {
+		colStrs := make([]string, len(f.Columns))
+		for i, col := range f.Columns {
+			colStrs[i] = col.String()
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+	}
+	if f.ForeignTable != nil {
+		// Build REFERENCES clause: REFERENCES table_name[(cols)] without space before (cols)
+		refClause := "REFERENCES " + f.ForeignTable.String()
+		if len(f.ReferredColumns) > 0 {
+			colStrs := make([]string, len(f.ReferredColumns))
+			for i, col := range f.ReferredColumns {
+				colStrs[i] = col.String()
+			}
+			refClause += fmt.Sprintf("(%s)", strings.Join(colStrs, ", "))
+		}
+		parts = append(parts, refClause)
+	}
+	if f.MatchKind != nil {
+		parts = append(parts, f.MatchKind.String())
+	}
+	if f.OnDelete != ReferentialActionNone {
+		parts = append(parts, "ON DELETE", f.OnDelete.String())
+	}
+	if f.OnUpdate != ReferentialActionNone {
+		parts = append(parts, "ON UPDATE", f.OnUpdate.String())
+	}
+	if f.Characteristics != nil {
+		parts = append(parts, f.Characteristics.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// CheckConstraint represents a CHECK constraint.
+// [CONSTRAINT [name]] CHECK (expr) [[NOT] ENFORCED]
+type CheckConstraint struct {
+	Expr     Expr
+	Enforced *bool // nil = not specified, true = ENFORCED, false = NOT ENFORCED
+}
+
+func (c *CheckConstraint) String() string {
+	var parts []string
+	parts = append(parts, "CHECK")
+	if c.Expr != nil {
+		parts = append(parts, fmt.Sprintf("(%s)", c.Expr.String()))
+	} else {
+		parts = append(parts, "()")
+	}
+	if c.Enforced != nil {
+		if *c.Enforced {
+			parts = append(parts, "ENFORCED")
+		} else {
+			parts = append(parts, "NOT ENFORCED")
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// IndexConstraint represents an INDEX constraint (MySQL-specific).
+// {INDEX | KEY} [index_name] [USING index_type] (columns) [index_options]
+type IndexConstraint struct {
+	DisplayAsKey bool // true = KEY, false = INDEX
+	Name         *ast.Ident
+	IndexType    *IndexType
+	Columns      []*IndexColumn
+	IndexOptions []*IndexOption
+}
+
+func (i *IndexConstraint) String() string {
+	var parts []string
+	if i.DisplayAsKey {
+		parts = append(parts, "KEY")
+	} else {
+		parts = append(parts, "INDEX")
+	}
+	if i.Name != nil {
+		parts = append(parts, i.Name.String())
+	}
+	if i.IndexType != nil {
+		parts = append(parts, fmt.Sprintf("USING %s", i.IndexType.String()))
+	}
+	if len(i.Columns) > 0 {
+		colStrs := make([]string, len(i.Columns))
+		for j, col := range i.Columns {
+			colStrs[j] = col.String()
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+	}
+	for _, opt := range i.IndexOptions {
+		parts = append(parts, opt.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// FullTextOrSpatialConstraint represents a FULLTEXT or SPATIAL constraint (MySQL-specific).
+// {FULLTEXT | SPATIAL} [INDEX | KEY] [index_name] (columns)
+type FullTextOrSpatialConstraint struct {
+	Fulltext bool // true = FULLTEXT, false = SPATIAL
+	Columns  []*IndexColumn
+}
+
+func (f *FullTextOrSpatialConstraint) String() string {
+	var parts []string
+	if f.Fulltext {
+		parts = append(parts, "FULLTEXT")
+	} else {
+		parts = append(parts, "SPATIAL")
+	}
+	if len(f.Columns) > 0 {
+		colStrs := make([]string, len(f.Columns))
+		for i, col := range f.Columns {
+			colStrs[i] = col.String()
+		}
+		parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
+	}
+	return strings.Join(parts, " ")
+}
+
+// NullsDistinctOption represents NULLS DISTINCT option for UNIQUE constraints.
+type NullsDistinctOption int
+
+const (
+	NullsDistinctOptionNone NullsDistinctOption = iota
+	NullsDistinctOptionNullsDistinct
+	NullsDistinctOptionNullsNotDistinct
+)
+
+func (n NullsDistinctOption) String() string {
+	switch n {
+	case NullsDistinctOptionNullsDistinct:
+		return "NULLS DISTINCT"
+	case NullsDistinctOptionNullsNotDistinct:
+		return "NULLS NOT DISTINCT"
+	default:
+		return ""
+	}
+}
+
+// ConstraintReferenceMatchKind represents MATCH kind for foreign key constraints.
+type ConstraintReferenceMatchKind int
+
+const (
+	ConstraintReferenceMatchKindNone ConstraintReferenceMatchKind = iota
+	ConstraintReferenceMatchKindFull
+	ConstraintReferenceMatchKindPartial
+	ConstraintReferenceMatchKindSimple
+)
+
+func (c ConstraintReferenceMatchKind) String() string {
+	switch c {
+	case ConstraintReferenceMatchKindFull:
+		return "MATCH FULL"
+	case ConstraintReferenceMatchKindPartial:
+		return "MATCH PARTIAL"
+	case ConstraintReferenceMatchKindSimple:
+		return "MATCH SIMPLE"
+	default:
+		return ""
+	}
+}
+
+// ConstraintCharacteristics represents constraint characteristics (DEFERRABLE, etc.).
+type ConstraintCharacteristics struct {
+	Deferrable *bool // nil = not specified, true = DEFERRABLE, false = NOT DEFERRABLE
+	Initially  *ConstraintInitiallyOption
+	NotValid   bool
+	Enforced   *bool // For MySQL CHECK constraints
+}
+
+func (c *ConstraintCharacteristics) String() string {
+	var parts []string
+	if c.Deferrable != nil {
+		if *c.Deferrable {
+			parts = append(parts, "DEFERRABLE")
+		} else {
+			parts = append(parts, "NOT DEFERRABLE")
+		}
+	}
+	if c.Initially != nil {
+		parts = append(parts, c.Initially.String())
+	}
+	if c.NotValid {
+		parts = append(parts, "NOT VALID")
+	}
+	return strings.Join(parts, " ")
+}
+
+// ConstraintInitiallyOption represents INITIALLY option.
+type ConstraintInitiallyOption int
+
+const (
+	ConstraintInitiallyOptionNone ConstraintInitiallyOption = iota
+	ConstraintInitiallyOptionDeferred
+	ConstraintInitiallyOptionImmediate
+)
+
+func (c ConstraintInitiallyOption) String() string {
+	switch c {
+	case ConstraintInitiallyOptionDeferred:
+		return "INITIALLY DEFERRED"
+	case ConstraintInitiallyOptionImmediate:
+		return "INITIALLY IMMEDIATE"
+	default:
+		return ""
+	}
+}
+
+// IndexOption represents an index option.
+type IndexOption struct {
+	Name  string
+	Value Expr
+}
+
+func (i *IndexOption) String() string {
+	if i.Value != nil {
+		return fmt.Sprintf("%s = %s", i.Name, i.Value.String())
+	}
+	return i.Name
 }
 
 // ============================================================================
