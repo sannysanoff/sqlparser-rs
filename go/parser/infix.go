@@ -69,6 +69,12 @@ func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.E
 		// Array subscript: expr[index]
 		return ep.parseArraySubscript(left)
 
+	case token.TokenColon:
+		// Semi-structured data access: expr:key or expr:[key]
+		// Put back the colon token since parseJsonPath expects to consume it
+		ep.parser.PrevToken()
+		return ep.parseJsonAccess(left)
+
 	case token.TokenExclamationMark:
 		if dialects.SupportsFactorialOperator(dialect) {
 			return &expr.UnaryOp{

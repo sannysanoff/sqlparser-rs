@@ -1229,13 +1229,22 @@ func (ep *ExpressionParser) parseGeometricType(kind string) (expr.Expr, error) {
 // This handles ODBC literals like {d '2025-07-17'}, {t '14:12:01'}, {ts '2025-07-17 14:12:01'}
 // and falls back to dictionary literal syntax if not an ODBC literal.
 func (ep *ExpressionParser) parseLBraceExpr() (expr.Expr, error) {
+	dialect := ep.parser.GetDialect()
+
 	// Try to parse as ODBC literal first
 	if odbcExpr, ok := ep.tryParseOdbcLiteral(); ok {
 		return odbcExpr, nil
 	}
 
-	// Fall back to dictionary expression
-	return ep.parseDictionaryExpr()
+	// Fall back to dictionary expression if supported
+	if dialects.SupportsDictionarySyntax(dialect) {
+		// Put back the '{' token since parseDictionaryExpr expects to consume it
+		// This matches the Rust behavior: self.prev_token(); return self.parse_dictionary();
+		ep.parser.PrevToken()
+		return ep.parseDictionaryExpr()
+	}
+
+	return nil, fmt.Errorf("expected expression, found: %s", ep.parser.GetCurrentToken().Token.String())
 }
 
 // tryParseOdbcLiteral tries to parse an ODBC literal (datetime or function)

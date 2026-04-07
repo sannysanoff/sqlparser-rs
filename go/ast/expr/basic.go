@@ -144,7 +144,8 @@ func (q *QualifiedWildcard) String() string {
 
 // Wildcard represents an unqualified `*` wildcard (Expr::Wildcard in Rust).
 type Wildcard struct {
-	SpanVal token.Span
+	SpanVal           token.Span
+	AdditionalOptions *WildcardAdditionalOptions
 }
 
 func (w *Wildcard) exprNode() {}
@@ -156,6 +157,9 @@ func (w *Wildcard) Span() token.Span {
 
 // String returns the SQL representation.
 func (w *Wildcard) String() string {
+	if w.AdditionalOptions != nil {
+		return "*" + w.AdditionalOptions.String()
+	}
 	return "*"
 }
 
@@ -344,4 +348,119 @@ func (c *ColumnOption) String() string {
 		return fmt.Sprintf("%s %s", c.Name, c.Value.String())
 	}
 	return c.Name
+}
+
+// WildcardAdditionalOptions represents options for wildcards like EXCLUDE, EXCEPT, REPLACE, etc.
+type WildcardAdditionalOptions struct {
+	OptExclude *ExcludeSelectItem
+	OptExcept  *ExceptSelectItem
+	OptReplace *ReplaceSelectItem
+	OptRename  *RenameSelectItem
+}
+
+// String returns the SQL representation.
+func (w *WildcardAdditionalOptions) String() string {
+	var parts []string
+	if w.OptExclude != nil {
+		parts = append(parts, w.OptExclude.String())
+	}
+	if w.OptExcept != nil {
+		parts = append(parts, w.OptExcept.String())
+	}
+	if w.OptReplace != nil {
+		parts = append(parts, w.OptReplace.String())
+	}
+	if w.OptRename != nil {
+		parts = append(parts, w.OptRename.String())
+	}
+	if len(parts) > 0 {
+		return " " + strings.Join(parts, " ")
+	}
+	return ""
+}
+
+// ExcludeSelectItem represents EXCLUDE clause for wildcards (e.g., * EXCLUDE(col1, col2)).
+type ExcludeSelectItem struct {
+	Columns []*ObjectNamePart
+}
+
+// String returns the SQL representation.
+func (e *ExcludeSelectItem) String() string {
+	if len(e.Columns) == 1 {
+		return "EXCLUDE " + e.Columns[0].String()
+	}
+	var colStrs []string
+	for _, col := range e.Columns {
+		colStrs = append(colStrs, col.String())
+	}
+	return "EXCLUDE (" + strings.Join(colStrs, ", ") + ")"
+}
+
+// ExceptSelectItem represents EXCEPT clause for wildcards (BigQuery syntax).
+type ExceptSelectItem struct {
+	FirstElement       *Ident
+	AdditionalElements []*Ident
+}
+
+// String returns the SQL representation.
+func (e *ExceptSelectItem) String() string {
+	if len(e.AdditionalElements) == 0 {
+		return "EXCEPT " + e.FirstElement.String()
+	}
+	var colStrs []string
+	colStrs = append(colStrs, e.FirstElement.String())
+	for _, col := range e.AdditionalElements {
+		colStrs = append(colStrs, col.String())
+	}
+	return "EXCEPT (" + strings.Join(colStrs, ", ") + ")"
+}
+
+// ReplaceSelectItem represents REPLACE clause for wildcards.
+type ReplaceSelectItem struct {
+	Elements []*ReplaceSelectElement
+}
+
+// String returns the SQL representation.
+func (r *ReplaceSelectItem) String() string {
+	var elemStrs []string
+	for _, elem := range r.Elements {
+		elemStrs = append(elemStrs, elem.String())
+	}
+	return "REPLACE (" + strings.Join(elemStrs, ", ") + ")"
+}
+
+// ReplaceSelectElement represents a single element in REPLACE clause.
+type ReplaceSelectElement struct {
+	Expr Expr
+	Name *Ident
+}
+
+// String returns the SQL representation.
+func (r *ReplaceSelectElement) String() string {
+	return r.Expr.String() + " AS " + r.Name.String()
+}
+
+// RenameSelectItem represents RENAME clause for wildcards.
+type RenameSelectItem struct {
+	Elements []*RenameSelectElement
+}
+
+// String returns the SQL representation.
+func (r *RenameSelectItem) String() string {
+	var elemStrs []string
+	for _, elem := range r.Elements {
+		elemStrs = append(elemStrs, elem.String())
+	}
+	return "RENAME (" + strings.Join(elemStrs, ", ") + ")"
+}
+
+// RenameSelectElement represents a single element in RENAME clause.
+type RenameSelectElement struct {
+	Old *ObjectName
+	New *Ident
+}
+
+// String returns the SQL representation.
+func (r *RenameSelectElement) String() string {
+	return r.Old.String() + " AS " + r.New.String()
 }

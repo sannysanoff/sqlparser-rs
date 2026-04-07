@@ -295,7 +295,22 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 func (ep *ExpressionParser) parseFunctionArg() (expr.FunctionArg, error) {
 	// Check for wildcard * (used in COUNT(*) and similar)
 	if ep.parser.ConsumeToken(token.TokenMul{}) {
-		return &expr.FunctionArgExpr{Expr: &expr.Wildcard{}}, nil
+		wildcard := &expr.Wildcard{}
+
+		// Check for EXCLUDE clause (Snowflake syntax: * EXCLUDE(col1, col2))
+		if dialects.SupportsSelectWildcardExclude(ep.parser.GetDialect()) {
+			if ep.parser.ParseKeyword("EXCLUDE") {
+				opts, err := ep.parseExcludeClause()
+				if err != nil {
+					return nil, err
+				}
+				wildcard.AdditionalOptions = &expr.WildcardAdditionalOptions{
+					OptExclude: opts,
+				}
+			}
+		}
+
+		return &expr.FunctionArgExpr{Expr: wildcard}, nil
 	}
 
 	dialect := ep.parser.GetDialect()
@@ -1136,4 +1151,52 @@ func (ep *ExpressionParser) parseNotExpr() (expr.Expr, error) {
 		Expr:    innerExpr,
 		SpanVal: mergeSpans(ep.parser.GetCurrentToken().Span, innerExpr.Span()),
 	}, nil
+}
+
+// parseExcludeClause parses an EXCLUDE clause for wildcards
+// Pattern: EXCLUDE col or EXCLUDE (col1, col2, ...)
+func (ep *ExpressionParser) parseExcludeClause() (*expr.ExcludeSelectItem, error) {
+	// Check for parenthesized list or single column
+	if ep.parser.ConsumeToken(token.TokenLParen{}) {
+		// Multiple columns: EXCLUDE (col1, col2, ...)
+		cols, err := ep.parseObjectNameList()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		// Convert to ObjectNamePart
+		var parts []*expr.ObjectNamePart
+		for _, col := range cols {
+			parts = append(parts, col.Parts...)
+		}
+		return &expr.ExcludeSelectItem{Columns: parts}, nil
+	}
+	
+	// Single column without parens: EXCLUDE col
+	col, err := ep.parseObjectName()
+	if err != nil {
+		return nil, err
+	}
+	return &expr.ExcludeSelectItem{Columns: col.Parts}, nil
+}
+
+// parseObjectNameList parses a comma-separated list of object names
+func (ep *ExpressionParser) parseObjectNameList() ([]*expr.ObjectName, error) {
+	var names []*expr.ObjectName
+	
+	for {
+		name, err := ep.parseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+		
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	
+	return names, nil
 }

@@ -88,13 +88,6 @@ func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr
 			break
 		}
 
-		// The colon operator is used for named function arguments (e.g., JSON_OBJECT('key' : value))
-		// It's not a general infix operator, so we stop expression parsing here
-		// and let the function argument parser handle it.
-		if _, ok := nextTok.Token.(token.TokenColon); ok {
-			break
-		}
-
 		// Parse the infix operator
 		left, err = ep.parseInfix(left, nextPrecedence)
 		if err != nil {
@@ -254,9 +247,9 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		return dialect.PrecValue(parseriface.PrecedencePeriod), nil
 
 	case token.TokenColon:
-		if dialects.SupportsPartiQL(dialect) {
-			return dialect.PrecValue(parseriface.PrecedenceColon), nil
-		}
+		// Colon for semi-structured data access (e.g., a:b in Snowflake/Databricks)
+		// This is always enabled, unlike LBracket which requires PartiQL support
+		return dialect.PrecValue(parseriface.PrecedenceColon), nil
 
 	case token.TokenExclamationMark:
 		if dialects.SupportsFactorialOperator(dialect) {
