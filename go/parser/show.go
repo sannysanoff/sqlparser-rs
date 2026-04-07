@@ -451,6 +451,19 @@ func parseShowStmtOptions(p *Parser) *expr.ShowStatementOptions {
 		}
 	}
 
+	// Parse optional FROM (Snowflake pagination marker: FROM 'marker')
+	// This is different from the IN/FROM clause - it comes after LIMIT
+	if p.ParseKeyword("FROM") {
+		// Can be either an identifier or a string literal
+		tok := p.PeekToken()
+		if strTok, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			options.LimitFrom = &strTok.Value
+		} else if ident, err := p.ParseIdentifier(); err == nil {
+			options.LimitFrom = &ident.Value
+		}
+	}
+
 	return options
 }
 

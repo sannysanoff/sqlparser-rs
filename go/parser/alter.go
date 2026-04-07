@@ -146,7 +146,14 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 }
 
 // parseAlterTableAdd parses ADD COLUMN or ADD CONSTRAINT
+// Reference: src/parser/mod.rs:10073-10123
 func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	// First, check if this is a constraint (ADD CONSTRAINT, ADD PRIMARY KEY, ADD UNIQUE, etc.)
+	// Try to peek if this looks like a constraint by checking for constraint keywords
+	if looksLikeTableConstraint(p) {
+		return parseAlterTableAddConstraint(p, op)
+	}
+
 	// Check for COLUMN keyword
 	if p.ParseKeyword("COLUMN") {
 		op.AddColumnKeyword = true
@@ -160,6 +167,7 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 	// Check for parenthesized column list (MySQL style: ADD COLUMN (c1 INT, c2 INT))
 	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.AdvanceToken() // consume (
+
 		op.Op = expr.AlterTableOpAddColumn
 
 		for {
@@ -200,6 +208,67 @@ func parseAlterTableAdd(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTab
 		op.AddColumnPosition = &expr.MySQLColumnPosition{
 			AfterColumn: afterCol,
 		}
+	}
+
+	return op, nil
+}
+
+// looksLikeTableConstraint checks if the current position looks like a table constraint
+// This follows Rust's pattern of checking for constraint keywords without consuming tokens
+// Reference: src/parser/mod.rs:10074-10075
+func looksLikeTableConstraint(p *Parser) bool {
+	// Check for CONSTRAINT keyword
+	if p.PeekKeyword("CONSTRAINT") {
+		return true
+	}
+
+	// Check for PRIMARY KEY
+	if p.PeekKeyword("PRIMARY") {
+		return true
+	}
+
+	// Check for UNIQUE
+	if p.PeekKeyword("UNIQUE") {
+		return true
+	}
+
+	// Check for FOREIGN KEY
+	if p.PeekKeyword("FOREIGN") {
+		return true
+	}
+
+	// Check for CHECK
+	if p.PeekKeyword("CHECK") {
+		return true
+	}
+
+	// MySQL-specific: INDEX, KEY, FULLTEXT, SPATIAL
+	if p.GetDialect().SupportsIndexHints() {
+		if p.PeekKeyword("INDEX") || p.PeekKeyword("KEY") ||
+			p.PeekKeyword("FULLTEXT") || p.PeekKeyword("SPATIAL") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseAlterTableAddConstraint parses ADD CONSTRAINT operations
+// Reference: src/parser/mod.rs:10074-10081
+func parseAlterTableAddConstraint(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpAddConstraint
+
+	// Parse the constraint definition
+	constraint, err := parseTableConstraint(p)
+	if err != nil {
+		return nil, fmt.Errorf("expected constraint definition: %w", err)
+	}
+	op.Constraint = constraint
+
+	// Check for NOT VALID (PostgreSQL deferrable constraints)
+	// Reference: src/parser/mod.rs:10076
+	if p.ParseKeywords([]string{"NOT", "VALID"}) {
+		op.ConstraintNotValid = true
 	}
 
 	return op, nil

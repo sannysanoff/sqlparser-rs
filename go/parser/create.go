@@ -897,11 +897,11 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 				return nil, err
 			}
 		}
+	}
 
-		// Expect ON keyword
-		if _, err := p.ExpectKeyword("ON"); err != nil {
-			return nil, err
-		}
+	// Expect ON keyword (whether we had an index name or not)
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, err
 	}
 
 	// Parse table name
@@ -1030,7 +1030,7 @@ func parseIndexColumnList(p *Parser) ([]*expr.IndexColumn, error) {
 		}
 		columns = append(columns, col)
 
-		if !p.ParseKeyword(",") {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}

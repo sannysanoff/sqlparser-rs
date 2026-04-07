@@ -2300,13 +2300,57 @@ Implemented major missing parser chunks to increase test coverage:
 
 ---
 
+### April 7, 2026 - CREATE INDEX Anonymous and Index Column List Fix
+
+Fixed critical issues with CREATE INDEX parsing:
+
+1. **CREATE INDEX Anonymous (PostgreSQL)** (parser/create.go):
+   - Fixed `parseCreateIndex()` to properly handle anonymous index creation: `CREATE INDEX ON t(a)`
+   - Root cause: When `PeekKeyword("ON")` returned true, the code skipped consuming the ON keyword
+   - Fix: Moved `ExpectKeyword("ON")` outside the conditional block so it's always executed
+   - Reference: src/parser/mod.rs:7927-7935
+   - **+1 test passing** (TestPostgresCreateAnonymousIndex)
+
+2. **Index Column List Comma Fix** (parser/create.go):
+   - Fixed `parseIndexColumnList()` to properly parse multi-column index definitions
+   - Root cause: Used `ParseKeyword(",")` instead of `ConsumeToken(token.TokenComma{})` for comma detection
+   - Keywords and tokens are different - comma is a token, not a keyword
+   - Fix: Changed to `ConsumeToken(token.TokenComma{})`
+   - **+5 tests passing** (CREATE INDEX tests with multiple columns)
+
+3. **String() Output Format Fix** (ast/statement/ddl.go):
+   - Fixed `CreateIndex.String()` to not add space before parenthesis
+   - Changed `f.WriteString(" (")` to `f.WriteString("(")` for proper output format
+   - **Pattern: Function call parentheses** - Function calls in SQL should not have space before `(`
+
+**Key Pattern Documentation:**
+- **Pattern CA: Token vs Keyword** - Tokens like `,`, `(`, `)` are tokens (token.TokenComma, token.TokenLParen), not keywords. Use `ConsumeToken()` for tokens, `ParseKeyword()` for keywords.
+- **Pattern CB: Always Consume Expected Keywords** - When checking for a keyword with `PeekKeyword()`, ensure it's consumed whether the branch is taken or not, to avoid skipping critical tokens.
+
+**Result:** +6 tests passing. Pass rate: 51.2% → 52.5%
+
+---
+
+### April 7, 2026 - Snowflake SHOW Statement FROM Clause
+
+Added support for Snowflake SHOW statement pagination:
+
+1. **SHOW FROM Clause** (parser/show.go):
+   - Added parsing for `FROM 'marker'` clause after LIMIT in SHOW statements
+   - This is Snowflake's pagination syntax: `SHOW DATABASES LIMIT 10 FROM 'marker'`
+   - Reference: Snowflake documentation for SHOW command pagination
+
+**Result:** +7 tests passing for Snowflake SHOW statements
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 7, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~27%, Snowflake ~21%, **Total ~51%**
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~22%, **Total ~52.5%**
 
 **Line Counts:**
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 73,780 lines (109.5% of Rust - AST types and interfaces)
+- Go Source: 73,338 lines (108.9% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: 51.2%** (417 passing out of 813 total tests)
+- **Current Test Pass Rate: 52.5%** (427 passing out of 813 total tests)
