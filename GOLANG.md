@@ -3334,9 +3334,65 @@ Implemented critical fixes for CREATE POLICY and TABLESAMPLE parsing:
 
 ---
 
-**Line Counts (Updated April 7, 2026):**
+### April 8, 2026 - ALTER TABLE SET Options and RENAME AS Implementation
+
+Implemented critical fixes for ALTER TABLE statement parsing:
+
+1. **ALTER TABLE SET Options Parsing** (parser/alter.go, ast/expr/ddl.go):
+   - Fixed `parseAlterTableSet()` to properly parse `SET (key=value, ...)` syntax for PostgreSQL storage parameters
+   - Added `parseOptions()` helper function that wraps `parseSqlOptions()` with parenthesis handling
+   - Fixed `parseSqlOptions()` to use `ConsumeToken(token.TokenComma{})` instead of `ParseKeyword(",")` for comma detection
+   - Added `SetOptions []*SqlOption` field to `AlterTableOperation` struct
+   - Implemented proper `String()` method for `AlterTableOpSetOptionsParens` case
+   - **+1 test passing** (TestParseAlterTableBatch9)
+
+2. **ALTER TABLE RENAME AS vs RENAME TO** (parser/alter.go, ast/expr/ddl.go):
+   - Added `RenameTableAsKind` enum with `RenameTableTo` and `RenameTableAs` variants
+   - Added `RenameTableAsKind` field to `AlterTableOperation` struct
+   - Updated `parseAlterTableRename()` to set the correct kind when parsing
+   - Updated `String()` method to output "RENAME AS" or "RENAME TO" based on the kind
+   - **Reference:** src/parser/mod.rs:10130-10148 for Rust's handling of RENAME AS/TO
+
+3. **ALTER COLUMN ... USING Clause** (parser/alter.go, ast/expr/ddl.go):
+   - Added `AlterUsing Expr` field to `AlterTableOperation` for USING expression
+   - Added `AlterDataTypeHadSet bool` field to track whether SET DATA TYPE or just TYPE was used
+   - Updated parser to check `SupportsAlterColumnTypeUsing()` and parse USING clause
+   - Updated `String()` method to output USING clause when present
+   - **+1 test passing** (TestParseAlterTableAlterColumnType)
+
+**Key Pattern Documentation:**
+- **Pattern CQ: SQL Options Parsing** - When parsing `SET (key=value, ...)` syntax:
+  1. Use `parseOptions()` to handle the parenthesized list
+  2. Use `parseSqlOptions()` to parse individual `key=value` pairs
+  3. Use `ConsumeToken(token.TokenComma{})` for comma detection, NOT `ParseKeyword(",")`
+  4. Store parsed options in `[]*expr.SqlOption` field
+  5. Implement proper `String()` case for the operation type
+
+- **Pattern CR: Tracking Alternative Syntax** - When SQL has alternative syntax forms (like RENAME AS vs RENAME TO, or SET DATA TYPE vs TYPE):
+  1. Add an enum type to distinguish the variants (e.g., `RenameTableAsKind`)
+  2. Add a field to the AST operation struct to store the variant
+  3. Set the variant in the parser when the specific keyword is detected
+  4. Check the variant in `String()` to output the correct form
+  5. This preserves round-trip parsing: parse(stringify(AST)) == AST
+
+- **Pattern CS: Dialect-Specific Optional Clauses** - For clauses like USING that only some dialects support:
+  1. Check dialect capability method (e.g., `SupportsAlterColumnTypeUsing()`) before parsing
+  2. Parse the clause only if the dialect supports it
+  3. Store in appropriate AST field and output in String() method
+
+---
+
+**Line Counts (Updated April 8, 2026):**
+
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 76,120 lines (113% of Rust - AST types and interfaces)
-- Rust Tests: 49,886 lines
+- Go Source: 76,336 lines (113% of Rust - AST types and interfaces)
+- Rust Tests: 49,886 lines  
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: ~54%** (442 passing out of 813 total tests)
+- **Current Test Pass Rate: ~58%** (474 passing out of 813 total tests)
+
+**Recent Progress:**
+- Fixed ALTER TABLE SET options parsing (+1 test)
+- Fixed ALTER TABLE RENAME AS vs TO distinction (+1 test) 
+- Fixed ALTER COLUMN ... USING clause (+1 test)
+- Fixed comma detection in parseSqlOptions (used by many tests)
+- **Total: +32 tests passing** (from ~442 to 474)

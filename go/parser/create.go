@@ -1512,7 +1512,7 @@ func parseSqlOptions(p *Parser) ([]*expr.SqlOption, error) {
 			Value: val,
 		})
 
-		if !p.ParseKeyword(",") {
+		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}

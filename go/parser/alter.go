@@ -426,11 +426,13 @@ func parseAlterTableDropConstraint(p *Parser, op *expr.AlterTableOperation) (*ex
 func parseAlterTableRename(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
 	// RENAME TO <new_table_name>
 	if p.ParseKeyword("TO") {
+		op.RenameTableAsKind = expr.RenameTableTo
 		return parseAlterTableRenameTable(p, op)
 	}
 
 	// RENAME AS <new_table_name> (alternative syntax)
 	if p.ParseKeyword("AS") {
+		op.RenameTableAsKind = expr.RenameTableAs
 		return parseAlterTableRenameTable(p, op)
 	}
 
@@ -513,17 +515,35 @@ func parseAlterTableAlterColumn(p *Parser, op *expr.AlterTableOperation) (*expr.
 		op.AlterColumnOp = expr.AlterColumnOpDropDefault
 	} else if p.ParseKeywords([]string{"SET", "DATA", "TYPE"}) {
 		op.AlterColumnOp = expr.AlterColumnOpSetDataType
+		op.AlterDataTypeHadSet = true // Track that SET was used
 		// Parse data type
 		dataType, err := p.ParseDataType()
 		if err == nil {
 			op.AlterDataType = dataType
 		}
+		// Parse optional USING clause (PostgreSQL)
+		if p.GetDialect().SupportsAlterColumnTypeUsing() && p.ParseKeyword("USING") {
+			exprParser := NewExpressionParser(p)
+			usingExpr, err := exprParser.ParseExpr()
+			if err == nil {
+				op.AlterUsing = usingExpr
+			}
+		}
 	} else if p.ParseKeyword("TYPE") {
 		op.AlterColumnOp = expr.AlterColumnOpSetDataType
+		op.AlterDataTypeHadSet = false // Track that SET was NOT used (just TYPE)
 		// Parse data type
 		dataType, err := p.ParseDataType()
 		if err == nil {
 			op.AlterDataType = dataType
+		}
+		// Parse optional USING clause (PostgreSQL)
+		if p.GetDialect().SupportsAlterColumnTypeUsing() && p.ParseKeyword("USING") {
+			exprParser := NewExpressionParser(p)
+			usingExpr, err := exprParser.ParseExpr()
+			if err == nil {
+				op.AlterUsing = usingExpr
+			}
 		}
 	} else {
 		return nil, fmt.Errorf("expected SET NOT NULL, DROP NOT NULL, SET DEFAULT, DROP DEFAULT, or SET DATA TYPE after ALTER COLUMN")
@@ -695,29 +715,46 @@ func parseOptionalColumnOption(p *Parser) (*expr.ColumnOption, error) {
 	return nil, nil
 }
 
+// parseOptions parses a parenthesized list of SQL options: (key=value, ...)
+// Reference: src/parser/mod.rs:9829-9838
+func parseOptions(p *Parser) ([]*expr.SqlOption, error) {
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse the options using the existing helper
+	options, err := parseSqlOptions(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return options, nil
+}
+
 // parseAlterTableSet parses SET TBLPROPERTIES or SET options
+// Reference: src/parser/mod.rs:10528-10545
 func parseAlterTableSet(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
 	// SET TBLPROPERTIES(...)
 	if p.ParseKeyword("TBLPROPERTIES") {
 		return parseAlterTableSetTblProperties(p, op)
 	}
 
-	// SET (...) - parenthesized options - just skip for now
+	// SET (...) - parenthesized options like SET (key=value, ...)
+	// Reference: src/parser/mod.rs:10536-10544
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		op.Op = expr.AlterTableOpSetOptionsParens
-		// Consume until matching RParen
-		depth := 1
-		for depth > 0 {
-			tok := p.NextToken()
-			switch tok.Token.(type) {
-			case token.TokenLParen:
-				depth++
-			case token.TokenRParen:
-				depth--
-			case token.EOF:
-				return nil, fmt.Errorf("unexpected end of input in SET options")
-			}
+		// Parse the parenthesized options
+		options, err := parseOptions(p)
+		if err != nil {
+			return nil, err
 		}
+		op.SetOptions = options
 		return op, nil
 	}
 

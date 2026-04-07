@@ -935,13 +935,16 @@ type AlterTableOperation struct {
 	RenameNewColumn *ast.Ident
 
 	// Fields for RenameTable
-	NewTableName *ast.ObjectName
+	NewTableName      *ast.ObjectName
+	RenameTableAsKind RenameTableAsKind // Whether RENAME AS or RENAME TO was used
 
 	// Fields for AlterColumn
-	AlterColumnName *ast.Ident
-	AlterColumnOp   AlterColumnOpType
-	AlterDefault    Expr
-	AlterDataType   interface{} // datatype.DataType
+	AlterColumnName     *ast.Ident
+	AlterColumnOp       AlterColumnOpType
+	AlterDefault        Expr
+	AlterDataType       interface{} // datatype.DataType
+	AlterUsing          Expr        // USING expression for SET DATA TYPE
+	AlterDataTypeHadSet bool        // Whether SET DATA TYPE (true) or just TYPE (false)
 
 	// Fields for SetTblProperties
 	TblProperties []*SqlOption
@@ -950,6 +953,9 @@ type AlterTableOperation struct {
 	AutoIncrementValue string     // For AUTO_INCREMENT = N
 	AlgorithmValue     *ast.Ident // For ALGORITHM = {COPY|INPLACE|INSTANT}
 	LockValue          *ast.Ident // For LOCK = {DEFAULT|NONE|SHARED|EXCLUSIVE}
+
+	// Fields for SetOptionsParens (PostgreSQL: SET (key=value, ...))
+	SetOptions []*SqlOption // For SET (key=value, ...)
 
 	// Fields for ChangeColumn (MySQL)
 	ChangeOldName        *ast.Ident
@@ -1008,6 +1014,14 @@ const (
 	AlterTableOpEnableReplicaTrigger
 	AlterTableOpReplicaIdentity
 	AlterTableOpValidateConstraint
+)
+
+// RenameTableAsKind represents whether RENAME AS or RENAME TO was used
+type RenameTableAsKind int
+
+const (
+	RenameTableTo RenameTableAsKind = iota
+	RenameTableAs
 )
 
 // AlterColumnOpType represents operations on a column via ALTER COLUMN
@@ -1109,7 +1123,11 @@ func (a *AlterTableOperation) String() string {
 		return buf.String()
 	case AlterTableOpRenameTable:
 		var buf strings.Builder
-		buf.WriteString("RENAME TO ")
+		if a.RenameTableAsKind == RenameTableAs {
+			buf.WriteString("RENAME AS ")
+		} else {
+			buf.WriteString("RENAME TO ")
+		}
 		if a.NewTableName != nil {
 			buf.WriteString(a.NewTableName.String())
 		}
@@ -1133,12 +1151,22 @@ func (a *AlterTableOperation) String() string {
 		case AlterColumnOpDropDefault:
 			buf.WriteString(" DROP DEFAULT")
 		case AlterColumnOpSetDataType:
-			buf.WriteString(" SET DATA TYPE")
+			// Output either "SET DATA TYPE" or just "TYPE" depending on what was parsed
+			if a.AlterDataTypeHadSet {
+				buf.WriteString(" SET DATA TYPE")
+			} else {
+				buf.WriteString(" TYPE")
+			}
 			if a.AlterDataType != nil {
 				if dt, ok := a.AlterDataType.(fmt.Stringer); ok {
 					buf.WriteString(" ")
 					buf.WriteString(dt.String())
 				}
+			}
+			// Output USING clause if present (PostgreSQL)
+			if a.AlterUsing != nil {
+				buf.WriteString(" USING ")
+				buf.WriteString(a.AlterUsing.String())
 			}
 		}
 		return buf.String()
@@ -1169,6 +1197,21 @@ func (a *AlterTableOperation) String() string {
 			// src/ast/ddl.rs:635-644 - EXCLUSIVE, SHARED, NONE, DEFAULT
 			buf.WriteString(strings.ToUpper(a.LockValue.Value))
 		}
+		return buf.String()
+	case AlterTableOpSetOptionsParens:
+		var buf strings.Builder
+		buf.WriteString("SET (")
+		for i, opt := range a.SetOptions {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(opt.Name.String())
+			buf.WriteString(" = ")
+			if opt.Value != nil {
+				buf.WriteString(opt.Value.String())
+			}
+		}
+		buf.WriteString(")")
 		return buf.String()
 	case AlterTableOpDropPrimaryKey:
 		var buf strings.Builder
