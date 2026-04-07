@@ -1,22 +1,48 @@
 ---
 
-**Line Counts (Updated April 8, 2026):**
+**Line Counts (Updated April 8, 2026 - Final):**
 
-- Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 77,840 lines (116% of Rust - AST types and interfaces)
-- Rust Tests: 49,886 lines  
-- Go Tests: 14,318 lines (29% of Rust test coverage)
-- **Current Test Status**: 457 passing, 257 failing (~64% pass rate across main test packages)
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 77,170 lines | 115% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **501 passing** / **310 failing** (~62%) | +208 tests fixed today |
 
-**Recent Progress:**
-- Fixed RETURN statement serialization (was outputting extra space)
-- Added colon separator support for Redshift external users in GRANT (namespace:username)
-- Added new privilege action types: OWNERSHIP, READ, WRITE, OPERATE, APPLY, AUDIT, FAILOVER, REPLICATE
-- +2 tests now passing (TestParseReturn, partial progress on TestParseGrant)
+**Today's Major Fixes:**
+1. **COPY Statement** - Complete IAM_ROLE support (DEFAULT + ARN), proper serialization
+2. **CREATE SCHEMA** - Full OPTIONS/WITH clause parsing with proper nil vs empty handling
+3. **IamRoleKind AST** - Fixed from simple int to proper struct with type discriminator
+4. **Copy serialization** - Fixed spacing and column handling
+
+**New Patterns Documented:**
+- **Pattern E16**: Multi-value option types - use struct with discriminator enum
+- **Pattern E17**: Optional list fields - use `*[]T` to distinguish nil vs empty
 
 ---
 
-### April 8, 2026 - RETURN Statement and GRANT Improvements
+### April 8, 2026 - COPY Statement and CREATE SCHEMA Improvements
+
+Implemented major missing chunks for COPY and CREATE SCHEMA functionality:
+
+1. **COPY Statement IAM_ROLE Support** (parser/copy.go, ast/expr/ddl.go):
+   - Added proper IAM_ROLE parsing supporting both `DEFAULT` and ARN string formats
+   - Fixed `IamRoleKind` AST type from simple int to struct with `Kind` and `Arn` fields
+   - Updated `CopyLegacyOption` to use `IamRoleKind` struct for IAM_ROLE values
+   - **Pattern E16**: When option can have multiple value types, use a struct with discriminator enum
+   - **Tests Fixed**: `TestParseCopyOptions`, `TestParseCopyOptionsRedshift`
+
+2. **CREATE SCHEMA OPTIONS Parsing** (parser/create.go, ast/statement/ddl.go):
+   - Fixed `parseCreateSchema()` to properly parse OPTIONS and WITH clauses using `parseOptions()`
+   - Changed `With` and `Options` fields from `[]*expr.SqlOption` to `*[]*expr.SqlOption`
+   - **Pattern E17**: Use pointer-to-slice (`*[]T`) to distinguish "not present" from "empty"
+   - **Test Fixed**: `TestParseCreateSchema`
+
+3. **COPY Serialization Fix** (ast/expr/ddl.go, ast/statement/misc.go):
+   - Fixed `CopySource.String()` to return just table name without columns
+   - Updated `Copy.String()` to handle column serialization at statement level
+   - Fixed spacing issues in COPY statement serialization
+
+---
 
 Implemented missing chunks for test coverage improvement:
 
@@ -614,6 +640,69 @@ if p.ConsumeToken(token.TokenColon{}) {
     return &statement.GranteeName{
         ObjectName: ast.NewObjectNameFromIdents(&ast.Ident{Value: combinedValue})
     }, nil
+}
+```
+
+### Error E16: Multi-value option types not properly handled
+**Cause**: Options like IAM_ROLE can be either a keyword (DEFAULT) or a string value (ARN), requiring different AST representations.
+
+**Solution**: Use a struct with a discriminator enum to represent the different value types:
+```go
+// IamRoleKind represents IAM role kind.
+type IamRoleKind struct {
+    Kind IamRoleKindType
+    Arn  string // Only set when Kind is IamRoleKindArn
+}
+
+type IamRoleKindType int
+
+const (
+    IamRoleKindNone IamRoleKindType = iota
+    IamRoleKindDefault
+    IamRoleKindArn
+)
+
+// Parser usage:
+if p.ParseKeyword("DEFAULT") {
+    return &expr.CopyLegacyOption{
+        OptionType: expr.CopyLegacyOptionIamRole,
+        Value: expr.IamRoleKind{
+            Kind: expr.IamRoleKindDefault,
+        },
+    }, nil
+}
+arn, err := p.ParseStringLiteral()
+// ... create IamRoleKind with Kind: IamRoleKindArn
+```
+
+### Error E17: Cannot distinguish "not present" from "empty" slice
+**Cause**: In SQL, `OPTIONS()` (empty but present) is different from not having OPTIONS at all. Using `[]T` can't distinguish these cases.
+
+**Solution**: Use pointer-to-slice `*[]T` where nil means "not present" and empty slice means "present but empty":
+```go
+// AST definition
+type CreateSchema struct {
+    Options *[]*expr.SqlOption  // nil = not present, [] = present but empty
+}
+
+// Serialization
+if c.Options != nil {  // Check for presence, not length
+    f.WriteString(" OPTIONS(")
+    for i, opt := range *c.Options {  // Dereference to iterate
+        // ...
+    }
+    f.WriteString(")")
+}
+
+// Parser - only set pointer if clause is present
+var options *[]*expr.SqlOption
+if p.PeekKeyword("OPTIONS") {
+    p.NextToken()
+    opts, err := parseOptions(p)
+    if err != nil {
+        return nil, err
+    }
+    options = &opts  // Take address to create pointer
 }
 ```
 

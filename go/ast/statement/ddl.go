@@ -887,8 +887,8 @@ type CreateSchema struct {
 	BaseStatement
 	SchemaName         *expr.SchemaName
 	IfNotExists        bool
-	With               []*expr.SqlOption
-	Options            []*expr.SqlOption
+	With               *[]*expr.SqlOption // Pointer to distinguish nil (not present) from empty
+	Options            *[]*expr.SqlOption // Pointer to distinguish nil (not present) from empty
 	DefaultCollateSpec expr.Expr
 	Clone              *ast.ObjectName
 }
@@ -908,9 +908,9 @@ func (c *CreateSchema) String() string {
 		f.WriteString(c.DefaultCollateSpec.String())
 	}
 
-	if len(c.With) > 0 {
+	if c.With != nil {
 		f.WriteString(" WITH (")
-		for i, opt := range c.With {
+		for i, opt := range *c.With {
 			if i > 0 {
 				f.WriteString(", ")
 			}
@@ -919,9 +919,9 @@ func (c *CreateSchema) String() string {
 		f.WriteString(")")
 	}
 
-	if len(c.Options) > 0 {
+	if c.Options != nil {
 		f.WriteString(" OPTIONS(")
-		for i, opt := range c.Options {
+		for i, opt := range *c.Options {
 			if i > 0 {
 				f.WriteString(", ")
 			}

@@ -391,7 +391,18 @@ func (c *Copy) String() string {
 	var f strings.Builder
 	f.WriteString("COPY")
 	if c.Source != nil {
+		f.WriteString(" ")
 		f.WriteString(c.Source.String())
+		// Add columns if present (for table source)
+		if c.Source.TableName != nil && len(c.Source.Columns) > 0 {
+			cols := make([]string, len(c.Source.Columns))
+			for i, col := range c.Source.Columns {
+				cols[i] = col.String()
+			}
+			f.WriteString(" (")
+			f.WriteString(strings.Join(cols, ", "))
+			f.WriteString(")")
+		}
 	}
 	if c.To {
 		f.WriteString(" TO ")

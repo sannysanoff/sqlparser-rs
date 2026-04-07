@@ -515,6 +515,27 @@ func tryParseCopyLegacyOption(p *Parser) (*expr.CopyLegacyOption, error) {
 			OptionType: expr.CopyLegacyOptionCredentials,
 			Value:      val,
 		}, nil
+	case "IAM_ROLE":
+		// IAM_ROLE can be either DEFAULT or a string ARN
+		if p.ParseKeyword("DEFAULT") {
+			return &expr.CopyLegacyOption{
+				OptionType: expr.CopyLegacyOptionIamRole,
+				Value: expr.IamRoleKind{
+					Kind: expr.IamRoleKindDefault,
+				},
+			}, nil
+		}
+		arn, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.CopyLegacyOption{
+			OptionType: expr.CopyLegacyOptionIamRole,
+			Value: expr.IamRoleKind{
+				Kind: expr.IamRoleKindArn,
+				Arn:  arn,
+			},
+		}, nil
 	case "FIXEDWIDTH":
 		p.ParseKeyword("AS")
 		val, err := p.ParseStringLiteral()

@@ -3084,19 +3084,10 @@ func (c *CopySource) Span() token.Span { return c.SpanVal }
 func (c *CopySource) String() string {
 	if c.Query != nil {
 		// Use fmt.Sprintf with %v to call String() method if available
-		return fmt.Sprintf(" (%v)", c.Query)
+		return fmt.Sprintf("(%v)", c.Query)
 	}
 	if c.TableName != nil {
-		var parts []string
-		parts = append(parts, c.TableName.String())
-		if len(c.Columns) > 0 {
-			colStrs := make([]string, len(c.Columns))
-			for i, col := range c.Columns {
-				colStrs[i] = col.String()
-			}
-			parts = append(parts, fmt.Sprintf("(%s)", strings.Join(colStrs, ", ")))
-		}
-		return " " + strings.Join(parts, " ")
+		return c.TableName.String()
 	}
 	return ""
 }
@@ -3367,8 +3358,8 @@ func (c *CopyLegacyOption) String() string {
 	case CopyLegacyOptionHeader:
 		return "HEADER"
 	case CopyLegacyOptionIamRole:
-		if val, ok := c.Value.(string); ok {
-			return fmt.Sprintf("IAM_ROLE '%s'", escapeSingleQuote(val))
+		if val, ok := c.Value.(IamRoleKind); ok {
+			return fmt.Sprintf("IAM_ROLE %s", val.String())
 		}
 		return "IAM_ROLE"
 	case CopyLegacyOptionIgnoreHeader:
@@ -4396,13 +4387,33 @@ const (
 func (l LockMode) String() string { return "" }
 
 // IamRoleKind represents IAM role kind.
-type IamRoleKind int
+type IamRoleKind struct {
+	Kind IamRoleKindType
+	Arn  string // Only set when Kind is IamRoleKindArn
+}
+
+// IamRoleKindType represents the type of IAM role.
+type IamRoleKindType int
 
 const (
-	IamRoleKindNone IamRoleKind = iota
+	IamRoleKindNone IamRoleKindType = iota
+	IamRoleKindDefault
+	IamRoleKindArn
 )
 
-func (i IamRoleKind) String() string { return "" }
+func (i IamRoleKind) String() string {
+	switch i.Kind {
+	case IamRoleKindDefault:
+		return "DEFAULT"
+	case IamRoleKindArn:
+		return fmt.Sprintf("'%s'", escapeSingleQuote(i.Arn))
+	default:
+		return ""
+	}
+}
+
+func (i IamRoleKind) exprNode()        {}
+func (i IamRoleKind) Span() token.Span { return token.Span{} }
 
 // Partition represents partition.
 type Partition struct{}

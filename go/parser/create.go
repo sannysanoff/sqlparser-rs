@@ -1671,46 +1671,25 @@ func parseCreateSchema(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse optional WITH options (Trino)
-	var withOpts []*expr.SqlOption
+	var withOpts *[]*expr.SqlOption
 	if p.PeekKeyword("WITH") {
-		// For now, skip parsing options - just consume the tokens
-		// Full implementation would parse key=value pairs
 		p.NextToken() // consume WITH
-		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
-			p.NextToken() // consume (
-			// Parse until we hit )
-			for {
-				if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
-					p.NextToken() // consume )
-					break
-				}
-				p.NextToken()
-				if p.PeekKeyword(",") {
-					p.NextToken()
-				}
-			}
+		opts, err := parseOptions(p)
+		if err != nil {
+			return nil, err
 		}
+		withOpts = &opts
 	}
 
 	// Parse optional OPTIONS (BigQuery)
-	var options []*expr.SqlOption
+	var options *[]*expr.SqlOption
 	if p.PeekKeyword("OPTIONS") {
-		// For now, skip parsing options - just consume the tokens
 		p.NextToken() // consume OPTIONS
-		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
-			p.NextToken() // consume (
-			// Parse until we hit )
-			for {
-				if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
-					p.NextToken() // consume )
-					break
-				}
-				p.NextToken()
-				if p.PeekKeyword(",") {
-					p.NextToken()
-				}
-			}
+		opts, err := parseOptions(p)
+		if err != nil {
+			return nil, err
 		}
+		options = &opts
 	}
 
 	// Parse optional CLONE (Snowflake)

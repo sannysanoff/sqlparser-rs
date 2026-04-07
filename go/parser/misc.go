@@ -1257,7 +1257,7 @@ func parseUnload(p *Parser) (ast.Statement, error) {
 	// Parse optional IAM ROLE (skip for now)
 	var auth *expr.IamRoleKind
 	if p.ParseKeywords([]string{"IAM", "ROLE"}) {
-		kind := expr.IamRoleKindNone
+		kind := expr.IamRoleKind{Kind: expr.IamRoleKindNone}
 		auth = &kind
 	}
 
