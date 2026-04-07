@@ -481,6 +481,13 @@ func (c *CopyIntoSnowflake) String() string {
 		}
 	}
 
+	// Add FROM query (subquery)
+	if c.FromQuery != nil {
+		f.WriteString(" FROM (")
+		f.WriteString(c.FromQuery.String())
+		f.WriteString(")")
+	}
+
 	// Add stage params
 	if c.StageParams != nil {
 		stageParamsStr := c.StageParams.String()

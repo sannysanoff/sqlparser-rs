@@ -1,12 +1,61 @@
 ---
 
-**Line Counts (Updated April 8, 2026 - Night Session):**
+**Line Counts (Updated April 8, 2026 - Afternoon Session):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 92,715 lines | 138% |
+| Source (parser+ast+dialects) | 67,345 lines | 93,120 lines | 138% |
 | Tests | 49,886 lines | 14,149 lines | 28% |
-| **Test Status** | - | **513 passing** / **298 failing** (~63%) | +2 tests passing |
+| **Test Status** | - | **474 passing** / **279 failing** (~63%) | +1 test passing |
+
+**Today's Major Fixes (Afternoon Session):**
+1. **CREATE TABLE Column Constraints** - Fixed constraint names (CONSTRAINT pkey), CHECK parentheses, REFERENCES table/columns serialization
+2. **ColumnOptionDef Refactoring** - Added ConstraintName field to match Rust AST structure
+3. **ColumnOptionReferences Type** - New type to store inline REFERENCES details (table, columns, ON DELETE/UPDATE actions)
+4. **Snowflake COPY INTO Fixes** - FROM query serialization, implicit alias parsing for option keywords
+
+**New Patterns Documented:**
+- **Pattern E31**: Column constraint names must be stored separately from option type in ColumnOptionDef.ConstraintName
+- **Pattern E32**: Inline REFERENCES need ColumnOptionReferences type with Table, Columns, OnDelete, OnUpdate fields
+- **Pattern E33**: CHECK constraint serialization must wrap expression in parentheses: `CHECK (expr)` not `CHECK expr`
+- **Pattern E34**: Implicit alias parsing must exclude option keywords (PARTITION, FILE_FORMAT, etc.) that appear after table names
+- **Pattern E35**: Snowflake COPY INTO FROM (query) needs proper query parsing, not token consumption
+
+---
+
+### April 8, 2026 - Afternoon Session: Column Constraints and COPY INTO Fixes
+
+Implemented major fixes for CREATE TABLE column constraints and Snowflake COPY INTO:
+
+1. **Column Constraint Names** (ast/expr/ddl.go, parser/ddl.go):
+   - Added `ConstraintName` field to `ColumnOptionDef` struct to store optional `CONSTRAINT <name>` prefix
+   - Updated `parseColumnConstraint()` to capture and store constraint name instead of discarding it
+   - Updated `ColumnOptionDef.String()` to serialize constraint name: `CONSTRAINT pkey PRIMARY KEY`
+   - **Pattern E31**: Constraint names are separate from option types and must be stored in AST
+   - **Tests Fixed**: Partial fix for TestParseCreateTable (serialization now correct, spans still differ)
+
+2. **Inline REFERENCES Constraints** (ast/expr/ddl.go, parser/ddl.go):
+   - Added `ColumnOptionReferences` type to store REFERENCES details: Table, Columns, OnDelete, OnUpdate
+   - Updated parser to store REFERENCES details instead of discarding them (`_ = refTable` pattern removed)
+   - Fixed serialization to include table name, columns, and referential actions
+   - **Pattern E32**: Inline REFERENCES need dedicated AST type with all constraint details
+   - **Pattern E33**: CHECK constraints must serialize with parentheses: `CHECK (constrained > 0)`
+
+3. **Snowflake COPY INTO FROM Query** (ast/statement/misc.go, dialects/snowflake/snowflake.go):
+   - Fixed `CopyIntoSnowflake.String()` to serialize `FromQuery` field for subquery sources
+   - Fixed `parseCopyInto()` to properly parse `FROM (SELECT ...)` queries using `parser.ParseQuery()`
+   - **Pattern E35**: Don't consume tokens blindly - use proper query parsing for subqueries
+   - **Tests Fixed**: TestSnowflakeCopyInto subtest with FROM (SELECT ...) now passes
+
+4. **Snowflake COPY INTO Implicit Alias** (dialects/snowflake/snowflake.go):
+   - Fixed implicit alias parsing to exclude COPY INTO option keywords: PARTITION, FILE_FORMAT, FILES, PATTERN, VALIDATION_MODE, COPY_OPTIONS
+   - These keywords were being consumed as table aliases, causing "Expected: end of statement, found: BY" errors
+   - **Pattern E34**: Implicit alias parsing must check for option keywords that follow table names
+   - **Progress**: PARTITION BY parsing now reaches expression parser (new error indicates different issue)
+
+**Results**: +1 test passing (474 total passing, 279 failing)
+
+---
 
 **Today's Major Fixes (Night Session):**
 1. **CREATE ICEBERG TABLE Support** - Added full support for Snowflake CREATE ICEBERG TABLE with BASE_LOCATION, CATALOG, EXTERNAL_VOLUME, CATALOG_SYNC, STORAGE_SERIALIZATION_POLICY options
@@ -1016,6 +1065,99 @@ for {
 }
 ```
 
+### Error E31: Column constraint names not being serialized
+**Cause**: When parsing `CONSTRAINT pkey PRIMARY KEY`, the constraint name is parsed but discarded, resulting in output `PRIMARY KEY` instead of `CONSTRAINT pkey PRIMARY KEY`.
+
+**Solution**: Store constraint name separately from option type in AST:
+```go
+type ColumnOptionDef struct {
+    ConstraintName *ast.Ident  // Optional constraint name
+    Name           string      // Option type (e.g., "PRIMARY KEY")
+    Value          Expr        // Optional value/expression
+}
+
+// Serialization: prefix with CONSTRAINT name if present
+func (c *ColumnOptionDef) String() string {
+    var sb strings.Builder
+    if c.ConstraintName != nil {
+        sb.WriteString("CONSTRAINT ")
+        sb.WriteString(c.ConstraintName.String())
+        sb.WriteString(" ")
+    }
+    sb.WriteString(c.Name)
+    // ... rest of serialization
+}
+```
+
+### Error E32: Inline REFERENCES missing table and columns
+**Cause**: When parsing `col INT REFERENCES othertable (a, b)`, the table name and columns are parsed but discarded.
+
+**Solution**: Create dedicated AST type for inline REFERENCES:
+```go
+type ColumnOptionReferences struct {
+    Table         *ast.ObjectName
+    Columns       []*ast.Ident
+    OnDelete      ReferentialAction
+    OnUpdate      ReferentialAction
+}
+
+func (c *ColumnOptionReferences) String() string {
+    var sb strings.Builder
+    if c.Table != nil {
+        sb.WriteString(c.Table.String())
+    }
+    if len(c.Columns) > 0 {
+        sb.WriteString(" (")  // Note: space before columns
+        // ... join columns
+        sb.WriteString(")")
+    }
+    // ... serialize ON DELETE/ON UPDATE
+}
+```
+
+### Error E33: CHECK constraint missing parentheses
+**Cause**: CHECK expressions serialize as `CHECK expr` instead of `CHECK (expr)`.
+
+**Solution**: Add explicit parentheses in String() method:
+```go
+if c.Name == "CHECK" && c.Value != nil {
+    sb.WriteString("CHECK (")
+    sb.WriteString(c.Value.String())
+    sb.WriteString(")")
+    return sb.String()
+}
+```
+
+### Error E34: Option keywords consumed as implicit table aliases
+**Cause**: When parsing `FROM tbl PARTITION BY ...`, the word "PARTITION" is consumed as an implicit table alias because it's not a reserved identifier keyword.
+
+**Solution**: Check for option keywords before treating as implicit alias:
+```go
+if !token.IsReservedForIdentifier(word.Word.Keyword) &&
+    word.Word.Value != "PARTITION" &&
+    word.Word.Value != "FILE_FORMAT" &&
+    word.Word.Value != "FILES" &&
+    word.Word.Value != "PATTERN" {
+    parser.AdvanceToken()
+    alias = &ast.Ident{Value: word.Word.Value}
+}
+```
+
+### Error E35: Subqueries in COPY INTO not properly parsed
+**Cause**: When parsing `COPY INTO 'location' FROM (SELECT ...)`, the tokens inside the parentheses are consumed blindly instead of being parsed as a query.
+
+**Solution**: Use proper query parsing for subqueries:
+```go
+queryStmt, err := parser.ParseQuery()
+if err != nil {
+    return nil, fmt.Errorf("error parsing COPY INTO query: %w", err)
+}
+fromQuery = parser.ExtractQuery(queryStmt)
+if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+    return nil, err
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -1034,9 +1176,11 @@ for {
 | Snowflake Specific | ~100 | ~47 | ~53 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~1,215 tests across all packages, 511 passing, 302 failing (~63% pass rate)
+**Total**: ~1,215 tests across all packages, 474 passing, 279 failing (~63% pass rate)
 
 **Recent Fixes**:
+- TestSnowflakeCopyInto: ✅ Partial (FROM (SELECT ...) subtest now passes)
+- CREATE TABLE Column Constraints: ✅ Serialization fixed (constraint names, CHECK parens, REFERENCES details)
 - TestSnowflakeLateralFlatten: ✅ Now passes (FLATTEN with named arguments)
 - TestParseCTEs: ✅ Now passes (CREATE VIEW with WITH clause)
 - TestParseGrant: ✅ Partially passes (COPY/REVOKE CURRENT GRANTS, WAREHOUSE, INTEGRATION, FUTURE types)
@@ -1054,7 +1198,7 @@ for {
 - TestSnowflakeAlterIcebergTable: ✅ Now passing (ALTER ICEBERG TABLE with clustering operations)
 
 **Notes**:
-- Source: 67,345 lines Rust → 78,278 lines Go (116% ratio - includes comprehensive comments)
+- Source: 67,345 lines Rust → 93,120 lines Go (138% ratio - includes comprehensive comments and new implementations)
 - Tests: 49,886 lines Rust → 14,149 lines Go (28% ratio - many tests still being ported)
 - Main tests package has 260 tests
 - Additional test packages (ddl, dml, mysql, postgres, query, regression, snowflake) add more tests

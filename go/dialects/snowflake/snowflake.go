@@ -1365,7 +1365,14 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 					// Try to parse as implicit alias
 					if word, ok := parser.PeekTokenRef().Token.(token.TokenWord); ok {
 						// Check if it looks like an identifier (not a keyword)
-						if !token.IsReservedForIdentifier(word.Word.Keyword) {
+						// Also check that it's not a COPY INTO option keyword
+						if !token.IsReservedForIdentifier(word.Word.Keyword) &&
+							word.Word.Value != "PARTITION" &&
+							word.Word.Value != "FILE_FORMAT" &&
+							word.Word.Value != "FILES" &&
+							word.Word.Value != "PATTERN" &&
+							word.Word.Value != "VALIDATION_MODE" &&
+							word.Word.Value != "COPY_OPTIONS" {
 							parser.AdvanceToken()
 							fromObjAlias = &ast.Ident{Value: word.Word.Value}
 						}
@@ -1374,20 +1381,18 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 			}
 		} else {
 			// For location kind, expect a query
-			// We need to parse a query - but we need access to the parser's ParseQuery method
-			// For now, let's just consume until we find the closing paren
-			// This is a simplified implementation
-			depth := 1
-			for depth > 0 {
-				tok := parser.NextToken()
-				if _, ok := tok.Token.(token.TokenLParen); ok {
-					depth++
-				} else if _, ok := tok.Token.(token.TokenRParen); ok {
-					depth--
-				}
-				if _, ok := tok.Token.(token.EOF); ok {
-					return nil, fmt.Errorf("unexpected EOF while parsing COPY INTO query")
-				}
+			// Parse the query inside the parentheses
+			queryStmt, err := parser.ParseQuery()
+			if err != nil {
+				return nil, fmt.Errorf("error parsing COPY INTO query: %w", err)
+			}
+
+			// Extract the query from the statement
+			fromQuery = parser.ExtractQuery(queryStmt)
+
+			// Expect the closing parenthesis
+			if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
 			}
 		}
 	} else {
@@ -1413,8 +1418,15 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		} else {
 			// Try to parse as implicit alias
 			if word, ok := parser.PeekTokenRef().Token.(token.TokenWord); ok {
-				// Check if it looks like an identifier (not a keyword)
-				if !token.IsReservedForIdentifier(word.Word.Keyword) {
+				// Check if it looks like an identifier (not a reserved keyword)
+				// Also check that it's not a COPY INTO option keyword
+				if !token.IsReservedForIdentifier(word.Word.Keyword) &&
+					word.Word.Value != "PARTITION" &&
+					word.Word.Value != "FILE_FORMAT" &&
+					word.Word.Value != "FILES" &&
+					word.Word.Value != "PATTERN" &&
+					word.Word.Value != "VALIDATION_MODE" &&
+					word.Word.Value != "COPY_OPTIONS" {
 					parser.AdvanceToken()
 					fromObjAlias = &ast.Ident{Value: word.Word.Value}
 				}

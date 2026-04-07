@@ -737,16 +737,64 @@ func (o OnCommit) String() string {
 	}
 }
 
+// ColumnOptionReferences stores details for a REFERENCES column constraint.
+// Used for inline foreign key constraints like: REFERENCES table_name(col1, col2) ON DELETE CASCADE
+type ColumnOptionReferences struct {
+	Table    *ast.ObjectName
+	Columns  []*ast.Ident
+	OnDelete ReferentialAction
+	OnUpdate ReferentialAction
+}
+
+func (c *ColumnOptionReferences) exprNode()        {}
+func (c *ColumnOptionReferences) Span() token.Span { return token.Span{} }
+func (c *ColumnOptionReferences) String() string {
+	var sb strings.Builder
+	if c.Table != nil {
+		sb.WriteString(c.Table.String())
+	}
+	if len(c.Columns) > 0 {
+		// For inline column REFERENCES, add space before column list
+		sb.WriteString(" ")
+		colStrs := make([]string, len(c.Columns))
+		for i, col := range c.Columns {
+			colStrs[i] = col.String()
+		}
+		sb.WriteString("(")
+		sb.WriteString(strings.Join(colStrs, ", "))
+		sb.WriteString(")")
+	}
+	if c.OnDelete != ReferentialActionNone {
+		sb.WriteString(" ON DELETE ")
+		sb.WriteString(c.OnDelete.String())
+	}
+	if c.OnUpdate != ReferentialActionNone {
+		sb.WriteString(" ON UPDATE ")
+		sb.WriteString(c.OnUpdate.String())
+	}
+	return sb.String()
+}
+
 // ColumnOptionDef represents a column option definition.
+// This corresponds to Rust's ColumnOptionDef with name (constraint name) and option.
 type ColumnOptionDef struct {
-	Name  string
-	Value Expr
+	ConstraintName *ast.Ident // Optional constraint name (e.g., "pkey" in "CONSTRAINT pkey PRIMARY KEY")
+	Name           string     // The option type (e.g., "PRIMARY KEY", "CHECK", "NOT NULL")
+	Value          Expr       // Optional value/expression for the option
 }
 
 func (c *ColumnOptionDef) String() string {
+	var sb strings.Builder
+
+	// Write CONSTRAINT name if present
+	if c.ConstraintName != nil {
+		sb.WriteString("CONSTRAINT ")
+		sb.WriteString(c.ConstraintName.String())
+		sb.WriteString(" ")
+	}
+
 	// Handle GENERATED ALWAYS AS with STORED/VIRTUAL
 	if strings.HasPrefix(c.Name, "GENERATED ALWAYS AS") && c.Value != nil {
-		var sb strings.Builder
 		sb.WriteString("GENERATED ALWAYS AS ")
 		sb.WriteString(c.Value.String())
 		if strings.HasSuffix(c.Name, " STORED") {
@@ -756,14 +804,42 @@ func (c *ColumnOptionDef) String() string {
 		}
 		return sb.String()
 	}
+
 	// Handle COMMENT with quoted string value
 	if c.Name == "COMMENT" && c.Value != nil {
-		return fmt.Sprintf("COMMENT '%s'", c.Value.String())
+		sb.WriteString("COMMENT '")
+		sb.WriteString(c.Value.String())
+		sb.WriteString("'")
+		return sb.String()
 	}
+
+	// Handle CHECK constraint - add parentheses around expression
+	if c.Name == "CHECK" && c.Value != nil {
+		sb.WriteString("CHECK (")
+		sb.WriteString(c.Value.String())
+		sb.WriteString(")")
+		return sb.String()
+	}
+
+	// Handle REFERENCES constraint
+	if c.Name == "REFERENCES" {
+		sb.WriteString("REFERENCES")
+		if c.Value != nil {
+			if ref, ok := c.Value.(*ColumnOptionReferences); ok {
+				sb.WriteString(" ")
+				sb.WriteString(ref.String())
+			}
+		}
+		return sb.String()
+	}
+
+	// Default: Name + Value
+	sb.WriteString(c.Name)
 	if c.Value != nil {
-		return fmt.Sprintf("%s %s", c.Name, c.Value.String())
+		sb.WriteString(" ")
+		sb.WriteString(c.Value.String())
 	}
-	return c.Name
+	return sb.String()
 }
 
 // GeneratedColumnOption represents a generated/virtual column option.
