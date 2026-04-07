@@ -1562,12 +1562,13 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 74,308 lines (110% of Rust - AST types and interfaces)
-- Rust Tests: 49,886 lines
-- Go Tests: 13,911 lines (27.9% of Rust test coverage)
+- Rust Source: 44,103 lines (src/ - parser + dialects + AST)
+- Go Source: 75,046 lines (go/ - AST types, parser, dialects - 170% of Rust)
+- Rust Tests: 49,847 lines
+- Go Tests: 14,149 lines (28.4% of Rust test coverage)
+- **Test Pass Rate: 55%** (451 passing out of ~813 total tests)
 
-### April 7, 2026 - GROUP BY Modifiers and CREATE TABLE ON CLUSTER
+### April 7, 2026 - CREATE TABLE Extensions Implementation
 
 Implemented major parser chunks to increase test coverage:
 
@@ -1590,6 +1591,39 @@ Implemented major parser chunks to increase test coverage:
 - **Pattern CJ: GROUP BY Modifier Parsing Order** - GROUPING SETS, CUBE, and ROLLUP can appear in GROUP BY as both expressions AND as modifiers after the expression list. The Rust parser handles GROUPING SETS as a modifier (not an expression) and parses it after the WITH modifiers.
 - **Pattern CK: Empty Tuple in GROUP BY** - PostgreSQL allows `GROUP BY ()` for grouping by a constant. Must check for `()` before trying to parse a regular expression.
 - **Pattern CL: CREATE TABLE Clause Order** - ON CLUSTER must be parsed immediately after the table name (and optional PARTITION OF), before the column list. The order matters for correct parsing.
+
+### April 7, 2026 - CREATE TABLE Extensions Implementation
+
+Implemented comprehensive CREATE TABLE extensions to support multiple dialects:
+
+1. **CREATE TABLE Parser Enhancements** (parser/create.go, ast/statement/ddl.go, ast/expr/ddl.go):
+   - Added `WITHOUT ROWID` support for SQLite
+   - Implemented `HiveDistributionStyle` parsing for Hive DISTRIBUTED BY
+   - Implemented `ClusteredBy` parsing for Hive CLUSTERED BY
+   - Implemented `HiveFormat` parsing for Hive ROW FORMAT and STORED AS
+   - Added ClickHouse `PRIMARY KEY` support
+   - Added ClickHouse `ORDER BY` clause parsing (using OneOrManyWithParens)
+   - Added PostgreSQL `ON COMMIT {PRESERVE ROWS|DELETE ROWS|DROP}` support
+   - Added SQLite `STRICT` clause support
+   - Added Redshift `BACKUP {YES|NO}` support
+   - Added Redshift `DISTSTYLE {ALL|EVEN|KEY|AUTO}` support
+   - Added Redshift `DISTKEY (expr)` support
+   - Added Redshift `SORTKEY (col, ...)` support
+   - Added `CREATE TABLE ... SELECT` (MySQL style without AS keyword)
+   - Added `CreateTable.Backup`, `CreateTable.Diststyle`, `CreateTable.Distkey`, `CreateTable.Sortkey` fields
+   - Added `expr.CreateTableOnCommit`, `expr.DistStyle` AST types
+   - Fixed parser to use existing `HiveDistributionStyle`, `HiveFormat`, `ClusteredBy` types correctly
+
+2. **Helper Functions Added**:
+   - `parseHiveDistributionStyle()` - parses Hive DISTRIBUTED BY clause
+   - `parseClusteredByClause()` - parses Hive CLUSTERED BY clause
+   - `parseHiveFormatClause()` - parses Hive ROW FORMAT and STORED AS
+   - `parseOrderByClauseForCreateTable()` - parses ORDER BY for ClickHouse
+   - `parseOnCommitClause()` - parses PostgreSQL ON COMMIT actions
+   - `parseDistStyle()` - parses Redshift DISTSTYLE clause
+
+**Key Pattern Documentation:**
+- **Pattern CM: CREATE TABLE Clause Order** - The order of parsing CREATE TABLE clauses must match SQL syntax: PARTITION OF → ON CLUSTER → LIKE → CLONE → columns → WITHOUT ROWID → Hive options → PRIMARY KEY → ORDER BY → ON COMMIT → STRICT → Redshift options → AS query.
 
 ### April 7, 2026 - PostgreSQL COPY and ALTER TABLE Operations
 

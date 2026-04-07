@@ -4270,3 +4270,32 @@ type Privilege struct {
 func (p *Privilege) exprNode()        {}
 func (p *Privilege) Span() token.Span { return token.Span{} }
 func (p *Privilege) String() string   { return p.Name }
+
+// ============================================================================
+// CREATE TABLE Extensions
+// ============================================================================
+
+// CreateTableOnCommit represents ON COMMIT clause for CREATE TABLE
+type CreateTableOnCommit struct {
+	Action string // PRESERVE ROWS, DELETE ROWS, DROP
+}
+
+func (c *CreateTableOnCommit) exprNode()        {}
+func (c *CreateTableOnCommit) Span() token.Span { return token.Span{} }
+func (c *CreateTableOnCommit) String() string {
+	if c.Action != "" {
+		return "ON COMMIT " + c.Action
+	}
+	return ""
+}
+
+// DistStyle represents Redshift DISTSTYLE clause
+type DistStyle struct {
+	Style string // ALL, EVEN, KEY, AUTO
+}
+
+func (d *DistStyle) exprNode()        {}
+func (d *DistStyle) Span() token.Span { return token.Span{} }
+func (d *DistStyle) String() string {
+	return "DISTSTYLE " + d.Style
+}

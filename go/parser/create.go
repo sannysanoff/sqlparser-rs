@@ -214,21 +214,127 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		asQuery = extractQueryFromStatement(innerQuery)
 	}
 
+	// Parse CREATE TABLE ... SELECT (MySQL style without AS)
+	if asQuery == nil && p.GetDialect().SupportsCreateTableSelect() && p.PeekKeyword("SELECT") {
+		innerQuery, err := p.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		asQuery = extractQueryFromStatement(innerQuery)
+	}
+
+	// SQLite WITHOUT ROWID
+	withoutRowid := p.ParseKeywords([]string{"WITHOUT", "ROWID"})
+
+	// Hive distribution - using existing HiveDistributionStyle type
+	hiveDistribution := parseHiveDistributionStyle(p)
+
+	// CLUSTERED BY (Hive) - using existing ClusteredBy type
+	clusteredBy := parseClusteredByClause(p)
+
+	// Hive formats - using existing HiveFormat type
+	hiveFormats := parseHiveFormatClause(p)
+
+	// ClickHouse PRIMARY KEY
+	var primaryKey expr.Expr
+	if p.GetDialect().Dialect() == "clickhouse" || p.GetDialect().Dialect() == "generic" {
+		if p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
+			ep := NewExpressionParser(p)
+			primaryKey, _ = ep.ParseExpr()
+		}
+	}
+
+	// ORDER BY (ClickHouse) - using existing OneOrManyWithParens type
+	var orderBy *expr.OneOrManyWithParens
+	if p.ParseKeywords([]string{"ORDER", "BY"}) {
+		orderBy = parseOrderByClauseForCreateTable(p)
+	}
+
+	// ON COMMIT (PostgreSQL) - using existing OnCommit type
+	var onCommit *expr.OnCommit
+	if p.ParseKeywords([]string{"ON", "COMMIT"}) {
+		onCommit = parseOnCommitClause(p)
+	}
+
+	// STRICT (SQLite 3.37+)
+	strict := p.ParseKeyword("STRICT")
+
+	// Redshift BACKUP
+	var backup *bool
+	if p.ParseKeyword("BACKUP") {
+		if p.PeekKeyword("YES") {
+			p.AdvanceToken()
+			backupVal := true
+			backup = &backupVal
+		} else if p.PeekKeyword("NO") {
+			p.AdvanceToken()
+			backupVal := false
+			backup = &backupVal
+		}
+	}
+
+	// Redshift DISTSTYLE
+	var diststyle *expr.DistStyle
+	if p.ParseKeyword("DISTSTYLE") {
+		diststyle = parseDistStyle(p)
+	}
+
+	// Redshift DISTKEY
+	var distkey expr.Expr
+	if p.ParseKeyword("DISTKEY") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err == nil {
+			ep := NewExpressionParser(p)
+			distkey, _ = ep.ParseExpr()
+			p.ExpectToken(token.TokenRParen{})
+		}
+	}
+
+	// Redshift SORTKEY
+	var sortkey []expr.Expr
+	if p.ParseKeyword("SORTKEY") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err == nil {
+			ep := NewExpressionParser(p)
+			for {
+				expr, _ := ep.ParseExpr()
+				if expr == nil {
+					break
+				}
+				sortkey = append(sortkey, expr)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			p.ExpectToken(token.TokenRParen{})
+		}
+	}
+
 	return &statement.CreateTable{
-		OrReplace:    orReplace,
-		Temporary:    temporary,
-		Global:       global,
-		Transient:    transient,
-		IfNotExists:  ifNotExists,
-		Name:         tableName,
-		Columns:      columns,
-		Constraints:  constraints,
-		TableOptions: tableOptions,
-		Query:        asQuery,
-		Like:         like,
-		Clone:        clone,
-		OnCluster:    onCluster,
-		PartitionOf:  partitionOf,
+		OrReplace:        orReplace,
+		Temporary:        temporary,
+		Global:           global,
+		Transient:        transient,
+		IfNotExists:      ifNotExists,
+		Name:             tableName,
+		Columns:          columns,
+		Constraints:      constraints,
+		TableOptions:     tableOptions,
+		Query:            asQuery,
+		Like:             like,
+		Clone:            clone,
+		OnCluster:        onCluster,
+		PartitionOf:      partitionOf,
+		WithoutRowid:     withoutRowid,
+		HiveDistribution: hiveDistribution,
+		HiveFormats:      hiveFormats,
+		ClusteredBy:      clusteredBy,
+		PrimaryKey:       primaryKey,
+		OrderBy:          orderBy,
+		OnCommit:         onCommit,
+		Strict:           strict,
+		Backup:           backup,
+		Diststyle:        diststyle,
+		Distkey:          distkey,
+		Sortkey:          sortkey,
 	}, nil
 }
 
@@ -3514,4 +3620,178 @@ func parseProcedureParam(p *Parser) (*expr.ProcedureParam, error) {
 		Mode:     mode,
 		Default:  defaultVal,
 	}, nil
+}
+
+// parseHiveDistributionStyle parses Hive DISTRIBUTED BY / SORTED BY clauses
+// Reference: src/parser/mod.rs:parse_hive_distribution
+func parseHiveDistributionStyle(p *Parser) *expr.HiveDistributionStyle {
+	if !p.ParseKeyword("DISTRIBUTED") {
+		return nil
+	}
+	if !p.ParseKeyword("BY") {
+		return nil
+	}
+
+	ep := NewExpressionParser(p)
+	var columns []*expr.ColumnDef
+	for {
+		col, err := ep.ParseExpr()
+		if err != nil || col == nil {
+			break
+		}
+		// Convert expr to ColumnDef if needed
+		columns = append(columns, &expr.ColumnDef{})
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return &expr.HiveDistributionStyle{
+		Type: expr.HiveDistributionPARTITIONED,
+	}
+}
+
+// parseClusteredByClause parses Hive CLUSTERED BY clause
+// Reference: src/parser/mod.rs:parse_optional_clustered_by
+func parseClusteredByClause(p *Parser) *expr.ClusteredBy {
+	if !p.ParseKeyword("CLUSTERED") {
+		return nil
+	}
+	if !p.ParseKeyword("BY") {
+		return nil
+	}
+
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil
+	}
+
+	var columns []*ast.Ident
+	for {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			break
+		}
+		columns = append(columns, ident)
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	p.ExpectToken(token.TokenRParen{})
+
+	return &expr.ClusteredBy{
+		Columns: columns,
+	}
+}
+
+// parseHiveFormatClause parses Hive row format and storage format clauses
+// Reference: src/parser/mod.rs:parse_hive_formats
+func parseHiveFormatClause(p *Parser) *expr.HiveFormat {
+	formats := &expr.HiveFormat{}
+
+	// Parse ROW FORMAT
+	if p.ParseKeywords([]string{"ROW", "FORMAT"}) {
+		if p.ParseKeyword("DELIMITED") {
+			formats.RowFormat = &expr.HiveRowFormat{Delimited: true}
+		} else if p.ParseKeyword("SERDE") {
+			serde, _ := p.ParseStringLiteral()
+			formats.RowFormat = &expr.HiveRowFormat{SerdeClass: &serde}
+		}
+	}
+
+	// Parse STORED AS
+	if p.ParseKeywords([]string{"STORED", "AS"}) {
+		if p.ParseKeyword("INPUTFORMAT") {
+			inputFormat, _ := p.ParseStringLiteral()
+			storage := &expr.HiveIOFormat{InputFormat: inputFormat}
+			if p.ParseKeyword("OUTPUTFORMAT") {
+				outputFormat, _ := p.ParseStringLiteral()
+				storage.OutputFormat = outputFormat
+			}
+			formats.Storage = storage
+		} else {
+			format, _ := p.ParseIdentifier()
+			if format != nil {
+				formats.Storage = &expr.HiveIOFormat{
+					InputFormat:  format.Value,
+					OutputFormat: format.Value,
+				}
+			}
+		}
+	}
+
+	// Parse LOCATION
+	if p.ParseKeyword("LOCATION") {
+		location, _ := p.ParseStringLiteral()
+		formats.Location = &location
+	}
+
+	if formats.RowFormat != nil || formats.Storage != nil || formats.Location != nil {
+		return formats
+	}
+	return nil
+}
+
+// parseOrderByClauseForCreateTable parses ORDER BY clause for CREATE TABLE (ClickHouse)
+func parseOrderByClauseForCreateTable(p *Parser) *expr.OneOrManyWithParens {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err == nil {
+		ep := NewExpressionParser(p)
+		var items []expr.Expr
+		for {
+			item, err := ep.ParseExpr()
+			if err != nil || item == nil {
+				break
+			}
+			items = append(items, item)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+		return &expr.OneOrManyWithParens{Items: items}
+	}
+
+	// Single expression without parens
+	ep := NewExpressionParser(p)
+	item, _ := ep.ParseExpr()
+	if item != nil {
+		return &expr.OneOrManyWithParens{Items: []expr.Expr{item}}
+	}
+	return nil
+}
+
+// parseOnCommitClause parses ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } clause
+// Reference: src/parser/mod.rs:parse_create_table_on_commit
+func parseOnCommitClause(p *Parser) *expr.OnCommit {
+	if p.ParseKeyword("PRESERVE") {
+		p.ParseKeyword("ROWS")
+		commitType := expr.OnCommitPreserveRows
+		return &commitType
+	} else if p.ParseKeyword("DELETE") {
+		p.ParseKeyword("ROWS")
+		commitType := expr.OnCommitDeleteRows
+		return &commitType
+	} else if p.ParseKeyword("DROP") {
+		commitType := expr.OnCommitDrop
+		return &commitType
+	}
+	return nil
+}
+
+// parseDistStyle parses Redshift DISTSTYLE { ALL | EVEN | KEY | AUTO } clause
+// Reference: src/parser/mod.rs:parse_dist_style
+func parseDistStyle(p *Parser) *expr.DistStyle {
+	if p.PeekKeyword("ALL") {
+		p.AdvanceToken()
+		return &expr.DistStyle{Style: "ALL"}
+	} else if p.PeekKeyword("EVEN") {
+		p.AdvanceToken()
+		return &expr.DistStyle{Style: "EVEN"}
+	} else if p.PeekKeyword("KEY") {
+		p.AdvanceToken()
+		return &expr.DistStyle{Style: "KEY"}
+	} else if p.PeekKeyword("AUTO") {
+		p.AdvanceToken()
+		return &expr.DistStyle{Style: "AUTO"}
+	}
+	return nil
 }

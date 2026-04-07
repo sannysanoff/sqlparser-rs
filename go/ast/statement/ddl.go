@@ -87,6 +87,11 @@ type CreateTable struct {
 	Warehouse                  *ast.Ident
 	RefreshMode                *expr.RefreshModeKind
 	Initialize                 *expr.InitializeKind
+	// Redshift-specific fields
+	Backup    *bool
+	Diststyle *expr.DistStyle
+	Distkey   expr.Expr
+	Sortkey   []expr.Expr
 }
 
 func (c *CreateTable) statementNode() {}
