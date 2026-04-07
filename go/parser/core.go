@@ -228,6 +228,14 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		token.TokenQuestionAnd, token.TokenQuestionPipe:
 		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
+	case token.TokenAtDashAt, token.TokenDoubleSharp, token.TokenQuestionMarkSharp,
+		token.TokenQuestionMarkDash, token.TokenAmpersandLeftAngleBracket,
+		token.TokenAmpersandRightAngleBracket, token.TokenTwoWayArrow,
+		token.TokenLeftAngleBracketCaret, token.TokenRightAngleBracketCaret:
+		if dialects.SupportsGeometricTypes(dialect) {
+			return dialect.PrecValue(parseriface.PrecedenceEq), nil
+		}
+
 	case token.TokenLBracket:
 		// Array subscript
 		return dialect.PrecValue(parseriface.PrecedencePeriod), nil

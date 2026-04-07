@@ -971,13 +971,19 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 	}
 
 	// Check if it's a data type keyword
-	dataTypeName := word.Word.Keyword
+	dataTypeKeyword := word.Word.Keyword
+	dataTypeName := word.Word.Value // Preserve original case for output
 	isDataType := false
-	switch dataTypeName {
+	switch dataTypeKeyword {
 	case "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "INTERVAL", "DATETIME",
 		"DECIMAL", "NUMERIC", "BIGNUMERIC", "CHAR", "VARCHAR", "NCHAR", "NVARCHAR",
 		"CHARACTER", "BINARY", "VARBINARY", "JSON":
 		isDataType = true
+	case "POINT", "LINE", "LSEG", "BOX", "PATH", "POLYGON", "CIRCLE":
+		// Geometric types (PostgreSQL)
+		if dialects.SupportsGeometricTypes(ep.parser.GetDialect()) {
+			isDataType = true
+		}
 	}
 
 	if !isDataType {

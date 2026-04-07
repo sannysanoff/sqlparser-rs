@@ -25,6 +25,7 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/dialects/postgresql"
 	"github.com/user/sqlparser/token"
 )
@@ -564,7 +565,11 @@ func parseProjection(p *Parser) ([]query.SelectItem, error) {
 func parseSelectItem(p *Parser) (query.SelectItem, error) {
 	// Check for wildcard *
 	if p.ConsumeToken(token.TokenMul{}) {
-		return &query.Wildcard{}, nil
+		opts, err := parseWildcardAdditionalOptions(p)
+		if err != nil {
+			return nil, err
+		}
+		return &query.Wildcard{AdditionalOptions: opts}, nil
 	}
 
 	// Check for qualified wildcard (table.*)
@@ -583,8 +588,16 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 		queryName := query.ObjectName{
 			Parts: []query.Ident{{Value: tableIdent.Value}},
 		}
+
+		// Parse wildcard options (EXCLUDE, REPLACE, etc.)
+		opts, err := parseWildcardAdditionalOptions(p)
+		if err != nil {
+			return nil, err
+		}
+
 		return &query.QualifiedWildcard{
-			Kind: &query.ObjectNameWildcard{Name: queryName},
+			Kind:              &query.ObjectNameWildcard{Name: queryName},
+			AdditionalOptions: opts,
 		}, nil
 	}
 
@@ -622,6 +635,211 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 	}
 
 	return &query.UnnamedExpr{Expr: &queryExprWrapper{expr: expr}}, nil
+}
+
+// parseWildcardAdditionalOptions parses optional EXCLUDE, EXCEPT, REPLACE, RENAME, ILIKE for wildcards
+func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions, error) {
+	var opts query.WildcardAdditionalOptions
+	dialect := p.GetDialect()
+
+	// Parse ILIKE (Snowflake)
+	if dialects.SupportsSelectWildcardIlike(dialect) {
+		if p.ParseKeyword("ILIKE") {
+			tok := p.PeekToken()
+			if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+				p.AdvanceToken()
+				opts.OptIlike = &query.IlikeSelectItem{Pattern: str.Value}
+			}
+		}
+	}
+
+	// Parse EXCLUDE (Snowflake) - only if ILIKE wasn't present
+	if opts.OptIlike == nil && dialects.SupportsSelectWildcardExclude(dialect) {
+		if p.ParseKeyword("EXCLUDE") {
+			// Check for parenthesized list or single column
+			if p.ConsumeToken(token.TokenLParen{}) {
+				cols, err := parseQueryObjectNames(p)
+				if err != nil {
+					return opts, err
+				}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return opts, err
+				}
+				opts.OptExclude = &query.ExcludeSelectItem{Columns: cols}
+			} else {
+				// Single column without parens
+				col, err := p.ParseObjectName()
+				if err != nil {
+					return opts, err
+				}
+				queryName := astObjectNameToQuery(col)
+				opts.OptExclude = &query.ExcludeSelectItem{Columns: []query.ObjectName{queryName}}
+			}
+		}
+	}
+
+	// Parse EXCEPT (BigQuery/ClickHouse)
+	if dialects.SupportsSelectWildcardExcept(dialect) {
+		if p.ParseKeyword("EXCEPT") {
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return opts, err
+			}
+			first, err := p.ParseIdentifier()
+			if err != nil {
+				return opts, err
+			}
+			var additional []ast.Ident
+			for p.ConsumeToken(token.TokenComma{}) {
+				ident, err := p.ParseIdentifier()
+				if err != nil {
+					return opts, err
+				}
+				additional = append(additional, *ident)
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return opts, err
+			}
+			opts.OptExcept = &query.ExceptSelectItem{
+				FirstElement:       astIdentToQuery(first),
+				AdditionalElements: astIdentsToQuery(additional),
+			}
+		}
+	}
+
+	// Parse REPLACE (BigQuery/ClickHouse/Snowflake)
+	if dialects.SupportsSelectWildcardReplace(dialect) {
+		if p.ParseKeyword("REPLACE") {
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return opts, err
+			}
+			items, err := parseCommaSeparatedReplaceElements(p)
+			if err != nil {
+				return opts, err
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return opts, err
+			}
+			opts.OptReplace = &query.ReplaceSelectItem{Items: items}
+		}
+	}
+
+	// Parse RENAME (Snowflake)
+	if dialects.SupportsSelectWildcardRename(dialect) {
+		if p.ParseKeyword("RENAME") {
+			if p.ConsumeToken(token.TokenLParen{}) {
+				idents, err := parseCommaSeparatedIdentsWithAlias(p)
+				if err != nil {
+					return opts, err
+				}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return opts, err
+				}
+				opts.OptRename = &query.RenameSelectItem{
+					Columns: idents,
+				}
+			} else {
+				// Single rename without parens
+				oldName, err := p.ParseIdentifier()
+				if err != nil {
+					return opts, err
+				}
+				if !p.ParseKeyword("AS") {
+					return opts, fmt.Errorf("expected AS after RENAME identifier")
+				}
+				newName, err := p.ParseIdentifier()
+				if err != nil {
+					return opts, err
+				}
+				opts.OptRename = &query.RenameSelectItem{
+					Columns: []query.IdentWithAlias{
+						{Ident: astIdentToQuery(oldName), Alias: astIdentToQuery(newName)},
+					},
+				}
+			}
+		}
+	}
+
+	return opts, nil
+}
+
+// parseQueryObjectNames parses a comma-separated list of object names for query package
+func parseQueryObjectNames(p *Parser) ([]query.ObjectName, error) {
+	var names []query.ObjectName
+	for {
+		name, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		// Convert ast.ObjectName to query.ObjectName
+		queryName := astObjectNameToQuery(name)
+		names = append(names, queryName)
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return names, nil
+}
+
+// parseCommaSeparatedReplaceElements parses comma-separated REPLACE elements
+func parseCommaSeparatedReplaceElements(p *Parser) ([]*query.ReplaceSelectElement, error) {
+	var items []*query.ReplaceSelectElement
+	ep := NewExpressionParser(p)
+
+	for {
+		expr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		asKeyword := p.ParseKeyword("AS")
+		colName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, &query.ReplaceSelectElement{
+			Expr:       &queryExprWrapper{expr: expr},
+			ColumnName: astIdentToQuery(colName),
+			AsKeyword:  asKeyword,
+		})
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return items, nil
+}
+
+// parseCommaSeparatedIdentsWithAlias parses comma-separated identifiers with aliases
+func parseCommaSeparatedIdentsWithAlias(p *Parser) ([]query.IdentWithAlias, error) {
+	var result []query.IdentWithAlias
+	for {
+		oldName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		if !p.ParseKeyword("AS") {
+			return nil, fmt.Errorf("expected AS in RENAME clause")
+		}
+		newName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, query.IdentWithAlias{
+			Ident: astIdentToQuery(oldName),
+			Alias: astIdentToQuery(newName),
+		})
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return result, nil
+}
+
+// astIdentsToQuery converts []ast.Ident to []query.Ident
+func astIdentsToQuery(idents []ast.Ident) []query.Ident {
+	result := make([]query.Ident, len(idents))
+	for i, id := range idents {
+		result[i] = astIdentToQuery(&id)
+	}
+	return result
 }
 
 // isQualifiedWildcard checks if next tokens form table.* pattern

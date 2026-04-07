@@ -137,18 +137,18 @@ func (ep *ExpressionParser) tokenToBinaryOperator(tok token.Token) operator.Bina
 			return operator.BOpPGBitwiseShiftRight
 		}
 	case token.TokenSharp:
-		if dialect.Dialect() == "postgresql" {
+		if dialect.Dialect() == "postgresql" || dialect.Dialect() == "redshift" {
 			return operator.BOpPGBitwiseXor
 		}
 	case token.TokenOverlap:
-		if dialect.Dialect() == "postgresql" {
+		if dialect.Dialect() == "postgresql" || dialect.Dialect() == "redshift" {
 			return operator.BOpPGOverlap
 		}
 		if dialects.SupportsDoubleAmpersandOperator(dialect) {
 			return operator.BOpAnd
 		}
 	case token.TokenCaretAt:
-		if dialect.Dialect() == "postgresql" {
+		if dialect.Dialect() == "postgresql" || dialect.Dialect() == "redshift" {
 			return operator.BOpPGStartsWith
 		}
 	case token.TokenTilde:

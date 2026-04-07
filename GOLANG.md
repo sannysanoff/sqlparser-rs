@@ -1230,6 +1230,67 @@ func parseArray() {
 
 ---
 
+### Pattern CC: Wildcard Additional Options (EXCLUDE, REPLACE, RENAME)
+
+**Problem:** SELECT * can have additional options like EXCLUDE, REPLACE, RENAME that modify the wildcard expansion.
+
+**Example - Parsing Snowflake EXCLUDE:**
+
+```go
+// INCORRECT - ignores EXCLUDE clause
+func parseSelectItem(p *Parser) (query.SelectItem, error) {
+    if p.ConsumeToken(token.TokenMul{}) {
+        return &query.Wildcard{}, nil  // EXCLUDE is lost!
+    }
+}
+// Result: "SELECT * EXCLUDE (col_a) FROM t" outputs "SELECT * FROM t"
+
+// CORRECT - parse wildcard options
+func parseSelectItem(p *Parser) (query.SelectItem, error) {
+    if p.ConsumeToken(token.TokenMul{}) {
+        opts, err := parseWildcardAdditionalOptions(p)
+        if err != nil {
+            return nil, err
+        }
+        return &query.Wildcard{AdditionalOptions: opts}, nil
+    }
+}
+// Result: "SELECT * EXCLUDE (col_a) FROM t" outputs correctly
+```
+
+**Key Lesson:** After parsing `*` in a SELECT item, always check for and parse additional options like EXCLUDE, REPLACE, RENAME, ILIKE, EXCEPT. Use dialect capability checks to determine which options to parse.
+
+---
+
+### Pattern CD: Case Preservation in Typed String Literals
+
+**Problem:** Typed string literals like `box '((0,0),(1,1))'` lose case when output as `BOX '((0,0),(1,1))'`.
+
+**Example:**
+
+```go
+// INCORRECT - uses uppercase keyword
+dataTypeName := word.Word.Keyword  // "BOX" (uppercase)
+return &expr.TypedString{
+    DataType: string(dataTypeName),  // "BOX"
+    Value:    strVal.Value,
+}, nil
+// Result: "box '((0,0),(1,1))'" becomes "BOX '((0,0),(1,1))'"
+
+// CORRECT - preserves original case
+dataTypeKeyword := word.Word.Keyword   // For checking (uppercase)
+dataTypeName := word.Word.Value        // For output (original case: "box")
+return &expr.TypedString{
+    DataType: dataTypeName,  // "box" (original case)
+    Value:    strVal.Value,
+}, nil
+// Result: "box '((0,0),(1,1))'" stays as "box '((0,0),(1,1))'"
+```
+
+**Key Lesson:** Use `word.Word.Value` to preserve the original case of identifiers and keywords for round-trip serialization. Use `word.Word.Keyword` only for comparisons and checks.
+
+---
+
 ## Current Status
 
 **Overall Progress: ~46% Test Pass Rate** (377 tests passing, 436 failing out of 813 total)
@@ -2344,13 +2405,45 @@ Added support for Snowflake SHOW statement pagination:
 
 ---
 
+### April 7, 2026 - Geometric Operators and SELECT Wildcard Enhancements
+
+Implemented major missing parser chunks to increase test coverage:
+
+1. **Geometric Operator Fixes** (parser/core.go, parser/infix.go):
+   - Added missing geometric operators to precedence handling: `TokenAtDashAt`, `TokenDoubleSharp`, `TokenQuestionMarkSharp`, etc.
+   - Fixed infix operators for geometric types to support both PostgreSQL and Redshift dialects
+   - Extended `TokenSharp` handling for Redshift (was only PostgreSQL)
+
+2. **SELECT Wildcard EXCLUDE/REPLACE/RENAME Support** (parser/query.go):
+   - Implemented comprehensive wildcard additional options parsing:
+     - `EXCLUDE (col1, col2)` - Snowflake syntax for excluding columns
+     - `REPLACE (expr AS col)` - Replace column expressions
+     - `RENAME (old AS new)` - Rename columns in wildcard
+     - `ILIKE 'pattern'` - Pattern matching for wildcards
+     - `EXCEPT (col1, col2)` - BigQuery/ClickHouse syntax
+   - Updated `parseSelectItem()` to populate `AdditionalOptions` field
+   - +7 Snowflake wildcard tests now passing
+
+3. **Typed String Case Preservation** (parser/prefix.go):
+   - Fixed `tryParseTypedString()` to preserve original case of data type keywords
+   - Added geometric types (POINT, LINE, BOX, CIRCLE, etc.) to data type recognition
+   - Now correctly parses `box '((0,0),(1,1))'` instead of `BOX '((0,0),(1,1))'`
+
+**Key Pattern Documentation:**
+- **Pattern CC: Wildcard Additional Options** - When parsing `*`, check for following EXCLUDE, REPLACE, RENAME, ILIKE clauses and populate the `WildcardAdditionalOptions` struct
+- **Pattern CD: Case Preservation in Typed Strings** - Use `word.Word.Value` (original case) instead of `word.Word.Keyword` (uppercase) for data type names in typed string literals
+
+**Result:** +4 tests now passing (431/813 total, 53% pass rate). Snowflake SELECT wildcard tests mostly passing.
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 7, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~22%, **Total ~52.5%**
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~25%, **Total ~53%**
 
 **Line Counts:**
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 73,338 lines (108.9% of Rust - AST types and interfaces)
+- Go Source: 73,745 lines (109.5% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: 52.5%** (427 passing out of 813 total tests)
+- **Current Test Pass Rate: 53%** (431 passing out of 813 total tests)

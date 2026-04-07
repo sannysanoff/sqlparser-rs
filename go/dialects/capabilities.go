@@ -56,6 +56,15 @@ func SupportsSelectWildcardRename(d CoreDialect) bool {
 	return false
 }
 
+// SupportsSelectWildcardIlike returns true if the dialect supports ILIKE
+// option in SELECT * wildcard expressions.
+func SupportsSelectWildcardIlike(d CoreDialect) bool {
+	if sd, ok := d.(SelectDialect); ok {
+		return sd.SupportsSelectWildcardIlike()
+	}
+	return false
+}
+
 // SupportsTrailingCommas returns true if the dialect supports trailing commas.
 func SupportsTrailingCommas(d CoreDialect) bool {
 	if sd, ok := d.(SelectDialect); ok {
