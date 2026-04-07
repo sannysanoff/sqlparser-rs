@@ -1546,11 +1546,11 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 
 ## Current Status (April 7, 2026)
 
-**Overall Progress: ~57% Test Pass Rate** (458+ tests passing, ~355 failing out of 813 total)
+**Overall Progress: ~57% Test Pass Rate** (460 tests passing, 353 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
-| **tests**        | 🔄 In Progress   | 178     | 260   | **68%**   |
+| **tests**        | 🔄 In Progress   | 180     | 260   | **69%**   |
 | **tests/ddl**    | 🔄 In Progress   | 26      | 81    | **32%**   |
 | **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
 | **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
@@ -1558,17 +1558,45 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 | **tests/postgres**| 🔄 In Progress  | 62      | 157   | **39%**   |
 | **tests/snowflake**| 🔄 In Progress | 41      | 97    | **42%**   |
 | **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
-| **TOTAL**        | **~57% Complete** | **458+**| 813   | **~57%** |
+| **TOTAL**        | **~57% Complete** | **460**| 813   | **~57%** |
 
 **Line Counts (Updated April 7, 2026):**
 
 - Rust Source: 67,345 lines (src/ - parser + dialects + AST)
-- Go Source: 74,668 lines (go/ - AST types, parser, dialects - 111% of Rust)
+- Go Source: 75,702 lines (go/ - AST types, parser, dialects - 112% of Rust)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.4% of Rust test coverage)
-- **Test Pass Rate: ~57%** (458+ passing out of ~813 total tests)
+- **Test Pass Rate: ~57%** (460 passing out of 813 total tests)
 
-### April 7, 2026 - CREATE TABLE Extensions Implementation
+### April 7, 2026 - Window Function IGNORE NULLS and LISTAGG Implementation
+
+Implemented critical fixes for window functions and ordered set aggregates:
+
+1. **IGNORE NULLS / RESPECT NULLS Parsing Order Fix** (parser/special.go):
+   - Fixed parsing order: null treatment must be parsed BEFORE the OVER clause
+   - For dialects supporting `window_function_null_treatment_arg()`, it's parsed as a FunctionArgumentClause inside the function args
+   - For other dialects (like MSSQL), it's parsed after the function call but before OVER: `fn(args) IGNORE NULLS OVER (...)`
+   - Reference: src/parser/mod.rs:2467-2475 for null treatment parsing order
+   - **+1 test passing** (TestParseWindowRankFunction)
+
+2. **LISTAGG / Ordered Set Aggregate Functions** (parser/special.go, ast/expr/functions.go):
+   - Implemented full ON OVERFLOW clause parsing with TRUNCATE filler support
+   - Supports: `ON OVERFLOW TRUNCATE ['filler'] {WITH|WITHOUT} COUNT`
+   - Handles multiple string literal types: single-quoted, double-quoted, N'...', X'...'
+   - Fixed WITHIN GROUP parsing to not check dialect capability (matches Rust behavior)
+   - Implemented proper storage of WithinGroup in FunctionExpr AST
+   - Updated ListAggOnOverflow from enum to struct with Filler and WithCount fields
+   - **+1 test passing** (TestParseListagg)
+
+3. **WITHIN GROUP Clause Parsing** (parser/special.go):
+   - Fixed parsing order: WITHIN GROUP must be parsed BEFORE null treatment, FILTER, and OVER clauses
+   - Removed incorrect dialect capability check (Rust doesn't check this in parser)
+   - Reference: src/parser/mod.rs:2443-2451 for WITHIN GROUP parsing order
+
+**Key Pattern Documentation:**
+- **Pattern DA: Parsing Order for Function Postfix Clauses** - The correct order is: WITHIN GROUP → FILTER → null treatment → OVER. Getting this wrong causes "Expected: end of statement" errors.
+- **Pattern DB: Dialect Capability Checks in Parser** - Not all dialect capabilities are checked in the parser. Some (like WITHIN GROUP) are always parsed regardless of dialect. Only add dialect checks if the Rust implementation has them.
+- **Pattern DC: String Literal Types in Switch** - When checking for string literals, include all token types: TokenSingleQuotedString, TokenDoubleQuotedString, TokenNationalStringLiteral (N'...'), and TokenHexStringLiteral (X'...').
 
 Implemented major parser chunks to increase test coverage:
 

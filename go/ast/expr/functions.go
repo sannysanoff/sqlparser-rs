@@ -91,20 +91,33 @@ func (n NullTreatment) String() string {
 }
 
 // ListAggOnOverflow represents the ON OVERFLOW clause for LISTAGG.
-type ListAggOnOverflow int
-
-const (
-	ListAggError ListAggOnOverflow = iota
-	ListAggTruncate
-)
+type ListAggOnOverflow struct {
+	// Kind is either "ERROR" or "TRUNCATE"
+	Kind string
+	// Filler is the optional filler expression for TRUNCATE (e.g., '...')
+	Filler Expr
+	// WithCount is true for "WITH COUNT", false for "WITHOUT COUNT"
+	WithCount bool
+}
 
 // String returns the SQL representation.
-func (l ListAggOnOverflow) String() string {
-	switch l {
-	case ListAggError:
+func (l *ListAggOnOverflow) String() string {
+	switch l.Kind {
+	case "ERROR":
 		return "ON OVERFLOW ERROR"
-	case ListAggTruncate:
-		return "ON OVERFLOW TRUNCATE"
+	case "TRUNCATE":
+		var sb strings.Builder
+		sb.WriteString("ON OVERFLOW TRUNCATE")
+		if l.Filler != nil {
+			sb.WriteString(" ")
+			sb.WriteString(l.Filler.String())
+		}
+		if l.WithCount {
+			sb.WriteString(" WITH COUNT")
+		} else {
+			sb.WriteString(" WITHOUT COUNT")
+		}
+		return sb.String()
 	}
 	return ""
 }
@@ -193,12 +206,15 @@ func (l *LimitClause) String() string {
 
 // OnOverflowClause represents ON OVERFLOW inside function arguments.
 type OnOverflowClause struct {
-	OnOverflow ListAggOnOverflow
+	OnOverflow *ListAggOnOverflow
 }
 
 // String returns the SQL representation.
 func (o *OnOverflowClause) String() string {
-	return o.OnOverflow.String()
+	if o.OnOverflow != nil {
+		return o.OnOverflow.String()
+	}
+	return ""
 }
 
 // HavingClause represents HAVING inside function arguments.

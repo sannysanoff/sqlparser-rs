@@ -91,16 +91,43 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		SpanVal: mergeSpans(name.Span(), ep.parser.GetCurrentToken().Span),
 	}
 
-	// Parse OVER clause for window functions
-	if ep.parser.ParseKeyword("OVER") {
-		windowSpec, err := ep.parseWindowSpec()
+	// Extract null treatment from clauses and set on FunctionExpr
+	// This matches Rust behavior where null treatment is a FunctionArgumentClause
+	// but also needs to be accessible as a field on Function for the String() output
+	for _, clause := range clauses {
+		if nullClause, ok := clause.(*expr.IgnoreOrRespectNullsClause); ok {
+			fnExpr.NullTreatment = nullClause.Treatment
+			break
+		}
+	}
+
+	// Parse WITHIN GROUP for ordered set aggregates
+	// This must be parsed BEFORE null treatment and OVER
+	// Reference: src/parser/mod.rs:2443-2451 (within_group is parsed before over)
+	if ep.parser.ParseKeywords([]string{"WITHIN", "GROUP"}) {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		if !ep.parser.ParseKeyword("ORDER") || !ep.parser.ParseKeyword("BY") {
+			return nil, fmt.Errorf("expected ORDER BY after WITHIN GROUP")
+		}
+		orderBy, err := ep.parseCommaSeparatedOrderByExprs()
 		if err != nil {
 			return nil, err
 		}
-		fnExpr.Over = windowSpec
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		// Convert []*expr.OrderByExpr to []Expr for WithinGroup
+		withinGroup := make([]expr.Expr, len(orderBy))
+		for i, ob := range orderBy {
+			withinGroup[i] = ob
+		}
+		fnExpr.WithinGroup = withinGroup
 	}
 
 	// Parse FILTER clause for aggregate functions (if supported)
+	// Reference: src/parser/mod.rs:2453-2463 (filter is parsed after within_group)
 	if dialects.SupportsFilterDuringAggregation(dialect) && ep.parser.ParseKeyword("FILTER") {
 		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
@@ -118,37 +145,31 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		}
 	}
 
-	// Parse null treatment (IGNORE NULLS / RESPECT NULLS)
-	if ep.parser.ParseKeyword("IGNORE") {
-		if ep.parser.ParseKeyword("NULLS") {
-			fnExpr.NullTreatment = expr.NullTreatmentIgnore
-		}
-	} else if ep.parser.ParseKeyword("RESPECT") {
-		if ep.parser.ParseKeyword("NULLS") {
-			fnExpr.NullTreatment = expr.NullTreatmentRespect
+	// Parse null treatment (IGNORE NULLS / RESPECT NULLS) before OVER clause
+	// This is for dialects that don't support it as a FunctionArgumentClause,
+	// where it appears after the function call but before OVER: fn(args) IGNORE NULLS OVER (...)
+	// Reference: src/parser/mod.rs:2467-2475 - parse_null_treatment() is called after
+	// parse_function_argument_list() and filter, but before parse_keyword(OVER).
+	if fnExpr.NullTreatment == expr.NullTreatmentNone {
+		if ep.parser.ParseKeyword("IGNORE") {
+			if ep.parser.ParseKeyword("NULLS") {
+				fnExpr.NullTreatment = expr.NullTreatmentIgnore
+			}
+		} else if ep.parser.ParseKeyword("RESPECT") {
+			if ep.parser.ParseKeyword("NULLS") {
+				fnExpr.NullTreatment = expr.NullTreatmentRespect
+			}
 		}
 	}
 
-	// Parse WITHIN GROUP for ordered set aggregates
-	if dialects.SupportsWithinAfterArrayAggregation(dialect) && ep.parser.ParseKeywords([]string{"WITHIN", "GROUP"}) {
-		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
-			return nil, err
-		}
-		if !ep.parser.ParseKeyword("ORDER") || !ep.parser.ParseKeyword("BY") {
-			return nil, fmt.Errorf("expected ORDER BY after WITHIN GROUP")
-		}
-		orderBy, err := ep.parseCommaSeparatedOrderByExprs()
+	// Parse OVER clause for window functions
+	// Reference: src/parser/mod.rs:2477-2486 (over is parsed last)
+	if ep.parser.ParseKeyword("OVER") {
+		windowSpec, err := ep.parseWindowSpec()
 		if err != nil {
 			return nil, err
 		}
-		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
-		// TODO: WithinGroup expects []Expr but OrderByExpr doesn't implement Expr
-		// This is a design issue that needs to be fixed in the AST types
-		// For now, we skip setting WithinGroup
-		_ = orderBy
-		// fnExpr.WithinGroup = orderBy
+		fnExpr.Over = windowSpec
 	}
 
 	return fnExpr, nil
@@ -185,8 +206,12 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 		if ep.parser.PeekKeyword("ABSENT") {
 			break // ABSENT ON NULL
 		}
-		if ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT") {
-			break // IGNORE NULLS / RESPECT NULLS
+		// Check for IGNORE/RESPECT NULLS - but only if dialect supports it as an argument clause
+		// In dialects that support window_function_null_treatment_arg(), this is parsed as a
+		// FunctionArgumentClause, not as an expression argument.
+		if (ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT")) &&
+			ep.parser.GetDialect().SupportsWindowFunctionNullTreatmentArg() {
+			break // IGNORE NULLS / RESPECT NULLS - will be parsed as a clause
 		}
 
 		// Parse argument
@@ -203,7 +228,9 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 
 	// Parse any clauses
 	for {
-		if ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT") {
+		// Check for IGNORE/RESPECT NULLS clause - but only for dialects that support it
+		if (ep.parser.PeekKeyword("IGNORE") || ep.parser.PeekKeyword("RESPECT")) &&
+			ep.parser.GetDialect().SupportsWindowFunctionNullTreatmentArg() {
 			clause, err := ep.parseNullTreatmentClause()
 			if err != nil {
 				return nil, nil, err
@@ -537,20 +564,60 @@ func (ep *ExpressionParser) parseSeparatorClause() (expr.FunctionArgumentClause,
 }
 
 // parseOnOverflowClause parses ON OVERFLOW clause for LISTAGG
+// Full syntax: ON OVERFLOW { ERROR | TRUNCATE [filler] { WITH | WITHOUT } COUNT }
+// Reference: src/parser/mod.rs:3017-3051
 func (ep *ExpressionParser) parseOnOverflowClause() (expr.FunctionArgumentClause, error) {
 	if !ep.parser.ParseKeyword("ON") || !ep.parser.ParseKeyword("OVERFLOW") {
 		return nil, fmt.Errorf("expected ON OVERFLOW")
 	}
 
 	if ep.parser.ParseKeyword("ERROR") {
-		return &expr.OnOverflowClause{OnOverflow: expr.ListAggError}, nil
+		return &expr.OnOverflowClause{
+			OnOverflow: &expr.ListAggOnOverflow{
+				Kind: "ERROR",
+			},
+		}, nil
 	}
 
-	if ep.parser.ParseKeyword("TRUNCATE") {
-		return &expr.OnOverflowClause{OnOverflow: expr.ListAggTruncate}, nil
+	// Must be TRUNCATE
+	if !ep.parser.ParseKeyword("TRUNCATE") {
+		return nil, fmt.Errorf("expected ERROR or TRUNCATE after ON OVERFLOW")
 	}
 
-	return nil, fmt.Errorf("expected ERROR or TRUNCATE after ON OVERFLOW")
+	result := &expr.ListAggOnOverflow{
+		Kind:      "TRUNCATE",
+		WithCount: true, // default to WITH
+	}
+
+	// Check for optional filler or go straight to WITH/WITHOUT
+	// If the next token is a string literal, parse it as filler
+	tok := ep.parser.PeekToken()
+	switch tok.Token.(type) {
+	case token.TokenSingleQuotedString, token.TokenDoubleQuotedString,
+		token.TokenNationalStringLiteral, token.TokenHexStringLiteral:
+		// Parse filler expression
+		fillerExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse ON OVERFLOW filler: %w", err)
+		}
+		result.Filler = fillerExpr
+	}
+
+	// Parse WITH or WITHOUT
+	if ep.parser.ParseKeyword("WITH") {
+		result.WithCount = true
+	} else if ep.parser.ParseKeyword("WITHOUT") {
+		result.WithCount = false
+	} else {
+		return nil, fmt.Errorf("expected WITH or WITHOUT in ON OVERFLOW TRUNCATE")
+	}
+
+	// Expect COUNT
+	if !ep.parser.ParseKeyword("COUNT") {
+		return nil, fmt.Errorf("expected COUNT after WITH/WITHOUT in ON OVERFLOW TRUNCATE")
+	}
+
+	return &expr.OnOverflowClause{OnOverflow: result}, nil
 }
 
 // parseHavingClause parses HAVING clause for ANY_VALUE
