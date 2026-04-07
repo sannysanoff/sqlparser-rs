@@ -24,6 +24,7 @@ import (
 	"fmt"
 
 	"github.com/user/sqlparser/ast"
+	"github.com/user/sqlparser/ast/datatype"
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/token"
 )
@@ -54,7 +55,8 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 		if p.PeekKeyword("NOT") || p.PeekKeyword("NULL") || p.PeekKeyword("DEFAULT") ||
 			p.PeekKeyword("COLLATE") || p.PeekKeyword("COMMENT") || p.PeekKeyword("GENERATED") ||
 			p.PeekKeyword("CONSTRAINT") || p.PeekKeyword("PRIMARY") || p.PeekKeyword("UNIQUE") ||
-			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") || p.PeekKeyword("ON") {
+			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") || p.PeekKeyword("ON") ||
+			p.PeekKeyword("AUTO_INCREMENT") {
 
 			constraint, err := parseColumnConstraint(p)
 			if err != nil {
@@ -121,6 +123,11 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			return &expr.ColumnOptionDef{Name: "COMMENT", Value: &expr.ValueExpr{Value: str.Value}}, nil
 		}
 		return nil, fmt.Errorf("expected string literal after COMMENT")
+	}
+
+	// AUTO_INCREMENT (MySQL column option)
+	if p.ParseKeyword("AUTO_INCREMENT") {
+		return &expr.ColumnOptionDef{Name: "AUTO_INCREMENT"}, nil
 	}
 
 	// PRIMARY KEY
@@ -199,21 +206,26 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 	// GENERATED {ALWAYS | BY DEFAULT} AS IDENTITY
 	if p.ParseKeyword("GENERATED") {
 		if p.ParseKeywords([]string{"ALWAYS", "AS"}) {
-			// GENERATED ALWAYS AS expr STORED/VIRTUAL
+			// GENERATED ALWAYS AS expr [STORED|VIRTUAL]
 			exprParser := NewExpressionParser(p)
 			genExpr, err := exprParser.ParseExpr()
 			if err != nil {
 				return nil, fmt.Errorf("expected expression after GENERATED ALWAYS AS: %w", err)
 			}
 
-			// Check for STORED or VIRTUAL
+			// Check for STORED or VIRTUAL AFTER parsing expression
+			var genType string
 			if p.ParseKeyword("STORED") {
-				return &expr.ColumnOptionDef{Name: "GENERATED ALWAYS AS STORED", Value: genExpr}, nil
+				genType = "STORED"
+			} else if p.ParseKeyword("VIRTUAL") {
+				genType = "VIRTUAL"
 			}
-			if p.ParseKeyword("VIRTUAL") {
-				return &expr.ColumnOptionDef{Name: "GENERATED ALWAYS AS VIRTUAL", Value: genExpr}, nil
+
+			name := "GENERATED ALWAYS AS"
+			if genType != "" {
+				name += " " + genType
 			}
-			return &expr.ColumnOptionDef{Name: "GENERATED ALWAYS AS", Value: genExpr}, nil
+			return &expr.ColumnOptionDef{Name: name, Value: genExpr}, nil
 		}
 
 		if p.ParseKeywords([]string{"BY", "DEFAULT", "AS", "IDENTITY"}) {
@@ -433,4 +445,68 @@ func parseConstraintCharacteristics(p *Parser) {
 			return
 		}
 	}
+}
+
+// parseSetType parses MySQL SET('a', 'b', ...) data type
+func parseSetType(p *Parser, span token.Span) (*datatype.SetType, error) {
+	if !p.ConsumeToken(token.TokenLParen{}) {
+		return nil, p.expected("(", p.PeekToken())
+	}
+
+	var values []string
+	for {
+		tok := p.PeekToken()
+		if strTok, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			values = append(values, strTok.Value)
+		} else {
+			return nil, p.expected("string literal", tok)
+		}
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if !p.ConsumeToken(token.TokenRParen{}) {
+		return nil, p.expected(")", p.PeekToken())
+	}
+
+	return &datatype.SetType{
+		SpanVal: span,
+		Values:  values,
+	}, nil
+}
+
+// parseEnumType parses MySQL ENUM('a', 'b', ...) data type
+func parseEnumType(p *Parser, span token.Span) (*datatype.EnumType, error) {
+	if !p.ConsumeToken(token.TokenLParen{}) {
+		return nil, p.expected("(", p.PeekToken())
+	}
+
+	var members []datatype.EnumMember
+	for {
+		tok := p.PeekToken()
+		if strTok, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			members = append(members, datatype.EnumMember{
+				Name: strTok.Value,
+			})
+		} else {
+			return nil, p.expected("string literal", tok)
+		}
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if !p.ConsumeToken(token.TokenRParen{}) {
+		return nil, p.expected(")", p.PeekToken())
+	}
+
+	return &datatype.EnumType{
+		SpanVal: span,
+		Members: members,
+	}, nil
 }

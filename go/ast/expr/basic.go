@@ -108,6 +108,13 @@ func (v *ValueExpr) String() string {
 	if v.Value == nil {
 		return "NULL"
 	}
+	// Handle Go bool types (TRUE/FALSE must be uppercase)
+	if b, ok := v.Value.(bool); ok {
+		if b {
+			return "TRUE"
+		}
+		return "FALSE"
+	}
 	if s, ok := v.Value.(fmt.Stringer); ok {
 		return s.String()
 	}
@@ -277,9 +284,10 @@ func (o *ObjectName) String() string {
 
 // SqlOption represents a SQL option (e.g., in OPTIONS clause).
 type SqlOption struct {
-	SpanVal token.Span
-	Name    *Ident
-	Value   Expr
+	SpanVal      token.Span
+	Name         *Ident
+	Value        Expr
+	EngineParams []*Ident // Optional parenthesized params for ENGINE option (e.g., ENGINE=InnoDB(ROW_FORMAT=DYNAMIC))
 }
 
 // Span returns the source span for this option.
@@ -296,7 +304,15 @@ func (s *SqlOption) String() string {
 			valueStr = fmt.Sprintf("'%s'", valueStr)
 		}
 	}
-	return fmt.Sprintf("%s = %s", s.Name.String(), valueStr)
+	result := fmt.Sprintf("%s = %s", s.Name.String(), valueStr)
+	if len(s.EngineParams) > 0 {
+		var params []string
+		for _, p := range s.EngineParams {
+			params = append(params, p.String())
+		}
+		result += fmt.Sprintf("(%s)", strings.Join(params, ", "))
+	}
+	return result
 }
 
 // ColumnOption represents a column option.

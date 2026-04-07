@@ -404,10 +404,43 @@ type ColumnOptionDef struct {
 }
 
 func (c *ColumnOptionDef) String() string {
+	// Handle GENERATED ALWAYS AS with STORED/VIRTUAL
+	if strings.HasPrefix(c.Name, "GENERATED ALWAYS AS") && c.Value != nil {
+		var sb strings.Builder
+		sb.WriteString("GENERATED ALWAYS AS ")
+		sb.WriteString(c.Value.String())
+		if strings.HasSuffix(c.Name, " STORED") {
+			sb.WriteString(" STORED")
+		} else if strings.HasSuffix(c.Name, " VIRTUAL") {
+			sb.WriteString(" VIRTUAL")
+		}
+		return sb.String()
+	}
 	if c.Value != nil {
 		return fmt.Sprintf("%s %s", c.Name, c.Value.String())
 	}
 	return c.Name
+}
+
+// GeneratedColumnOption represents a generated/virtual column option.
+type GeneratedColumnOption struct {
+	Expression    Expr
+	GeneratedType string // "STORED", "VIRTUAL", or ""
+}
+
+func (g *GeneratedColumnOption) exprNode()        {}
+func (g *GeneratedColumnOption) Span() token.Span { return token.Span{} }
+func (g *GeneratedColumnOption) String() string {
+	var sb strings.Builder
+	sb.WriteString("GENERATED ALWAYS AS ")
+	if g.Expression != nil {
+		sb.WriteString(g.Expression.String())
+		sb.WriteString(" ")
+	}
+	if g.GeneratedType != "" {
+		sb.WriteString(g.GeneratedType)
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // ============================================================================
@@ -511,13 +544,6 @@ type ViewEnvelope struct{}
 func (v *ViewEnvelope) exprNode()        {}
 func (v *ViewEnvelope) Span() token.Span { return token.Span{} }
 func (v *ViewEnvelope) String() string   { return "" }
-
-// CreateViewParams represents CREATE VIEW parameters.
-type CreateViewParams struct{}
-
-func (c *CreateViewParams) exprNode()        {}
-func (c *CreateViewParams) Span() token.Span { return token.Span{} }
-func (c *CreateViewParams) String() string   { return "" }
 
 // IndexColumn represents an index column.
 type IndexColumn struct {

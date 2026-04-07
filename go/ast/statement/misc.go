@@ -638,7 +638,33 @@ func (f *Flush) statementNode() {}
 func (f *Flush) String() string {
 	var sb strings.Builder
 	sb.WriteString("FLUSH ")
+	if f.Location != nil {
+		switch *f.Location {
+		case expr.FlushLocationLocal:
+			sb.WriteString("LOCAL ")
+		case expr.FlushLocationNoWriteToBinlog:
+			sb.WriteString("NO_WRITE_TO_BINLOG ")
+		}
+	}
 	sb.WriteString(f.ObjectType.String())
+	if len(f.Tables) > 0 {
+		tableNames := make([]string, len(f.Tables))
+		for i, t := range f.Tables {
+			tableNames[i] = t.String()
+		}
+		sb.WriteString(" ")
+		sb.WriteString(strings.Join(tableNames, ", "))
+	}
+	if f.ReadLock {
+		sb.WriteString(" WITH READ LOCK")
+	}
+	if f.Export {
+		sb.WriteString(" FOR EXPORT")
+	}
+	if f.Channel != nil {
+		sb.WriteString(" FOR CHANNEL ")
+		sb.WriteString(*f.Channel)
+	}
 	return sb.String()
 }
 

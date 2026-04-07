@@ -1344,10 +1344,16 @@ func (t *Tokenizer) tokenizeQuestion(state *State) (Token, error) {
 }
 
 func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
+	// If the dialect doesn't support dollar-quoted strings or placeholders,
+	// treat $ as a regular identifier start character
+	if !t.dialect.SupportsDollarQuotedString() && !t.dialect.SupportsDollarPlaceholder() {
+		return t.tokenizeIdentifier(state)
+	}
+
 	state.Next() // consume '$'
 
 	// Check for dollar-quoted string or placeholder
-	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
+	if next, ok := state.Peek(); ok && next == '$' && t.dialect.SupportsDollarQuotedString() {
 		state.Next() // consume second '$'
 
 		var s strings.Builder
@@ -1403,7 +1409,7 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 	val := value.String()
 
 	// Check for tagged dollar-quoted string
-	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
+	if next, ok := state.Peek(); ok && next == '$' && t.dialect.SupportsDollarQuotedString() {
 		state.Next() // consume '$'
 
 		var s strings.Builder

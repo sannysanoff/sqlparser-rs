@@ -241,11 +241,17 @@ func parseGrantObjectNames(p *Parser) ([]*ast.ObjectName, error) {
 // parseGrantObjectName parses a single object name for GRANT (handles wildcards)
 // Reference: src/parser/mod.rs parse_grant_object_name (line 16996)
 func parseGrantObjectName(p *Parser) (*ast.ObjectName, error) {
-	ident, err := p.ParseIdentifier()
-	if err != nil {
-		return nil, err
+	var firstIdent *ast.Ident
+	if p.ConsumeToken(token.TokenMul{}) {
+		firstIdent = &ast.Ident{Value: "*"}
+	} else {
+		var err error
+		firstIdent, err = p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
 	}
-	name := ast.NewObjectNameFromIdents(ident)
+	name := ast.NewObjectNameFromIdents(firstIdent)
 	if p.ConsumeToken(token.TokenPeriod{}) {
 		if p.ConsumeToken(token.TokenMul{}) {
 			name.Parts = append(name.Parts, &ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: "*"}})

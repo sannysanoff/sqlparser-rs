@@ -1982,6 +1982,12 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 		return parseBinaryType(p, tok.Span)
 	case "VARBINARY":
 		return parseVarbinaryType(p, tok.Span)
+	case "SET":
+		return parseSetType(p, tok.Span)
+	case "ENUM":
+		return parseEnumType(p, tok.Span)
+	case "GEOMETRY", "POINT", "LINESTRING", "POLYGON", "GEOMCOLLECTION", "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON":
+		return parseMysqlGeometryType(p, tok.Span, typeName)
 	default:
 		// For unknown types, return a custom type
 		return &datatype.CustomType{
@@ -2637,6 +2643,31 @@ func parseVarbinaryType(p *Parser, spanVal token.Span) (*datatype.VarbinaryType,
 			}
 		} else {
 			return nil, fmt.Errorf("expected number in VARBINARY length specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseMysqlGeometryType parses MySQL geometry types with optional SRID
+// Format: GEOMETRY [SRID <number>]
+func parseMysqlGeometryType(p *Parser, spanVal token.Span, typeName string) (*datatype.MysqlGeometryType, error) {
+	result := &datatype.MysqlGeometryType{
+		SpanVal: spanVal,
+		Type:    typeName,
+	}
+
+	// Check for optional SRID clause
+	if p.ParseKeyword("SRID") {
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			srid, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid SRID value: %w", err)
+			}
+			result.Srid = &srid
+		} else {
+			return nil, fmt.Errorf("expected number after SRID")
 		}
 	}
 

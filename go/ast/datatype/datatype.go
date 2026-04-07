@@ -152,6 +152,7 @@ var (
 	_ DataType = (*TriggerType)(nil)
 	_ DataType = (*AnyType)(nil)
 	_ DataType = (*GeometricType)(nil)
+	_ DataType = (*MysqlGeometryType)(nil)
 	_ DataType = (*TsVectorType)(nil)
 	_ DataType = (*TsQueryType)(nil)
 )
@@ -2007,3 +2008,23 @@ type TsQueryType struct {
 func (t *TsQueryType) Span() token.Span { return t.SpanVal }
 func (t *TsQueryType) dataTypeNode()    {}
 func (t *TsQueryType) String() string   { return "TSQUERY" }
+
+// MysqlGeometryType represents a MySQL geometry/geographic type with optional SRID.
+// Examples: GEOMETRY, POINT, LINESTRING, POLYGON, GEOMCOLLECTION, MULTILINESTRING, MULTIPOINT, MULTIPOLYGON
+// With optional SRID: GEOMETRY SRID 4326
+type MysqlGeometryType struct {
+	SpanVal token.Span
+	// Type is the geometry type: GEOMETRY, POINT, LINESTRING, POLYGON, etc.
+	Type string
+	// Srid is the optional SRID value
+	Srid *uint64
+}
+
+func (t *MysqlGeometryType) Span() token.Span { return t.SpanVal }
+func (t *MysqlGeometryType) dataTypeNode()      {}
+func (t *MysqlGeometryType) String() string {
+	if t.Srid != nil {
+		return fmt.Sprintf("%s SRID %d", t.Type, *t.Srid)
+	}
+	return t.Type
+}

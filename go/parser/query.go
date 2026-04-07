@@ -196,6 +196,72 @@ func parseQueryBody(p *Parser) (ast.Statement, error) {
 	return nil, p.ExpectedRef("SELECT or VALUES", p.PeekTokenRef())
 }
 
+// parseSelectModifiers parses MySQL SELECT modifiers in any order.
+// Also handles DISTINCT, DISTINCTROW, and ALL which can appear intermixed with modifiers.
+// Reference: src/parser/mod.rs:14538 parse_select_modifiers
+// Returns: (modifiers, distinct)
+// Modifiers: HIGH_PRIORITY, STRAIGHT_JOIN, SQL_SMALL_RESULT, SQL_BIG_RESULT,
+// SQL_BUFFER_RESULT, SQL_NO_CACHE, SQL_CALC_FOUND_ROWS
+func parseSelectModifiers(p *Parser) (*query.SelectModifiers, *query.Distinct, error) {
+	modifiers := &query.SelectModifiers{}
+	var distinct *query.Distinct
+
+	modifierKeywords := map[string]func() bool{
+		"ALL": func() bool {
+			if distinct == nil {
+				dVal := query.DistinctAll
+				distinct = &dVal
+				return true
+			}
+			return false
+		},
+		"DISTINCT": func() bool {
+			if distinct == nil {
+				dVal := query.DistinctDistinct
+				distinct = &dVal
+				return true
+			}
+			return false
+		},
+		"DISTINCTROW": func() bool {
+			if distinct == nil {
+				dVal := query.DistinctDistinct // DISTINCTROW is alias for DISTINCT
+				distinct = &dVal
+				return true
+			}
+			return false
+		},
+		"HIGH_PRIORITY":       func() bool { modifiers.HighPriority = true; return true },
+		"STRAIGHT_JOIN":       func() bool { modifiers.StraightJoin = true; return true },
+		"SQL_SMALL_RESULT":    func() bool { modifiers.SqlSmallResult = true; return true },
+		"SQL_BIG_RESULT":      func() bool { modifiers.SqlBigResult = true; return true },
+		"SQL_BUFFER_RESULT":   func() bool { modifiers.SqlBufferResult = true; return true },
+		"SQL_NO_CACHE":        func() bool { modifiers.SqlNoCache = true; return true },
+		"SQL_CALC_FOUND_ROWS": func() bool { modifiers.SqlCalcFoundRows = true; return true },
+	}
+
+	for {
+		found := false
+		for kw, setFn := range modifierKeywords {
+			if p.ParseKeyword(kw) {
+				setFn()
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+	}
+
+	// Return nil if no modifiers were actually set
+	if !modifiers.IsAnySet() {
+		modifiers = nil
+	}
+
+	return modifiers, distinct, nil
+}
+
 // parseSelect parses a SELECT statement
 func parseSelect(p *Parser) (ast.Statement, error) {
 	// Expect SELECT keyword
@@ -204,14 +270,30 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Parse DISTINCT / ALL (optional)
+	// Parse optimizer hints (MySQL /*+ ... */ style)
+	// TODO: parse optimizer hints
+
+	// Parse MySQL SELECT modifiers (HIGH_PRIORITY, STRAIGHT_JOIN, etc.)
+	// Also handles DISTINCT/DISTINCTROW/ALL which can appear intermixed with modifiers.
+	// Reference: src/parser/mod.rs:14285-14290
+	var selectModifiers *query.SelectModifiers
 	var distinct *query.Distinct
-	if p.ParseKeyword("DISTINCT") {
-		distinctVal := query.DistinctDistinct
-		distinct = &distinctVal
-	} else if p.ParseKeyword("ALL") {
-		distinctVal := query.DistinctAll
-		distinct = &distinctVal
+	if p.GetDialect().SupportsSelectModifiers() {
+		selectModifiers, distinct, err = parseSelectModifiers(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse DISTINCT / ALL if not already parsed by parseSelectModifiers
+	if distinct == nil {
+		if p.ParseKeyword("DISTINCT") {
+			distinctVal := query.DistinctDistinct
+			distinct = &distinctVal
+		} else if p.ParseKeyword("ALL") {
+			distinctVal := query.DistinctAll
+			distinct = &distinctVal
+		}
 	}
 
 	// Parse projection (select list)
@@ -416,6 +498,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 
 	return &SelectStatement{
 		Select: query.Select{
+			SelectModifiers:     selectModifiers,
 			Distinct:            distinct,
 			Projection:          projection,
 			From:                from,
@@ -971,11 +1054,11 @@ func parseParenthesizedTableFactor(p *Parser) (query.TableFactor, error) {
 
 // isSubqueryStartAfterParen checks if we're at a subquery after consuming '('
 func isSubqueryStartAfterParen(p *Parser) bool {
-	// Check if it's SELECT or WITH after the paren
+	// Check if it's SELECT, WITH, or VALUES after the paren
 	nextTok := p.PeekToken()
 	if word, ok := nextTok.Token.(token.TokenWord); ok {
 		kw := strings.ToUpper(string(word.Word.Keyword))
-		return kw == "SELECT" || kw == "WITH"
+		return kw == "SELECT" || kw == "WITH" || kw == "VALUES" || kw == "VALUE"
 	}
 	return false
 }
@@ -1430,8 +1513,14 @@ func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
 	}
 
 	var rows [][]query.Expr
+	var explicitRow bool
 
 	for {
+		// PostgreSQL/MySQL allow explicit ROW(...) syntax: VALUES ROW(1, 2, 'foo')
+		if p.ParseKeyword("ROW") {
+			explicitRow = true
+		}
+
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
@@ -1460,6 +1549,7 @@ func parseValuesTableFactor(p *Parser) (query.TableFactor, error) {
 
 	// Create the VALUES expression
 	values := &query.Values{
+		ExplicitRow:  explicitRow,
 		ValueKeyword: isValueKeyword,
 		Rows:         rows,
 	}
@@ -1854,8 +1944,14 @@ func parseValues(p *Parser) (*ValuesStatement, error) {
 	}
 
 	var rows [][]query.Expr
+	var explicitRow bool
 
 	for {
+		// PostgreSQL/MySQL allow explicit ROW(...) syntax: VALUES ROW(1, 2, 'foo')
+		if p.ParseKeyword("ROW") {
+			explicitRow = true
+		}
+
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
@@ -1887,6 +1983,7 @@ func parseValues(p *Parser) (*ValuesStatement, error) {
 
 	// Create the Values expression
 	values := &query.Values{
+		ExplicitRow:  explicitRow,
 		ValueKeyword: isValueKeyword,
 		Rows:         rows,
 	}

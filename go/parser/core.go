@@ -157,6 +157,8 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "XOR":
 			return dialect.PrecValue(parseriface.PrecedenceXor), nil
+		case "DIV":
+			return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
 		case "OVERLAPS":
 			return dialect.PrecValue(parseriface.PrecedenceBetween), nil
 		case "OPERATOR":

@@ -2270,12 +2270,43 @@ Implemented comprehensive DuckDB/BigQuery pipe operator (`|>`) parsing following
 
 ---
 
+### April 7, 2026 - CREATE VIEW Enhancements and MySQL SELECT Modifiers
+
+Implemented major missing parser chunks to increase test coverage:
+
+1. **CREATE VIEW SECURE and MATERIALIZED Support** (parser/create.go, ast/statement/ddl.go):
+   - Added `SECURE` keyword parsing for Snowflake: `CREATE SECURE VIEW`, `CREATE SECURE MATERIALIZED VIEW`
+   - Updated `parseCreateView()` to handle SECURE flag passed from caller
+   - Added `CopyGrants` field and parsing for `COPY GRANTS` clause
+   - Updated AST `CreateView` struct with `Secure` and `CopyGrants` fields
+   - Fixed String() method to output SECURE, COPY GRANTS, CLUSTER BY, OPTIONS, COMMENT
+   - Reference: src/parser/mod.rs:6417-6509 parse_create_view
+   - **+5 tests passing** (Snowflake CREATE SECURE VIEW tests)
+
+2. **MySQL SELECT Modifiers Fix** (parser/query.go, ast/query/query.go):
+   - Fixed parsing of MySQL SELECT modifiers that can appear intermixed with DISTINCT
+   - Updated `parseSelectModifiers()` to return `(modifiers, distinct)` tuple following Rust pattern
+   - Modifiers now properly handle: HIGH_PRIORITY, STRAIGHT_JOIN, SQL_SMALL_RESULT, SQL_BIG_RESULT, SQL_BUFFER_RESULT, SQL_NO_CACHE, SQL_CALC_FOUND_ROWS
+   - DISTINCT, DISTINCTROW, and ALL can now appear before or after modifiers (e.g., `SELECT HIGH_PRIORITY DISTINCT *` → `SELECT DISTINCT HIGH_PRIORITY *`)
+   - Fixed String() output order: DISTINCT comes first, then modifiers
+   - Reference: src/parser/mod.rs:14538-14592 parse_select_modifiers
+   - **+5 tests passing** (TestParseSelectModifiers, TestParseSelectModifiersAnyOrder, TestParseSelectModifiersCanBeRepeated, TestParseSelectModifiersCanonicalOrdering)
+
+**Key Pattern Documentation:**
+- **Pattern BM: SELECT Modifiers with DISTINCT** - When MySQL-style modifiers can appear intermixed with DISTINCT, parse them together in a single loop. Return both modifiers and distinct values to the caller.
+- **Pattern BN: Canonical Output Order** - MySQL canonical form is `SELECT DISTINCT [modifiers] ...` not `SELECT [modifiers] DISTINCT ...`
+
+**Result:** +8 tests passing. Pass rate improved from 50.3% to 51.2%.
+
+---
+
 **Version:** 1.0  
-**Last Updated:** April 5, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~48%, PostgreSQL ~27%, Snowflake ~19%, **Total ~46%**
+**Last Updated:** April 7, 2026  
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~27%, Snowflake ~21%, **Total ~51%**
 
 **Line Counts:**
-- Rust Source: 25,416 lines (parser/mod.rs + tokenizer.rs)
-- Go Source: 72,071 lines (implementation only, 283% of Rust due to interface/type duplication)
-- Go Tests: 14,131 lines (28% of Rust test coverage)
+- Rust Source: 67,345 lines (parser + dialects + AST)
+- Go Source: 73,780 lines (109.5% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
+- Go Tests: 14,149 lines (28.3% of Rust test coverage)
+- **Current Test Pass Rate: 51.2%** (417 passing out of 813 total tests)

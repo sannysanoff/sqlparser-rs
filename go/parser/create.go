@@ -60,7 +60,10 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("TABLE"):
 		return parseCreateTable(p, orReplace, temporary, globalOpt, transient)
 	case p.PeekKeyword("VIEW"):
-		return parseCreateView(p, orReplace, temporary)
+		return parseCreateView(p, orReplace, temporary, false)
+	case p.PeekKeyword("ALGORITHM"), p.PeekKeyword("DEFINER"), p.PeekKeyword("SQL"):
+		// MySQL CREATE VIEW parameters before VIEW keyword
+		return parseCreateView(p, orReplace, temporary, false)
 	case p.PeekKeyword("INDEX"):
 		return parseCreateIndex(p, false)
 	case p.PeekKeyword("UNIQUE"):
@@ -101,13 +104,22 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 		return parseCreateUser(p, orReplace)
 	case p.PeekKeyword("PROCEDURE"):
 		return parseCreateProcedure(p, false)
+	case p.PeekKeyword("SECURE"):
+		// CREATE SECURE VIEW or CREATE SECURE MATERIALIZED VIEW
+		p.NextToken() // consume SECURE
+		// Check if MATERIALIZED follows
+		isMaterialized := p.ParseKeyword("MATERIALIZED")
+		if !p.PeekKeyword("VIEW") {
+			return nil, p.ExpectedRef("VIEW after SECURE", p.PeekTokenRef())
+		}
+		return parseCreateView(p, orReplace, temporary, true, isMaterialized) // secure=true, isMaterialized
 	case p.PeekKeyword("MATERIALIZED"):
 		// CREATE MATERIALIZED VIEW
 		p.NextToken() // consume MATERIALIZED
 		if !p.PeekKeyword("VIEW") {
 			return nil, p.ExpectedRef("VIEW after MATERIALIZED", p.PeekTokenRef())
 		}
-		return parseCreateView(p, orReplace, temporary, true) // isMaterialized=true
+		return parseCreateView(p, orReplace, temporary, false, true) // secure=false, isMaterialized=true
 	default:
 		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, FUNCTION, ROLE, or other CREATE target", p.PeekTokenRef())
 	}
@@ -141,6 +153,17 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 		columns = cols
 		constraints = cons
+	}
+
+	// Parse optional MySQL table options (ENGINE, CHARSET, COLLATE, COMMENT, etc.)
+	// Reference: src/parser/mod.rs:8690-8693
+	var tableOptions *expr.CreateTableOptions
+	if len(columns) > 0 || len(constraints) > 0 {
+		var err error
+		tableOptions, err = parseCreateTableOptions(p)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Check for AS (CREATE TABLE ... AS SELECT)
@@ -182,16 +205,17 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 	}
 
 	return &statement.CreateTable{
-		OrReplace:   orReplace,
-		Temporary:   temporary,
-		Global:      global,
-		Transient:   transient,
-		IfNotExists: ifNotExists,
-		Name:        tableName,
-		Columns:     columns,
-		Constraints: constraints,
-		Query:       asQuery,
-		Like:        like,
+		OrReplace:    orReplace,
+		Temporary:    temporary,
+		Global:       global,
+		Transient:    transient,
+		IfNotExists:  ifNotExists,
+		Name:         tableName,
+		Columns:      columns,
+		Constraints:  constraints,
+		TableOptions: tableOptions,
+		Query:        asQuery,
+		Like:         like,
 	}, nil
 }
 
@@ -281,10 +305,412 @@ func isTableConstraint(p *Parser) bool {
 	return false
 }
 
+// parseCreateTableOptions parses optional MySQL table options after the column list.
+// Reference: src/parser/mod.rs:8690-8693, parse_plain_options
+// Format: [ENGINE=InnoDB] [DEFAULT CHARSET=utf8] [COLLATE=utf8mb4_unicode_ci] [COMMENT='text'] [AUTO_INCREMENT=123] ...
+// Options can be space-separated or comma-separated.
+func parseCreateTableOptions(p *Parser) (*expr.CreateTableOptions, error) {
+	var options []*expr.SqlOption
+
+	for {
+		opt, err := parsePlainTableOption(p)
+		if err != nil {
+			return nil, err
+		}
+		if opt == nil {
+			break
+		}
+		options = append(options, opt)
+		// Consume optional comma between options
+		p.ConsumeToken(token.TokenComma{})
+	}
+
+	if len(options) == 0 {
+		return nil, nil
+	}
+
+	return &expr.CreateTableOptions{
+		Type:    expr.CreateTableOptionsPlain,
+		Options: options,
+	}, nil
+}
+
+// parsePlainTableOption parses a single MySQL table option.
+// Returns nil if the next token is not a recognized option keyword.
+// Reference: src/parser/mod.rs:parse_plain_option
+func parsePlainTableOption(p *Parser) (*expr.SqlOption, error) {
+	// COMMENT option: COMMENT [=] 'string'
+	if p.PeekKeyword("COMMENT") {
+		p.NextToken()
+		p.ConsumeToken(token.TokenEq{})
+		val, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		name := &expr.Ident{Value: "COMMENT"}
+		return &expr.SqlOption{
+			Name:  name,
+			Value: &expr.ValueExpr{Value: val},
+		}, nil
+	}
+
+	// ENGINE option: ENGINE [=] name [(param, ...)]
+	if p.PeekKeyword("ENGINE") {
+		p.NextToken()
+		p.ConsumeToken(token.TokenEq{})
+		tok := p.NextToken()
+		word, ok := tok.Token.(token.TokenWord)
+		if !ok {
+			return nil, p.ExpectedRef("engine name (identifier)", &tok)
+		}
+		engineName := word.Value
+
+		// Check for optional parenthesized parameter list
+		var engineParams []*expr.Ident
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+			p.NextToken() // consume (
+			for {
+				if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+					p.NextToken() // consume )
+					break
+				}
+				param, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, err
+				}
+				engineParams = append(engineParams, &expr.Ident{Value: param.Value})
+				if !p.ConsumeToken(token.TokenComma{}) {
+					// No comma, expect )
+					if _, isRParen := p.PeekToken().Token.(token.TokenRParen); !isRParen {
+						return nil, p.ExpectedRef(") or ,", p.PeekTokenRef())
+					}
+				}
+			}
+		}
+
+		return &expr.SqlOption{
+			Name:         &expr.Ident{Value: "ENGINE"},
+			Value:        &expr.Ident{Value: engineName},
+			EngineParams: engineParams,
+		}, nil
+	}
+
+	// TABLESPACE option: TABLESPACE [=] name [STORAGE [=] {DISK|MEMORY}]
+	if p.PeekKeyword("TABLESPACE") {
+		p.NextToken()
+		p.ConsumeToken(token.TokenEq{})
+		tok := p.NextToken()
+		var tsName string
+		isString := false
+		switch t := tok.Token.(type) {
+		case token.TokenWord:
+			tsName = t.Value
+		case token.TokenSingleQuotedString:
+			tsName = t.Value
+			isString = true
+		default:
+			return nil, p.ExpectedRef("tablespace name", &tok)
+		}
+
+		// Check for optional STORAGE clause
+		var storage string
+		if p.PeekKeyword("STORAGE") {
+			p.NextToken()
+			p.ConsumeToken(token.TokenEq{})
+			storageTok := p.NextToken()
+			if word, ok := storageTok.Token.(token.TokenWord); ok {
+				storage = strings.ToUpper(word.Value)
+			}
+		}
+
+		var value expr.Expr
+		if isString {
+			value = &expr.ValueExpr{Value: tsName}
+		} else {
+			value = &expr.Ident{Value: tsName}
+		}
+		if storage != "" {
+			value = &expr.Ident{Value: tsName + " STORAGE " + storage}
+		}
+
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: "TABLESPACE"},
+			Value: value,
+		}, nil
+	}
+
+	// UNION option: UNION [=] (table1, table2, ...)
+	if p.PeekKeyword("UNION") {
+		p.NextToken()
+		p.ConsumeToken(token.TokenEq{})
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); !isLParen {
+			return nil, p.ExpectedRef("\"(\" after UNION", p.PeekTokenRef())
+		}
+		p.NextToken() // consume (
+		var tables []string
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.NextToken() // consume )
+				break
+			}
+			tbl, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			tables = append(tables, tbl.Value)
+			p.ConsumeToken(token.TokenComma{})
+		}
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: "UNION"},
+			Value: &expr.ValueExpr{Value: "(" + strings.Join(tables, ", ") + ")"},
+		}, nil
+	}
+
+	// Multi-word keys must be checked before single-word keys
+	// DEFAULT CHARSET / DEFAULT CHARACTER SET
+	if p.PeekKeyword("DEFAULT") {
+		// Save position in case this is not a table option
+		restore := p.SavePosition()
+		p.NextToken() // consume DEFAULT
+
+		var keyName string
+		if p.PeekKeyword("CHARSET") {
+			p.NextToken()
+			keyName = "DEFAULT CHARSET"
+		} else if p.PeekKeyword("CHARACTER") {
+			p.NextToken()
+			if !p.ParseKeyword("SET") {
+				restore()
+				return nil, nil
+			}
+			keyName = "DEFAULT CHARACTER SET"
+		} else if p.PeekKeyword("COLLATE") {
+			p.NextToken()
+			keyName = "DEFAULT COLLATE"
+		} else {
+			restore()
+			return nil, nil
+		}
+
+		p.ConsumeToken(token.TokenEq{})
+		val, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: keyName},
+			Value: &expr.Ident{Value: val.Value},
+		}, nil
+	}
+
+	// CHARACTER SET (without DEFAULT)
+	if p.PeekKeyword("CHARACTER") {
+		restore := p.SavePosition()
+		p.NextToken()
+		if !p.ParseKeyword("SET") {
+			restore()
+			return nil, nil
+		}
+		p.ConsumeToken(token.TokenEq{})
+		val, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: "CHARACTER SET"},
+			Value: &expr.Ident{Value: val.Value},
+		}, nil
+	}
+
+	// DATA DIRECTORY / INDEX DIRECTORY
+	if p.PeekKeyword("DATA") {
+		restore := p.SavePosition()
+		p.NextToken()
+		if !p.ParseKeyword("DIRECTORY") {
+			restore()
+			return nil, nil
+		}
+		p.ConsumeToken(token.TokenEq{})
+		val, err := p.ParseStringLiteral()
+		if err != nil {
+			// Fall back to identifier
+			id, err2 := p.ParseIdentifier()
+			if err2 != nil {
+				return nil, err
+			}
+			return &expr.SqlOption{
+				Name:  &expr.Ident{Value: "DATA DIRECTORY"},
+				Value: &expr.Ident{Value: id.Value},
+			}, nil
+		}
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: "DATA DIRECTORY"},
+			Value: &expr.ValueExpr{Value: val},
+		}, nil
+	}
+
+	if p.PeekKeyword("INDEX") {
+		restore := p.SavePosition()
+		p.NextToken()
+		if !p.ParseKeyword("DIRECTORY") {
+			restore()
+			return nil, nil
+		}
+		p.ConsumeToken(token.TokenEq{})
+		val, err := p.ParseStringLiteral()
+		if err != nil {
+			id, err2 := p.ParseIdentifier()
+			if err2 != nil {
+				return nil, err
+			}
+			return &expr.SqlOption{
+				Name:  &expr.Ident{Value: "INDEX DIRECTORY"},
+				Value: &expr.Ident{Value: id.Value},
+			}, nil
+		}
+		return &expr.SqlOption{
+			Name:  &expr.Ident{Value: "INDEX DIRECTORY"},
+			Value: &expr.ValueExpr{Value: val},
+		}, nil
+	}
+
+	// Single-word keys
+	singleWordKeys := []string{
+		"CHARSET", "COLLATE",
+		"KEY_BLOCK_SIZE", "ROW_FORMAT", "PACK_KEYS",
+		"STATS_AUTO_RECALC", "STATS_PERSISTENT", "STATS_SAMPLE_PAGES",
+		"DELAY_KEY_WRITE", "COMPRESSION", "ENCRYPTION",
+		"MAX_ROWS", "MIN_ROWS", "AUTOEXTEND_SIZE", "AVG_ROW_LENGTH",
+		"CHECKSUM", "CONNECTION", "ENGINE_ATTRIBUTE", "PASSWORD",
+		"SECONDARY_ENGINE_ATTRIBUTE", "INSERT_METHOD", "AUTO_INCREMENT",
+	}
+
+	for _, kw := range singleWordKeys {
+		if p.PeekKeyword(kw) {
+			p.NextToken()
+			p.ConsumeToken(token.TokenEq{})
+
+			// Try to parse as value, fall back to identifier
+			exprParser := NewExpressionParser(p)
+			val, err := exprParser.ParseExpr()
+			if err != nil {
+				// Fall back to identifier
+				id, err2 := p.ParseIdentifier()
+				if err2 != nil {
+					return nil, err
+				}
+				val = &expr.ValueExpr{Value: id.Value}
+			}
+
+			return &expr.SqlOption{
+				Name:  &expr.Ident{Value: kw},
+				Value: val,
+			}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// parseCreateViewParams parses optional MySQL CREATE VIEW parameters.
+// Reference: src/parser/mod.rs parse_create_view_params
+// These parameters appear BEFORE the VIEW keyword and can be in any order:
+//   - ALGORITHM = UNDEFINED | MERGE | TEMPTABLE
+//   - DEFINER = user_specification
+//   - SQL SECURITY DEFINER | INVOKER
+func parseCreateViewParams(p *Parser) (*statement.CreateViewParams, error) {
+	var algorithm *statement.CreateViewAlgorithm
+	var definer *statement.GranteeName
+	var security *statement.CreateViewSecurity
+
+	for {
+		// Try parsing ALGORITHM = ...
+		if algorithm == nil && p.PeekKeyword("ALGORITHM") {
+			p.NextToken() // consume ALGORITHM
+			if !p.ConsumeToken(token.TokenEq{}) {
+				return nil, p.ExpectedRef("= after ALGORITHM", p.PeekTokenRef())
+			}
+			if p.PeekKeyword("UNDEFINED") {
+				p.NextToken()
+				v := statement.CreateViewAlgorithmUndefined
+				algorithm = &v
+			} else if p.PeekKeyword("MERGE") {
+				p.NextToken()
+				v := statement.CreateViewAlgorithmMerge
+				algorithm = &v
+			} else if p.PeekKeyword("TEMPTABLE") {
+				p.NextToken()
+				v := statement.CreateViewAlgorithmTempTable
+				algorithm = &v
+			} else {
+				return nil, p.ExpectedRef("UNDEFINED, MERGE, or TEMPTABLE after ALGORITHM =", p.PeekTokenRef())
+			}
+			continue
+		}
+
+		// Try parsing DEFINER = ...
+		if definer == nil && p.PeekKeyword("DEFINER") {
+			p.NextToken() // consume DEFINER
+			if !p.ConsumeToken(token.TokenEq{}) {
+				return nil, p.ExpectedRef("= after DEFINER", p.PeekTokenRef())
+			}
+			d, err := parseGranteeName(p)
+			if err != nil {
+				return nil, err
+			}
+			definer = d
+			continue
+		}
+
+		// Try parsing SQL SECURITY ...
+		if security == nil && p.PeekKeyword("SQL") {
+			restore := p.SavePosition()
+			p.NextToken() // consume SQL
+			if p.PeekKeyword("SECURITY") {
+				p.NextToken() // consume SECURITY
+				if p.PeekKeyword("DEFINER") {
+					p.NextToken()
+					v := statement.CreateViewSecurityDefiner
+					security = &v
+				} else if p.PeekKeyword("INVOKER") {
+					p.NextToken()
+					v := statement.CreateViewSecurityInvoker
+					security = &v
+				} else {
+					return nil, p.ExpectedRef("DEFINER or INVOKER after SQL SECURITY", p.PeekTokenRef())
+				}
+			} else {
+				restore()
+			}
+			continue
+		}
+
+		// No more recognized parameters
+		break
+	}
+
+	if algorithm != nil || definer != nil || security != nil {
+		return &statement.CreateViewParams{
+			Algorithm: algorithm,
+			Definer:   definer,
+			Security:  security,
+		}, nil
+	}
+	return nil, nil
+}
+
 // parseCreateView parses CREATE VIEW
-// Reference: src/parser/mod.rs parse_create_view
-func parseCreateView(p *Parser, orReplace, temporary bool, materialized ...bool) (ast.Statement, error) {
+// Reference: src/parser/mod.rs parse_create_view (lines 6417-6509)
+func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, materialized ...bool) (ast.Statement, error) {
 	isMaterialized := len(materialized) > 0 && materialized[0]
+
+	// Parse optional MySQL CREATE VIEW parameters BEFORE the VIEW keyword
+	// Reference: src/parser/mod.rs parse_create_view_params
+	// These can appear in any order: ALGORITHM = ..., DEFINER = ..., SQL SECURITY ...
+	params, err := parseCreateViewParams(p)
+	if err != nil {
+		return nil, err
+	}
 
 	// VIEW keyword is expected (already checked by caller)
 	if _, err := p.ExpectKeyword("VIEW"); err != nil {
@@ -305,12 +731,83 @@ func parseCreateView(p *Parser, orReplace, temporary bool, materialized ...bool)
 		ifNotExists = p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 	}
 
+	// Parse COPY GRANTS (Snowflake)
+	copyGrants := p.ParseKeywords([]string{"COPY", "GRANTS"})
+
 	// Parse optional column list: (col1, col2, ...)
 	var columns []*ast.Ident
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		columns, err = p.ParseParenthesizedColumnList()
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// Parse WITH options (various dialects)
+	var options []*expr.SqlOption
+	if p.ParseKeyword("WITH") {
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			opts, err := parseSqlOptions(p)
+			if err != nil {
+				return nil, err
+			}
+			options = opts
+		}
+	}
+
+	// Parse CLUSTER BY (BigQuery/Snowflake)
+	var clusterBy []expr.Expr
+	if p.ParseKeyword("CLUSTER") {
+		if _, err := p.ExpectKeyword("BY"); err != nil {
+			return nil, err
+		}
+		clusterCols, err := p.ParseParenthesizedColumnList()
+		if err != nil {
+			return nil, err
+		}
+		// Convert []*ast.Ident to []expr.Expr
+		for _, col := range clusterCols {
+			clusterBy = append(clusterBy, &expr.Ident{Value: col.Value})
+		}
+	}
+
+	// Parse BigQuery OPTIONS - check by dialect name
+	dialectName := p.GetDialect().Dialect()
+	if dialectName == "bigquery" || dialectName == "generic" {
+		if p.ParseKeyword("OPTIONS") {
+			if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+				opts, err := parseSqlOptions(p)
+				if err != nil {
+					return nil, err
+				}
+				options = append(options, opts...)
+			}
+		}
+	}
+
+	// Parse TO clause (ClickHouse) - currently not stored due to type mismatch
+	// TODO: Fix AST To field type to accept ObjectName
+	if (dialectName == "clickhouse" || dialectName == "generic") && p.ParseKeyword("TO") {
+		_, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		// to = toName - cannot assign due to type mismatch
+	}
+
+	// Parse COMMENT (various dialects)
+	var comment *expr.CommentDef
+	if p.GetDialect().SupportsCreateViewCommentSyntax() && p.ParseKeyword("COMMENT") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		commentStr, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		comment = &expr.CommentDef{
+			Type:    expr.CommentDefWithEq,
+			Comment: commentStr,
 		}
 	}
 
@@ -326,31 +823,42 @@ func parseCreateView(p *Parser, orReplace, temporary bool, materialized ...bool)
 	}
 
 	// Convert statement to *query.Query
-	// The parser returns SelectStatement or QueryStatement (for CTE WITH clauses)
-	// We need to wrap it in a query.Query for CreateView
 	var q *query.Query
 	switch s := stmt.(type) {
 	case *SelectStatement:
-		// Create a copy of the Select to get a pointer
 		selectCopy := s.Select
 		q = &query.Query{
 			Body: &query.SelectSetExpr{Select: &selectCopy},
 		}
 	case *QueryStatement:
-		// CTE query (WITH clause) - use the Query directly
 		q = s.Query
 	default:
 		return nil, fmt.Errorf("expected SELECT query in CREATE VIEW, got %T", stmt)
 	}
 
+	// Parse WITH NO SCHEMA BINDING (Redshift)
+	withNoSchemaBinding := false
+	if dialectName == "redshift" || dialectName == "generic" {
+		if p.ParseKeywords([]string{"WITH", "NO", "SCHEMA", "BINDING"}) {
+			withNoSchemaBinding = true
+		}
+	}
+
 	return &statement.CreateView{
-		OrReplace:    orReplace,
-		Temporary:    temporary,
-		Materialized: isMaterialized,
-		IfNotExists:  ifNotExists,
-		Name:         name,
-		Columns:      columns,
-		Query:        q,
+		OrReplace:           orReplace,
+		Temporary:           temporary,
+		Materialized:        isMaterialized,
+		Secure:              secure,
+		IfNotExists:         ifNotExists,
+		Name:                name,
+		Columns:             columns,
+		Query:               q,
+		Options:             options,
+		ClusterBy:           clusterBy,
+		WithNoSchemaBinding: withNoSchemaBinding,
+		Comment:             comment,
+		CopyGrants:          copyGrants,
+		Params:              params,
 	}, nil
 }
 
@@ -2107,10 +2615,10 @@ func parseCreateVirtualTable(p *Parser) (ast.Statement, error) {
 	}
 
 	return &statement.CreateVirtualTable{
-		IfNotExists:  ifNotExists,
-		Name:         tableName,
-		ModuleName:   moduleName,
-		ModuleArgs:   args,
+		IfNotExists: ifNotExists,
+		Name:        tableName,
+		ModuleName:  moduleName,
+		ModuleArgs:  args,
 	}, nil
 }
 
@@ -2148,8 +2656,8 @@ func parseCreateMacro(p *Parser) (ast.Statement, error) {
 	// Parse the macro definition (query or expression)
 	// Skip full query parsing for now
 	return &statement.CreateMacro{
-		OrReplace:  orReplace,
-		Name:       macroName,
+		OrReplace: orReplace,
+		Name:      macroName,
 	}, nil
 }
 
@@ -2173,11 +2681,11 @@ func parseCreateSecret(p *Parser, orReplace, temporary bool) (ast.Statement, err
 
 	tempPtr := temporary
 	return &statement.CreateSecret{
-		OrReplace:    orReplace,
-		Temporary:    &tempPtr,
-		IfNotExists:  ifNotExists,
-		Name:         secretName,
-		SecretType:   secretType,
+		OrReplace:   orReplace,
+		Temporary:   &tempPtr,
+		IfNotExists: ifNotExists,
+		Name:        secretName,
+		SecretType:  secretType,
 	}, nil
 }
 

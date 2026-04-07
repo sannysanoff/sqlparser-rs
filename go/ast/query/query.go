@@ -94,7 +94,7 @@ type SelectSetExpr struct {
 }
 
 func (s *SelectSetExpr) Span() token.Span { return s.span }
-func (s *SelectSetExpr) String() string  { return s.Select.String() }
+func (s *SelectSetExpr) String() string   { return s.Select.String() }
 
 // QuerySetExpr represents a parenthesized subquery
 type QuerySetExpr struct {
@@ -134,7 +134,7 @@ type ValuesSetExpr struct {
 }
 
 func (v *ValuesSetExpr) Span() token.Span { return v.span }
-func (v *ValuesSetExpr) String() string  { return v.Values.String() }
+func (v *ValuesSetExpr) String() string   { return v.Values.String() }
 
 // StatementSetExpr represents a statement in set expression context
 type StatementSetExpr struct {
@@ -144,7 +144,7 @@ type StatementSetExpr struct {
 }
 
 func (s *StatementSetExpr) Span() token.Span { return s.span }
-func (s *StatementSetExpr) String() string  { return s.Statement.String() }
+func (s *StatementSetExpr) String() string   { return s.Statement.String() }
 
 // TableSetExpr represents a TABLE command
 type TableSetExpr struct {
@@ -153,7 +153,7 @@ type TableSetExpr struct {
 }
 
 func (t *TableSetExpr) Span() token.Span { return t.span }
-func (t *TableSetExpr) String() string  { return t.Table.String() }
+func (t *TableSetExpr) String() string   { return t.Table.String() }
 
 // Table represents a TABLE command
 type Table struct {
@@ -317,12 +317,15 @@ func (s *Select) String() string {
 	if s.Top != nil && s.TopBeforeDistinct {
 		parts = append(parts, s.Top.String())
 	}
+
 	if s.Distinct != nil {
 		parts = append(parts, s.Distinct.String())
 	}
+
 	if s.Top != nil && !s.TopBeforeDistinct {
 		parts = append(parts, s.Top.String())
 	}
+
 	if s.SelectModifiers != nil {
 		if modStr := s.SelectModifiers.String(); modStr != "" {
 			parts = append(parts, strings.TrimSpace(modStr))
@@ -421,7 +424,7 @@ type OptimizerHint struct {
 }
 
 func (o *OptimizerHint) Span() token.Span { return o.span }
-func (o *OptimizerHint) String() string  { return o.Hint }
+func (o *OptimizerHint) String() string   { return o.Hint }
 
 // SelectItem represents one item of the comma-separated list following SELECT
 type SelectItem interface {

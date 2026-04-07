@@ -742,9 +742,9 @@ func (d *GenericDialect) SupportsBooleanLiterals() bool {
 	return true
 }
 
-// SupportsShowLikeBeforeIn returns false for GenericDialect.
+// SupportsShowLikeBeforeIn returns true for GenericDialect.
 func (d *GenericDialect) SupportsShowLikeBeforeIn() bool {
-	return false
+	return true
 }
 
 // SupportsPartiQL returns false for GenericDialect.

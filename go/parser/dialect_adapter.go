@@ -128,7 +128,7 @@ func (a *dialectAdapter) SupportsPipeOperator() bool {
 
 // IgnoresWildcardEscapes implements tokenizer.Dialect
 func (a *dialectAdapter) IgnoresWildcardEscapes() bool {
-	return false // Default to false
+	return a.dialect.IgnoresWildcardEscapes()
 }
 
 // RequiresSingleLineCommentWhitespace implements tokenizer.Dialect

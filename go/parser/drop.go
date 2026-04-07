@@ -106,10 +106,11 @@ func parseDropTable(p *Parser, temporary bool) (ast.Statement, error) {
 	restrict := p.ParseKeyword("RESTRICT")
 
 	return &statement.DropTable{
-		IfExists: ifExists,
-		Names:    names,
-		Cascade:  cascade,
-		Restrict: restrict,
+		Temporary: temporary,
+		IfExists:  ifExists,
+		Names:     names,
+		Cascade:   cascade,
+		Restrict:  restrict,
 	}, nil
 }
 
@@ -148,6 +149,7 @@ func parseCommaSeparatedIdents(p *Parser) ([]*ast.Ident, error) {
 // parseDropIndex parses DROP INDEX
 // Reference: src/parser/mod.rs parse_drop (INDEX branch)
 // DROP INDEX [CONCURRENTLY] [IF EXISTS] name [, ...] [CASCADE | RESTRICT]
+// MySQL: DROP INDEX [IF EXISTS] name ON tbl_name
 func parseDropIndex(p *Parser) (ast.Statement, error) {
 	if _, err := p.ExpectKeyword("INDEX"); err != nil {
 		return nil, err
@@ -173,6 +175,16 @@ func parseDropIndex(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// MySQL: DROP INDEX ... ON table_name
+	var tableName *ast.ObjectName
+	if p.ParseKeyword("ON") {
+		tblName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+		tableName = tblName
+	}
+
 	// Parse optional CASCADE or RESTRICT
 	cascade := p.ParseKeyword("CASCADE")
 	restrict := p.ParseKeyword("RESTRICT")
@@ -185,6 +197,7 @@ func parseDropIndex(p *Parser) (ast.Statement, error) {
 		Concurrently: concurrently,
 		IfExists:     ifExists,
 		Names:        names,
+		OnTable:      tableName,
 		Cascade:      cascade,
 		Restrict:     restrict,
 	}, nil

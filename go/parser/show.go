@@ -155,6 +155,20 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 			Clause:     clause,
 			ParentName: tableName,
 		}
+
+		// MySQL also supports a second FROM clause for the database:
+		// SHOW COLUMNS FROM table FROM db -> SHOW COLUMNS FROM db.table
+		if p.PeekKeyword("FROM") {
+			p.AdvanceToken()
+			dbName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Prepend the database name to the table's parts
+			newParts := []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: dbName}}
+			newParts = append(newParts, tableName.Parts...)
+			options.ShowIn.ParentName = &ast.ObjectName{Parts: newParts}
+		}
 	}
 
 	// Parse optional LIKE/WHERE

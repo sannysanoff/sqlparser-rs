@@ -764,6 +764,13 @@ func (ep *ExpressionParser) parseValue() (expr.Expr, error) {
 			Value:   t,
 		}, nil
 
+	case token.TokenSingleQuotedByteStringLiteral, token.TokenDoubleQuotedByteStringLiteral,
+		token.TokenTripleSingleQuotedByteStringLiteral, token.TokenTripleDoubleQuotedByteStringLiteral:
+		return &expr.ValueExpr{
+			SpanVal: tok.Span,
+			Value:   t,
+		}, nil
+
 	case token.TokenEscapedStringLiteral:
 		return &expr.ValueExpr{
 			SpanVal: tok.Span,

@@ -172,12 +172,84 @@ func (c *CreateTable) String() string {
 // CREATE VIEW
 // ============================================================================
 
+// CreateViewAlgorithm represents MySQL CREATE VIEW ALGORITHM options.
+// Reference: src/ast/mod.rs CreateViewAlgorithm
+type CreateViewAlgorithm int
+
+const (
+	CreateViewAlgorithmUndefined CreateViewAlgorithm = iota
+	CreateViewAlgorithmMerge
+	CreateViewAlgorithmTempTable
+)
+
+func (a CreateViewAlgorithm) String() string {
+	switch a {
+	case CreateViewAlgorithmUndefined:
+		return "UNDEFINED"
+	case CreateViewAlgorithmMerge:
+		return "MERGE"
+	case CreateViewAlgorithmTempTable:
+		return "TEMPTABLE"
+	default:
+		return ""
+	}
+}
+
+// CreateViewSecurity represents MySQL CREATE VIEW SQL SECURITY options.
+// Reference: src/ast/mod.rs CreateViewSecurity
+type CreateViewSecurity int
+
+const (
+	CreateViewSecurityDefiner CreateViewSecurity = iota
+	CreateViewSecurityInvoker
+)
+
+func (s CreateViewSecurity) String() string {
+	switch s {
+	case CreateViewSecurityDefiner:
+		return "DEFINER"
+	case CreateViewSecurityInvoker:
+		return "INVOKER"
+	default:
+		return ""
+	}
+}
+
+// CreateViewParams represents MySQL CREATE VIEW parameters.
+// Reference: src/ast/mod.rs CreateViewParams
+type CreateViewParams struct {
+	Algorithm *CreateViewAlgorithm
+	Definer   *GranteeName
+	Security  *CreateViewSecurity
+}
+
+func (c *CreateViewParams) String() string {
+	var f strings.Builder
+	if c.Algorithm != nil {
+		f.WriteString("ALGORITHM = ")
+		f.WriteString(c.Algorithm.String())
+		f.WriteString(" ")
+	}
+	if c.Definer != nil {
+		f.WriteString("DEFINER = ")
+		f.WriteString(c.Definer.String())
+		f.WriteString(" ")
+	}
+	if c.Security != nil {
+		f.WriteString("SQL SECURITY ")
+		f.WriteString(c.Security.String())
+		f.WriteString(" ")
+	}
+	return f.String()
+}
+
 // CreateView represents a CREATE VIEW statement
 type CreateView struct {
 	BaseStatement
 	OrReplace           bool
 	OrAlter             bool
 	Materialized        bool
+	Secure              bool
 	IfNotExists         bool
 	Temporary           bool
 	Name                *ast.ObjectName
@@ -191,10 +263,11 @@ type CreateView struct {
 	Versioned           bool
 	Envelope            *expr.ViewEnvelope
 	QueryArena          bool
-	Params              *expr.CreateViewParams
+	Params              *CreateViewParams
 	Backup              bool
 	Watermark           expr.Expr
 	To                  ast.Statement
+	CopyGrants          bool
 }
 
 func (c *CreateView) statementNode() {}
@@ -208,14 +281,27 @@ func (c *CreateView) String() string {
 	if c.Temporary {
 		f.WriteString("TEMPORARY ")
 	}
+	if c.Secure {
+		f.WriteString("SECURE ")
+	}
 	if c.Materialized {
 		f.WriteString("MATERIALIZED ")
 	}
+
+	// Output MySQL-style params before VIEW keyword
+	if c.Params != nil {
+		f.WriteString(c.Params.String())
+	}
+
 	f.WriteString("VIEW ")
 	if c.IfNotExists {
 		f.WriteString("IF NOT EXISTS ")
 	}
 	f.WriteString(c.Name.String())
+
+	if c.CopyGrants {
+		f.WriteString(" COPY GRANTS")
+	}
 
 	if len(c.Columns) > 0 {
 		f.WriteString(" (")
@@ -223,8 +309,44 @@ func (c *CreateView) String() string {
 		f.WriteString(")")
 	}
 
+	// WITH options (if any)
+	if len(c.Options) > 0 {
+		f.WriteString(" WITH (")
+		for i, opt := range c.Options {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
+	}
+
+	// CLUSTER BY
+	if len(c.ClusterBy) > 0 {
+		f.WriteString(" CLUSTER BY (")
+		f.WriteString(formatExprs(c.ClusterBy, ", "))
+		f.WriteString(")")
+	}
+
+	// TO clause
+	if c.To != nil {
+		f.WriteString(" TO ")
+		f.WriteString(c.To.String())
+	}
+
+	// COMMENT
+	if c.Comment != nil {
+		f.WriteString(" COMMENT = ")
+		f.WriteString(fmt.Sprintf("'%s'", c.Comment.Comment))
+	}
+
 	f.WriteString(" AS ")
 	f.WriteString(c.Query.String())
+
+	// WITH NO SCHEMA BINDING (Redshift)
+	if c.WithNoSchemaBinding {
+		f.WriteString(" WITH NO SCHEMA BINDING")
+	}
 
 	return f.String()
 }
@@ -2292,6 +2414,10 @@ func (d *DropIndex) String() string {
 			f.WriteString(", ")
 		}
 		f.WriteString(name.String())
+	}
+	if d.OnTable != nil {
+		f.WriteString(" ON ")
+		f.WriteString(d.OnTable.String())
 	}
 	if d.Cascade {
 		f.WriteString(" CASCADE")
