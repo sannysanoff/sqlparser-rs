@@ -140,16 +140,18 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, or FOR clause)
+	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, FOR clause, or locks)
 	needsQueryWrapper := withClause != nil
 
-	// Get pipe operators and FOR clause from SelectStatement if present
+	// Get pipe operators, FOR clause, and locks from SelectStatement if present
 	var pipeOperators []query.PipeOperator
 	var forClause *query.ForClause
+	var locks []query.LockClause
 	if selStmt, ok := body.(*SelectStatement); ok {
 		pipeOperators = selStmt.PipeOperators
 		forClause = selStmt.ForClause
-		if len(pipeOperators) > 0 || forClause != nil {
+		locks = selStmt.Select.Locks
+		if len(pipeOperators) > 0 || forClause != nil || len(locks) > 0 {
 			needsQueryWrapper = true
 		}
 	}
@@ -157,12 +159,13 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 	// Create a Query statement if needed
 	if needsQueryWrapper {
 		if selStmt, ok := body.(*SelectStatement); ok {
-			return &QueryStatement{
+			return &statement.Query{
 				Query: &query.Query{
 					With: withClause,
 					Body: &query.SelectSetExpr{
 						Select: &selStmt.Select,
 					},
+					Locks:         locks,
 					ForClause:     forClause,
 					PipeOperators: pipeOperators,
 				},

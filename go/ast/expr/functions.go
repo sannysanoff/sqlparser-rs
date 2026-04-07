@@ -41,13 +41,18 @@ func (f *FunctionArgExpr) String() string {
 
 // FunctionArgNamed is a named function argument (e.g., `name => value`).
 type FunctionArgNamed struct {
-	Name  *Ident
-	Value Expr
+	Name     *Ident
+	Value    Expr
+	Operator string // The operator used: "=>", "=", ":", ":="
 }
 
 // String returns the SQL representation.
 func (f *FunctionArgNamed) String() string {
-	return fmt.Sprintf("%s => %s", f.Name.String(), f.Value.String())
+	op := f.Operator
+	if op == "" {
+		op = "=>" // Default operator
+	}
+	return fmt.Sprintf("%s %s %s", f.Name.String(), op, f.Value.String())
 }
 
 // DuplicateTreatment represents ALL or DISTINCT in function arguments.
@@ -148,9 +153,9 @@ const (
 func (j JsonNullClause) String() string {
 	switch j {
 	case JsonNullAbsent:
-		return "NULL ON NULL"
-	case JsonNullNull:
 		return "ABSENT ON NULL"
+	case JsonNullNull:
+		return "NULL ON NULL"
 	}
 	return ""
 }

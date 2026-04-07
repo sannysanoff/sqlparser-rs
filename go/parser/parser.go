@@ -251,8 +251,10 @@ func (p *Parser) parseStatementByKeyword(keyword string, tok token.TokenWithSpan
 		return p.parseShow()
 	case "SET":
 		return p.parseSet()
-	case "BEGIN", "START":
+	case "BEGIN":
 		return p.parseBegin()
+	case "START":
+		return p.parseStartTransaction()
 	case "COMMIT":
 		return p.parseCommit()
 	case "ROLLBACK":
@@ -538,6 +540,10 @@ func (p *Parser) parseSet() (ast.Statement, error) {
 
 func (p *Parser) parseBegin() (ast.Statement, error) {
 	return parseBegin(p)
+}
+
+func (p *Parser) parseStartTransaction() (ast.Statement, error) {
+	return parseStartTransaction(p)
 }
 
 func (p *Parser) parseCommit() (ast.Statement, error) {
@@ -1040,12 +1046,11 @@ func (p *Parser) parseNotify() (ast.Statement, error) {
 
 	var payload *string
 	if p.ConsumeToken(token.TokenComma{}) {
-		tok, err := p.ExpectToken(token.TokenSingleQuotedString{})
-		if err != nil {
-			return nil, err
-		}
+		tok := p.NextToken()
 		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 			payload = &str.Value
+		} else {
+			return nil, fmt.Errorf("Expected: string literal, found: %s", tok.Token.String())
 		}
 	}
 
@@ -1863,7 +1868,7 @@ func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 		quoteStyle := rune('"')
 		return &ast.Ident{Value: doubleStr.Value, QuoteStyle: &quoteStyle}, nil
 	}
-	return nil, fmt.Errorf("expected identifier, found %v", tok.Token)
+	return nil, fmt.Errorf("Expected: identifier, found: %v", tok.Token)
 }
 
 // PeekNthKeyword implements dialects.ParserAccessor interface.

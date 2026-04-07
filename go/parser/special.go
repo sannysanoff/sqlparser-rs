@@ -364,8 +364,9 @@ func (ep *ExpressionParser) tryParseNamedArgWithIdentName() (expr.FunctionArg, e
 	}
 
 	return &expr.FunctionArgNamed{
-		Name:  name,
-		Value: valueExpr,
+		Name:     name,
+		Value:    valueExpr,
+		Operator: operator,
 	}, nil
 }
 
@@ -400,8 +401,9 @@ func (ep *ExpressionParser) tryParseNamedArgWithExprName() (expr.FunctionArg, er
 	// For expression-named args, we still use FunctionArgNamed but with expression as name
 	// Convert expression to identifier if possible, otherwise use the expression directly
 	return &expr.FunctionArgNamed{
-		Name:  &expr.Ident{Value: nameExpr.String()},
-		Value: valueExpr,
+		Name:     &expr.Ident{Value: nameExpr.String()},
+		Value:    valueExpr,
+		Operator: operator,
 	}, nil
 }
 

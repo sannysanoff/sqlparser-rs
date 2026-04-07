@@ -395,8 +395,30 @@ func parseSet(p *Parser) (ast.Statement, error) {
 		}
 	}
 
-	if p.PeekKeyword("TIME") {
-		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+	if p.PeekKeyword("TIME") || p.PeekKeyword("TIMEZONE") {
+		// Handle both "TIME ZONE" (two words) and "TIMEZONE" (one word)
+		timezoneMatched := false
+		if p.ParseKeyword("TIMEZONE") {
+			timezoneMatched = true
+		} else if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+			timezoneMatched = true
+		}
+
+		if timezoneMatched {
+			// Check for = or TO - if present, use SingleAssignment form
+			if p.ConsumeToken(token.TokenEq{}) || p.ParseKeyword("TO") {
+				val, err := NewExpressionParser(p).ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				return &statement.Set{
+					Session: session, Local: local, Global: global, HiveVar: hivevar,
+					Variable: &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: "TIMEZONE"}}}},
+					Values:   []expr.Expr{val},
+				}, nil
+			}
+
+			// Shorthand form without = or TO: SET TIME ZONE 'UTC'
 			exprParser := NewExpressionParser(p)
 			val, err := exprParser.ParseExpr()
 			if err != nil {
