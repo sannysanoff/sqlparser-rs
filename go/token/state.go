@@ -72,11 +72,12 @@ func (s *State) Peek() (rune, bool) {
 
 // PeekN returns the nth character ahead without advancing.
 // Returns 0 and false if beyond end of input.
+// PeekN(0) returns current character, PeekN(1) returns next character, etc.
 func (s *State) PeekN(n int) (rune, bool) {
 	pos := s.pos
-	for i := 0; i < n && pos < s.end; i++ {
+	for i := 0; i <= n && pos < s.end; i++ {
 		r, size := utf8.DecodeRuneInString(s.query[pos:])
-		if i == n-1 {
+		if i == n {
 			return r, true
 		}
 		pos += size

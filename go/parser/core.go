@@ -225,13 +225,19 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 	case token.TokenAtArrow, token.TokenArrowAt,
 		token.TokenHashMinus, token.TokenAtQuestion,
 		token.TokenAtAt, token.TokenQuestion,
-		token.TokenQuestionAnd, token.TokenQuestionPipe:
-		return dialect.PrecValue(parseriface.PrecedenceEq), nil
+		token.TokenQuestionAnd, token.TokenQuestionPipe,
+		token.TokenAtSign:
+		if dialects.SupportsGeometricTypes(dialect) {
+			return dialect.PrecValue(parseriface.PrecedenceEq), nil
+		}
 
 	case token.TokenAtDashAt, token.TokenDoubleSharp, token.TokenQuestionMarkSharp,
 		token.TokenQuestionMarkDash, token.TokenAmpersandLeftAngleBracket,
 		token.TokenAmpersandRightAngleBracket, token.TokenTwoWayArrow,
-		token.TokenLeftAngleBracketCaret, token.TokenRightAngleBracketCaret:
+		token.TokenLeftAngleBracketCaret, token.TokenRightAngleBracketCaret,
+		token.TokenQuestionMarkDashVerticalBar, token.TokenQuestionMarkDoubleVerticalBar,
+		token.TokenAmpersandLeftAngleBracketVerticalBar, token.TokenVerticalBarAmpersandRightAngleBracket,
+		token.TokenTildeEqual, token.TokenShiftLeftVerticalBar, token.TokenVerticalBarShiftRight:
 		if dialects.SupportsGeometricTypes(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceEq), nil
 		}

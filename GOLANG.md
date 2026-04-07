@@ -1291,6 +1291,108 @@ return &expr.TypedString{
 
 ---
 
+### Pattern CA: Dialect Adapter Must Delegate to Underlying Dialect
+
+**Problem:** The dialect adapter has hardcoded default values instead of delegating to the wrapped dialect, causing features to be silently disabled.
+
+**Example - Geometric Types Support:**
+
+```go
+// INCORRECT - hardcoded default
+func (a *dialectAdapter) SupportsGeometricTypes() bool {
+    return false // Default to false - WRONG!
+}
+// Result: PostgreSQL/Redshift geometric operators like <->, @-@, ?-| are not tokenized correctly
+
+// CORRECT - delegate to underlying dialect
+func (a *dialectAdapter) SupportsGeometricTypes() bool {
+    return a.dialect.SupportsGeometricTypes()
+}
+// Result: Geometric operators are properly tokenized and parsed
+```
+
+**Key Lesson:** All dialect adapter methods must delegate to the underlying dialect's implementation. Never return hardcoded defaults.
+
+---
+
+### Pattern CB: PeekN Must Return nth Character Ahead, Not at Position n-1
+
+**Problem:** The `PeekN(n)` function implementation is off-by-one, causing multi-character operators to be tokenized incorrectly.
+
+**Example - <-> Token:**
+
+```go
+// INCORRECT - returns character at position n-1
+func (s *State) PeekN(n int) (rune, bool) {
+    pos := s.pos
+    for i := 0; i < n && pos < s.end; i++ {
+        r, size := utf8.DecodeRuneInString(s.query[pos:])
+        if i == n-1 {  // Bug: returns when i == n-1
+            return r, true
+        }
+        pos += size
+    }
+    return 0, false
+}
+// PeekN(1) returns current character, not next character
+
+// CORRECT - returns nth character ahead
+func (s *State) PeekN(n int) (rune, bool) {
+    pos := s.pos
+    for i := 0; i <= n && pos < s.end; i++ {  // Fixed: i <= n
+        r, size := utf8.DecodeRuneInString(s.query[pos:])
+        if i == n {  // Fixed: return when i == n
+            return r, true
+        }
+        pos += size
+    }
+    return 0, false
+}
+// PeekN(0) returns current character, PeekN(1) returns next character
+```
+
+**Key Lesson:** `PeekN(n)` should return the nth character ahead of current position. `PeekN(0)` = current, `PeekN(1)` = next, etc.
+
+---
+
+### Pattern CC: Parser Precedence Case Exhaustiveness
+
+**Problem:** Adding new operator tokens requires updating multiple places - tokenizer, token types, AND precedence handling in the parser.
+
+**Example - Missing Geometric Operator Precedence:**
+
+```go
+// INCORRECT - token exists but no precedence case
+func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
+    switch tok := nextTok.Token.(type) {
+    case token.TokenAtSign:
+        // No case for @ operator!
+    }
+    return 0, nil  // Returns 0 precedence, parser stops expression parsing
+}
+// Result: "SELECT a @ b" fails with "Expected: end of statement, found: @"
+
+// CORRECT - add case for the token
+func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
+    switch tok := nextTok.Token.(type) {
+    case token.TokenAtSign:
+        if dialects.SupportsGeometricTypes(dialect) {
+            return dialect.PrecValue(parseriface.PrecedenceEq), nil
+        }
+    }
+    return 0, nil
+}
+// Result: "SELECT a @ b" parses correctly as binary expression
+```
+
+**Key Lesson:** When adding new operator tokens, you MUST add cases to:
+1. Tokenizer to produce the token
+2. `GetNextPrecedenceDefault()` to assign precedence
+3. `tokenToBinaryOperator()` to convert token to operator constant
+4. `parseWordInfix()` if it's a word-based operator
+
+---
+
 ## Current Status
 
 **Overall Progress: ~46% Test Pass Rate** (377 tests passing, 436 failing out of 813 total)
@@ -2437,6 +2539,38 @@ Implemented major missing parser chunks to increase test coverage:
 
 ---
 
+### April 7, 2026 - Geometric Operators Fix (PostgreSQL/Redshift)
+
+Implemented critical fixes for PostgreSQL/Redshift geometric operators:
+
+1. **Fixed Tokenizer PeekN Function** (token/state.go):
+   - Bug: `PeekN(1)` was returning current character instead of next character
+   - Fixed loop condition to properly advance position before returning character
+   - This was breaking `<->` and other multi-character geometric operators
+
+2. **Fixed Dialect Adapter** (parser/dialect_adapter.go):
+   - Bug: `SupportsGeometricTypes()` always returned `false` instead of delegating to dialect
+   - Fixed to call `a.dialect.SupportsGeometricTypes()` 
+   - This was causing all geometric operators to be tokenized as separate tokens
+
+3. **Added Missing Geometric Operator Precedences** (parser/core.go):
+   - Added `TokenAtSign` to precedence handling for `@` binary operator
+   - Added missing geometric tokens: `TokenQuestionMarkDashVerticalBar`, `TokenQuestionMarkDoubleVerticalBar`, `TokenAmpersandLeftAngleBracketVerticalBar`, `TokenVerticalBarAmpersandRightAngleBracket`, `TokenTildeEqual`, `TokenShiftLeftVerticalBar`, `TokenVerticalBarShiftRight`
+
+4. **Fixed @@ Token Parsing** (parser/prefix.go):
+   - Bug: `@@` was always parsed as MySQL system variable
+   - Fixed to check if next token is a geometric type keyword (circle, path, box, etc.)
+   - Now correctly parses `@@ circle '((0,0),10)'` as geometric center operator
+
+**Key Pattern Documentation:**
+- **Pattern CA: Geometric Type Detection** - When parsing `@@` in geometric dialects, peek at next token to determine if it's a system variable (identifier) or geometric center operator (type keyword)
+- **Pattern CB: Multi-character Operator Tokenization** - `PeekN(n)` must properly skip n characters ahead, not return character at position n-1
+- **Pattern CC: Dialect Adapter Delegation** - All dialect adapter methods must delegate to underlying dialect, not return hardcoded defaults
+
+**Result:** +2 tests now passing (TestGeometricUnaryOperators, TestGeometricBinaryOperators). 433/813 total tests passing (53.3% pass rate).
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 7, 2026  
 **Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~25%, **Total ~53%**
@@ -2446,4 +2580,4 @@ Implemented major missing parser chunks to increase test coverage:
 - Go Source: 73,745 lines (109.5% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: 53%** (431 passing out of 813 total tests)
+- **Current Test Pass Rate: 53%** (433 passing out of 813 total tests)

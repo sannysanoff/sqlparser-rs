@@ -190,6 +190,32 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return ep.parseValue()
 
 	case token.TokenAtAt:
+		// Check if this should be a geometric center operator (PostgreSQL/Redshift)
+		// or a MySQL-style system variable reference
+		if dialects.SupportsGeometricTypes(dialect) {
+			// For geometric dialects, first try to parse as geometric center operator
+			// The geometric operator is followed by a geometric type keyword like 'circle', 'path', etc.
+			// We peek at the next token to determine if it's a type keyword
+			nextPeek := ep.parser.PeekToken()
+			if word, ok := nextPeek.Token.(token.TokenWord); ok {
+				kw := string(word.Word.Keyword)
+				// Check if it's a geometric type keyword
+				if kw == "CIRCLE" || kw == "PATH" || kw == "BOX" || kw == "POINT" ||
+					kw == "POLYGON" || kw == "LINE" || kw == "LSEG" {
+					prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
+					innerExpr, err := ep.ParseExprWithPrecedence(prec)
+					if err != nil {
+						return nil, err
+					}
+					return &expr.UnaryOp{
+						Op:      operator.UOpDoubleAt,
+						Expr:    innerExpr,
+						SpanVal: mergeSpans(nextTok.Span, innerExpr.Span()),
+					}, nil
+				}
+			}
+		}
+
 		// MySQL-style system variable reference: @@variable or @@global.variable
 		// Parse the identifier that follows @@
 		ident, err := ep.parseIdentifier()

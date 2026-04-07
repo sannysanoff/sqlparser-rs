@@ -118,7 +118,7 @@ func (a *dialectAdapter) SupportsUnicodeStringLiteral() bool {
 
 // SupportsGeometricTypes implements tokenizer.Dialect
 func (a *dialectAdapter) SupportsGeometricTypes() bool {
-	return false // Default to false
+	return a.dialect.SupportsGeometricTypes()
 }
 
 // SupportsPipeOperator implements tokenizer.Dialect
