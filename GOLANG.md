@@ -1424,28 +1424,172 @@ func (d *PostgreSqlDialect) SupportsStringLiteralBackslashEscape() bool {
 
 ---
 
+### Pattern CJ: GROUP BY Modifier Parsing Order
+
+**Problem:** GROUPING SETS was being parsed as an expression instead of a modifier, causing parsing failures.
+
+**Example - GROUPING SETS:**
+
+```go
+// INCORRECT - parsing GROUPING SETS as expression within comma-separated list
+func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
+    for {
+        // Check for GROUPING SETS and parse as expression
+        if word.Word.Keyword == "GROUPING" && nextTok.Word.Keyword == "SETS" {
+            e, err := ep.ParseExpr()  // Wrong! This breaks the comma logic
+            // After parsing "b" and not finding comma, loop breaks
+            // GROUPING SETS is never parsed
+        }
+    }
+}
+
+// CORRECT - following Rust: parse expressions first, then GROUPING SETS as modifier
+func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
+    // Parse comma-separated expressions (a, b)
+    for {
+        e, err := ep.ParseExpr()
+        if !p.ConsumeToken(token.TokenComma{}) { break }
+    }
+}
+
+func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
+    // Parse WITH ROLLUP, WITH CUBE, WITH TOTALS
+}
+
+func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
+    // Parse GROUPING SETS (...) AFTER regular expressions and WITH modifiers
+    if p.ParseKeywords([]string{"GROUPING", "SETS"}) {
+        // Parse the sets
+        return &query.GroupByWithModifierGroupingSets
+    }
+}
+```
+
+**Key Lesson:** The Rust parser (src/parser/mod.rs:12590-12603) parses GROUPING SETS as a modifier AFTER parsing the expressions and WITH modifiers. This is different from CUBE and ROLLUP which are parsed as expressions within the main list.
+
+---
+
+### Pattern CK: Empty Tuple in GROUP BY
+
+**Problem:** PostgreSQL allows `GROUP BY ()` syntax for grouping by a constant, but the parser treats `()` as the start of a parenthesized expression.
+
+**Example:**
+
+```go
+// INCORRECT - tries to parse () as expression, fails
+func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
+    e, err := ep.ParseExpr()  // Error: expected expression, found )
+}
+
+// CORRECT - check for empty tuple before parsing expression
+func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
+    tok := p.PeekTokenRef()
+    if _, ok := tok.Token.(token.TokenLParen); ok {
+        nextTok := p.PeekNthToken(1)
+        if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
+            // Empty tuple
+            p.AdvanceToken() // consume (
+            p.AdvanceToken() // consume )
+            exprs = append(exprs, &queryExprWrapper{expr: &expr.TupleExpr{
+                Exprs: []expr.Expr{},
+            }})
+            // Continue parsing
+            if !p.ConsumeToken(token.TokenComma{}) {
+                return exprs, nil
+            }
+            continue
+        }
+    }
+    // Parse regular expression
+}
+```
+
+**Key Lesson:** Always check for empty tuple `()` before attempting to parse a regular expression in contexts like GROUP BY. Reference: src/parser/mod.rs:2608-2612.
+
+---
+
+### Pattern CL: CREATE TABLE Clause Order
+
+**Problem:** CREATE TABLE has many optional clauses that must be parsed in the correct order.
+
+**Example - ON CLUSTER:**
+
+```go
+// INCORRECT - parsing ON CLUSTER after columns
+func parseCreateTable(p *Parser) (ast.Statement, error) {
+    // Parse columns first
+    columns, constraints = parseCreateTableColumns(p)
+    
+    // Then parse ON CLUSTER - WRONG!
+    if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+        // This fails because ON CLUSTER appears before columns in the SQL
+    }
+}
+
+// CORRECT - parse ON CLUSTER immediately after table name
+func parseCreateTable(p *Parser) (ast.Statement, error) {
+    tableName, _ = p.ParseObjectName()
+    
+    // Parse ON CLUSTER here, before columns
+    if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+        onCluster = parseClusterName()
+    }
+    
+    // Now parse columns
+    columns, constraints = parseCreateTableColumns(p)
+}
+```
+
+**Key Lesson:** The order of parsing CREATE TABLE clauses must match the SQL syntax exactly. Reference: src/parser/mod.rs:8339-8438 for the exact order.
+
+---
+
 ## Current Status (April 7, 2026)
 
-**Overall Progress: ~54.9% Test Pass Rate** (446 tests passing, 367 failing out of 813 total)
+**Overall Progress: ~55.5% Test Pass Rate** (451 tests passing, 362 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
-| **tests**        | 🔄 In Progress   | 176     | 260   | **68%**   |
+| **tests**        | 🔄 In Progress   | 178     | 260   | **68%**   |
 | **tests/ddl**    | 🔄 In Progress   | 26      | 81    | **32%**   |
 | **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
 | **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
 | **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
-| **tests/postgres**| 🔄 In Progress  | 59      | 157   | **38%**   |
+| **tests/postgres**| 🔄 In Progress  | 62      | 157   | **39%**   |
 | **tests/snowflake**| 🔄 In Progress | 34      | 97    | **35%**   |
 | **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
-| **TOTAL**        | **~55% Complete** | **446** | 813   | **~55%** |
+| **TOTAL**        | **~55% Complete** | **451** | 813   | **~55%** |
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 66,842 lines (parser + dialects + AST)
-- Go Source: 74,002 lines (111% of Rust - AST types and interfaces)
+- Rust Source: 67,345 lines (parser + dialects + AST)
+- Go Source: 74,308 lines (110% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
-- Go Tests: 14,149 lines (28.4% of Rust test coverage)
+- Go Tests: 13,911 lines (27.9% of Rust test coverage)
+
+### April 7, 2026 - GROUP BY Modifiers and CREATE TABLE ON CLUSTER
+
+Implemented major parser chunks to increase test coverage:
+
+1. **GROUP BY Modifiers** (parser/query.go, parser/prefix.go, ast/query/clauses.go):
+   - Implemented `GROUPING SETS (...)` expression parsing
+   - Implemented `CUBE (...)` expression parsing  
+   - Implemented `ROLLUP (...)` expression parsing
+   - Implemented `WITH ROLLUP`, `WITH CUBE`, `WITH TOTALS` modifiers
+   - Implemented empty tuple `()` support for PostgreSQL (e.g., `GROUP BY (), name`)
+   - Fixed GROUPING SETS to be parsed as a modifier after expressions, not as an expression
+   - **+5 tests passing** (TestParseGroupBySpecialGroupingSets, TestGroupByNothing, etc.)
+
+2. **CREATE TABLE ON CLUSTER Fix** (parser/create.go):
+   - Fixed order of parsing - ON CLUSTER must be parsed BEFORE column list
+   - Added support for PARTITION OF clause (PostgreSQL)
+   - Supports string literals as cluster names: `ON CLUSTER '{cluster}'`
+   - **Parser now handles** ClickHouse DDL syntax correctly
+
+**Key Pattern Documentation:**
+- **Pattern CJ: GROUP BY Modifier Parsing Order** - GROUPING SETS, CUBE, and ROLLUP can appear in GROUP BY as both expressions AND as modifiers after the expression list. The Rust parser handles GROUPING SETS as a modifier (not an expression) and parses it after the WITH modifiers.
+- **Pattern CK: Empty Tuple in GROUP BY** - PostgreSQL allows `GROUP BY ()` for grouping by a constant. Must check for `()` before trying to parse a regular expression.
+- **Pattern CL: CREATE TABLE Clause Order** - ON CLUSTER must be parsed immediately after the table name (and optional PARTITION OF), before the column list. The order matters for correct parsing.
 
 ### April 7, 2026 - PostgreSQL COPY and ALTER TABLE Operations
 

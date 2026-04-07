@@ -330,12 +330,32 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		if !p.ParseKeyword("BY") {
 			return nil, p.Expected("BY after GROUP", p.PeekToken())
 		}
-		groupExprs, err := parseCommaSeparatedQueryExprs(p)
-		if err != nil {
-			return nil, err
-		}
-		groupBy = &query.GroupByExpressions{
-			Expressions: groupExprs,
+
+		// Check for GROUP BY ALL (Snowflake/DuckDB/ClickHouse)
+		if p.ParseKeyword("ALL") {
+			modifiers := parseGroupByModifiers(p)
+			// Check for GROUPING SETS after modifiers
+			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
+				modifiers = append(modifiers, *groupingSets)
+			}
+			groupBy = &query.GroupByAll{
+				Modifiers: modifiers,
+			}
+		} else {
+			// Parse expressions with support for empty tuple
+			groupExprs, err := parseGroupByExpressions(p)
+			if err != nil {
+				return nil, err
+			}
+			modifiers := parseGroupByModifiers(p)
+			// Check for GROUPING SETS after modifiers
+			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
+				modifiers = append(modifiers, *groupingSets)
+			}
+			groupBy = &query.GroupByExpressions{
+				Expressions: groupExprs,
+				Modifiers:   modifiers,
+			}
 		}
 	}
 
@@ -1876,6 +1896,140 @@ func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
 	}
 
 	return exprs, nil
+}
+
+// parseGroupByExpressions parses GROUP BY expressions with support for empty tuple (PostgreSQL)
+// Reference: src/parser/mod.rs:2591-2620
+func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
+	var exprs []query.Expr
+
+	ep := NewExpressionParser(p)
+
+	for {
+		// Check for empty tuple () - PostgreSQL allows GROUP BY (), name
+		tok := p.PeekTokenRef()
+		if _, ok := tok.Token.(token.TokenLParen); ok {
+			nextTok := p.PeekNthToken(1)
+			if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
+				// Empty tuple
+				p.AdvanceToken() // consume (
+				p.AdvanceToken() // consume )
+				exprs = append(exprs, &queryExprWrapper{expr: &expr.TupleExpr{
+					SpanVal: tok.Span,
+					Exprs:   []expr.Expr{},
+				}})
+				// Check for comma and continue
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+				continue
+			}
+		}
+
+		// Parse regular expression
+		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, &queryExprWrapper{expr: e})
+
+		// Check for comma to continue
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return exprs, nil
+}
+
+// parseGroupByModifiers parses optional WITH ROLLUP, WITH CUBE, WITH TOTALS modifiers
+// Reference: src/ast/query.rs:3666-3694
+func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
+	var modifiers []query.GroupByWithModifier
+
+	for {
+		if p.ParseKeyword("WITH") {
+			if p.ParseKeyword("ROLLUP") {
+				modifiers = append(modifiers, query.GroupByWithModifierRollup)
+			} else if p.ParseKeyword("CUBE") {
+				modifiers = append(modifiers, query.GroupByWithModifierCube)
+			} else if p.ParseKeyword("TOTALS") {
+				modifiers = append(modifiers, query.GroupByWithModifierTotals)
+			} else {
+				// Unknown WITH clause, backtrack
+				break
+			}
+		} else {
+			break
+		}
+	}
+
+	return modifiers
+}
+
+// parseGroupingSetsModifier parses optional GROUPING SETS modifier
+// Reference: src/parser/mod.rs:12590-12603
+func parseGroupingSetsModifier(p *Parser) *query.GroupByWithModifier {
+	if !p.ParseKeyword("GROUPING") {
+		return nil
+	}
+	if !p.ParseKeyword("SETS") {
+		// Backtrack - put back GROUPING if SETS doesn't follow
+		return nil
+	}
+
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil
+	}
+
+	ep := NewExpressionParser(p)
+
+	for {
+		// Parse each set - either a tuple or a single expression
+		tok := p.PeekTokenRef()
+		if _, ok := tok.Token.(token.TokenLParen); ok {
+			// Tuple: (a, b, c) or empty tuple ()
+			p.AdvanceToken() // consume (
+			// Check for empty tuple
+			nextTok := p.PeekTokenRef()
+			if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken() // consume )
+				// Empty tuple parsed
+			} else {
+				// Non-empty tuple - parse expressions
+				for {
+					_, err := ep.ParseExpr()
+					if err != nil {
+						return nil
+					}
+					if !p.ConsumeToken(token.TokenComma{}) {
+						break
+					}
+				}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil
+				}
+			}
+		} else {
+			// Single expression: a
+			_, err := ep.ParseExpr()
+			if err != nil {
+				return nil
+			}
+		}
+
+		// Check for comma to continue to next set
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil
+	}
+
+	modifier := query.GroupByWithModifierGroupingSets
+	return &modifier
 }
 
 // isSubqueryStart checks if next token starts a subquery

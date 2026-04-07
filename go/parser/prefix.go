@@ -564,6 +564,28 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 		if dialects.SupportsGeometricTypes(dialect) {
 			return ep.parseGeometricType(string(word.Word.Keyword))
 		}
+
+	case "GROUPING":
+		// GROUPING SETS (...) expression for GROUP BY
+		nextTok := ep.parser.PeekTokenRef()
+		if wordNext, ok := nextTok.Token.(token.TokenWord); ok && wordNext.Word.Keyword == "SETS" {
+			ep.parser.AdvanceToken() // consume SETS
+			return ep.parseGroupingSetsExpr(span)
+		}
+
+	case "CUBE":
+		// CUBE (...) expression for GROUP BY
+		nextTok := ep.parser.PeekTokenRef()
+		if _, ok := nextTok.Token.(token.TokenLParen); ok {
+			return ep.parseCubeExpr(span)
+		}
+
+	case "ROLLUP":
+		// ROLLUP (...) expression for GROUP BY
+		nextTok := ep.parser.PeekTokenRef()
+		if _, ok := nextTok.Token.(token.TokenLParen); ok {
+			return ep.parseRollupExpr(span)
+		}
 	}
 
 	return nil, nil
@@ -1393,4 +1415,148 @@ func (ep *ExpressionParser) parseIntroducedString() expr.Expr {
 func (ep *ExpressionParser) ExpectedAt(expected string, index int) error {
 	// This is a helper that delegates to the parser
 	return fmt.Errorf("expected %s at position %d", expected, index)
+}
+
+// parseGroupingSetsExpr parses a GROUPING SETS expression
+// Reference: src/parser/mod.rs:2593-2597
+func (ep *ExpressionParser) parseGroupingSetsExpr(spanStart token.Span) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var sets [][]expr.Expr
+	for {
+		// Parse each set as a tuple (can have 0 or more expressions)
+		set, err := ep.parseTuple(false, true)
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, set)
+
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return &expr.GroupingSets{
+		SpanVal: mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
+		Sets:    sets,
+	}, nil
+}
+
+// parseCubeExpr parses a CUBE expression
+// Reference: src/parser/mod.rs:2598-2602
+func (ep *ExpressionParser) parseCubeExpr(spanStart token.Span) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var sets [][]expr.Expr
+	for {
+		// Parse each set as a tuple (lift singleton to tuple, allow empty)
+		set, err := ep.parseTuple(true, true)
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, set)
+
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return &expr.Cube{
+		SpanVal: mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
+		Sets:    sets,
+	}, nil
+}
+
+// parseRollupExpr parses a ROLLUP expression
+// Reference: src/parser/mod.rs:2603-2607
+func (ep *ExpressionParser) parseRollupExpr(spanStart token.Span) (expr.Expr, error) {
+	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var sets [][]expr.Expr
+	for {
+		// Parse each set as a tuple (lift singleton to tuple, allow empty)
+		set, err := ep.parseTuple(true, true)
+		if err != nil {
+			return nil, err
+		}
+		sets = append(sets, set)
+
+		if !ep.parser.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return &expr.Rollup{
+		SpanVal: mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
+		Sets:    sets,
+	}, nil
+}
+
+// parseTuple parses a tuple with optional parentheses handling
+// If liftSingleton is true, a single expression without parens is treated as a 1-element tuple
+// If allowEmpty is true, empty parentheses are allowed
+// Reference: src/parser/mod.rs:2625-2654
+func (ep *ExpressionParser) parseTuple(liftSingleton, allowEmpty bool) ([]expr.Expr, error) {
+	tok := ep.parser.PeekTokenRef()
+	if _, ok := tok.Token.(token.TokenLParen); ok {
+		// Has parentheses - consume them and parse contents
+		ep.parser.AdvanceToken() // consume (
+
+		// Check for empty tuple
+		nextTok := ep.parser.PeekTokenRef()
+		if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen && allowEmpty {
+			ep.parser.AdvanceToken() // consume )
+			return []expr.Expr{}, nil
+		}
+
+		// Parse comma-separated expressions
+		var exprs []expr.Expr
+		for {
+			e, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			exprs = append(exprs, e)
+
+			if !ep.parser.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return exprs, nil
+	}
+
+	// No parentheses
+	if liftSingleton {
+		// Single expression becomes a 1-element tuple
+		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		return []expr.Expr{e}, nil
+	}
+
+	// Not a tuple - this is an error condition for non-lift mode
+	return nil, fmt.Errorf("expected tuple")
 }

@@ -142,6 +142,29 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		return nil, err
 	}
 
+	// PostgreSQL PARTITION OF for child partition tables
+	// Note: This is a PostgreSQL-specific feature, but the dialect check was intentionally
+	// removed to allow GenericDialect and other dialects to parse this syntax.
+	var partitionOf *ast.ObjectName
+	if p.ParseKeywords([]string{"PARTITION", "OF"}) {
+		partitionOf, _ = p.ParseObjectName()
+	}
+
+	// ClickHouse ON CLUSTER - must be parsed before columns
+	var onCluster *ast.Ident
+	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+		tok := p.NextToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			onCluster = &ast.Ident{Value: word.Word.Value}
+		} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			onCluster = &ast.Ident{Value: str.Value}
+		} else if str, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
+			onCluster = &ast.Ident{Value: str.Value}
+		} else {
+			return nil, p.Expected("identifier or string", tok)
+		}
+	}
+
 	// Parse LIKE clause (before column list, parenthesized or plain)
 	var like *expr.CreateTableLikeKind
 	like, err = parseCreateTableLike(p)
@@ -169,19 +192,6 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 		columns = cols
 		constraints = cons
-	}
-
-	// ClickHouse ON CLUSTER
-	var onCluster *ast.Ident
-	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
-		tok := p.NextToken()
-		if word, ok := tok.Token.(token.TokenWord); ok {
-			onCluster = &ast.Ident{Value: word.Word.Value}
-		} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
-			onCluster = &ast.Ident{Value: str.Value}
-		} else {
-			return nil, p.Expected("identifier or string", tok)
-		}
 	}
 
 	// Parse optional MySQL table options (ENGINE, CHARSET, COLLATE, COMMENT, etc.)
@@ -218,6 +228,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Like:         like,
 		Clone:        clone,
 		OnCluster:    onCluster,
+		PartitionOf:  partitionOf,
 	}, nil
 }
 
