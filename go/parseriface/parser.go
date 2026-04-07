@@ -95,6 +95,10 @@ type Parser interface {
 	ExpectedRef(expected string, found *token.TokenWithSpan) error
 	ExpectedAt(expected string, index int) error
 	SavePosition() func()
+
+	// Recursion limit methods
+	TryDecreaseRecursion() error
+	IncreaseRecursion()
 }
 
 // ParserState represents the current state of the parser.

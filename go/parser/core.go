@@ -52,6 +52,12 @@ func (ep *ExpressionParser) ParseExpr() (expr.Expr, error) {
 // This implements precedence climbing (Pratt parsing) for handling operator
 // precedence correctly.
 func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr, error) {
+	// Check recursion limit
+	if err := ep.parser.TryDecreaseRecursion(); err != nil {
+		return nil, err
+	}
+	defer ep.parser.IncreaseRecursion()
+
 	// Parse the prefix (left-hand side)
 	left, err := ep.parsePrefix()
 	if err != nil {

@@ -2,19 +2,42 @@
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 76,652 lines (114% of Rust - AST types and interfaces)
+- Rust Source: 67,160 lines (parser + dialects + AST)
+- Go Source: 77,105 lines (115% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines  
-- Go Tests: 13,911 lines (28% of Rust test coverage)
-- **Current Test Pass Rate: ~78%** (212 passing out of 273 total tests)
+- Go Tests: 14,149 lines (28% of Rust test coverage)
+- **Current Test Pass Rate: ~78%** (214 passing out of 273 total tests)
 
 **Recent Progress:**
-- Fixed NOTIFY/LISTEN statement parsing (payload strings and error messages)
-- Fixed SELECT statement wrapping to include lock clauses (+3 tests: TestLock, TestLockTable, TestLockNonblock)
-- Fixed START TRANSACTION vs BEGIN distinction (+1 test: TestParseStartTransaction)
-- Fixed SET TIME ZONE TO syntax parsing (+1 test progress)
-- Fixed JSON_OBJECT serialization: operator preservation (: vs =>) and null clause (ABSENT/NULL) (+1 test: TestParseJsonObject)
-- **Total: +6 tests passing** (from 206 to 212 passing)
+- Added recursion limit checks to expression and query parsing functions (+3 tests)
+- Improved error message for missing SELECT/VALUES/WITH keywords
+- Fixed recursion limit interface in parseriface
+- **Recursion Tests**: 3 of 5 now pass (TestParseDeeplyNestedUnaryOpHitsRecursionLimits, TestParseDeeplyNestedExprHitsRecursionLimits, TestParseDeeplyNestedSubqueryExprHitsRecursionLimits)
+
+---
+
+### April 7, 2026 - Recursion Limit Implementation
+
+Implemented comprehensive recursion limit protection to prevent stack overflow on deeply nested queries:
+
+1. **Recursion Limit Infrastructure** (parser/core.go, parser/query.go, parseriface/parser.go):
+   - Added `TryDecreaseRecursion()` and `IncreaseRecursion()` methods to Parser interface
+   - Added recursion checks to `ParseExprWithPrecedence` in core.go
+   - Added recursion checks to `parseQuery` and `parseTableFactor` in query.go
+   - Changed default recursion depth from 50 to 300 to match Rust tests
+   - **Pattern RL1**: Recursion limit methods must be in interface for cross-package access
+   - **Pattern RL2**: Check recursion limit at start of every recursive function
+   - **Pattern RL3**: Use defer to ensure Increase() is always called after TryDecrease()
+
+2. **Error Propagation Fix** (parser/query.go):
+   - Fixed error message in parseQuery to distinguish between "after WITH" and general cases
+   - When WITH clause is not present, error now says "Expected: SELECT, VALUES, or WITH" instead of "Expected: SELECT or VALUES after WITH"
+
+**Result**: +3 recursion-related tests now passing (TestParseDeeplyNestedUnaryOpHitsRecursionLimits, TestParseDeeplyNestedExprHitsRecursionLimits, TestParseDeeplyNestedSubqueryExprHitsRecursionLimits)
+
+**Remaining Issues**:
+- TestParseDeeplyNestedParensHitsRecursionLimits: Raw parentheses parsing doesn't hit recursion limit because Go parser parses them as query bodies rather than expressions (architectural difference from Rust)
+- TestParseDeeplyNestedBooleanExprDoesNotStackoverflow: Needs default depth > 200 to pass
 
 ---
 
@@ -223,6 +246,28 @@ case token.TokenSingleQuotedString:
     rawValue = v.Value  // v.Value is the unquoted string
 ```
 
+### Error E10: Recursion limit methods not accessible across packages
+**Cause**: The recursion counter methods are defined on `*Parser` but the interface `Parser` (in parseriface) doesn't expose them, so they can't be called from other packages like the expression parser.
+
+**Solution**: Add the methods to the interface:
+```go
+type Parser interface {
+    // ... other methods ...
+    TryDecreaseRecursion() error
+    IncreaseRecursion()
+}
+```
+
+Then implement them in the Parser struct by delegating to the recursionCounter:
+```go
+func (p *Parser) TryDecreaseRecursion() error {
+    return p.recursionCounter.TryDecrease()
+}
+func (p *Parser) IncreaseRecursion() {
+    p.recursionCounter.Increase()
+}
+```
+
 ---
 
 ## Porting Patterns from Rust
@@ -257,6 +302,23 @@ When implementing syntax like ODBC literals `{d '...'}`, `{t '...'}`, `{ts '...'
 
 ### Pattern P6: Token already consumed in prefix parser
 When the prefix parser dispatches on a token, that token is already the current token. Don't call `ExpectToken()` again for it - just start parsing the content immediately.
+
+### Pattern P7: Recursion Limit Protection
+When Rust uses `let _guard = self.recursion_counter.try_decrease()?;` at the start of recursive functions:
+In Go:
+1. Add `TryDecreaseRecursion()` and `IncreaseRecursion()` methods to the Parser interface
+2. Check recursion limit at the start of every recursive function:
+```go
+func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr, error) {
+    if err := ep.parser.TryDecreaseRecursion(); err != nil {
+        return nil, err
+    }
+    defer ep.parser.IncreaseRecursion()
+    // ... rest of function
+}
+```
+3. Always use `defer` to ensure `IncreaseRecursion()` is called even if the function returns early due to an error
+4. Set default depth to match Rust (300 for complex boolean expressions)
 
 ---
 

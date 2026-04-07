@@ -107,6 +107,12 @@ func (q *QueryStatement) String() string {
 // parseQuery parses a SELECT or other query statement
 // Reference: src/parser/mod.rs:13599 parse_query
 func parseQuery(p *Parser) (ast.Statement, error) {
+	// Check recursion limit
+	if err := p.recursionCounter.TryDecrease(); err != nil {
+		return nil, err
+	}
+	defer p.recursionCounter.Increase()
+
 	// Check for WITH clause (Common Table Expressions)
 	var withClause *query.With
 	if p.ParseKeyword("WITH") {
@@ -133,7 +139,10 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 	} else if p.PeekKeyword("VALUES") {
 		body, err = parseValues(p)
 	} else {
-		return nil, p.ExpectedRef("SELECT or VALUES after WITH", p.PeekTokenRef())
+		if withClause != nil {
+			return nil, p.ExpectedRef("SELECT or VALUES after WITH", p.PeekTokenRef())
+		}
+		return nil, p.ExpectedRef("SELECT, VALUES, or WITH", p.PeekTokenRef())
 	}
 
 	if err != nil {
@@ -1210,6 +1219,12 @@ func parseJoin(p *Parser) (query.Join, error) {
 // parseTableFactor parses a single table reference
 // Reference: src/parser/mod.rs:15472 parse_table_factor
 func parseTableFactor(p *Parser) (query.TableFactor, error) {
+	// Check recursion limit
+	if err := p.recursionCounter.TryDecrease(); err != nil {
+		return nil, err
+	}
+	defer p.recursionCounter.Increase()
+
 	// Check for TABLE(<expr>) syntax
 	if p.ParseKeyword("TABLE") {
 		return parseTableFunction(p)

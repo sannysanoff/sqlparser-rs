@@ -38,7 +38,7 @@ import (
 var _ parseriface.Parser = (*Parser)(nil)
 
 // DefaultRemainingDepth is the default maximum recursion depth
-const DefaultRemainingDepth = 50
+const DefaultRemainingDepth = 300
 
 // eofToken is a constant EOF token that can be referenced.
 var eofToken = token.TokenWithSpan{
