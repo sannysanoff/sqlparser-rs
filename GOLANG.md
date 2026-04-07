@@ -1393,40 +1393,63 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 
 ---
 
-## Current Status
+## Current Status (April 7, 2026)
 
-**Overall Progress: ~46% Test Pass Rate** (377 tests passing, 436 failing out of 813 total)
+**Overall Progress: ~54% Test Pass Rate** (440 tests passing, 373 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
-| **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
-| **DDL Tests**    | 🔄 In Progress   | ~120    | ~300  | **40%**   |
-| **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
-| **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
-| **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **27%**   |
-| **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **~46% Complete** | **377** | 813   | **~46%** |
+| **tests**        | 🔄 In Progress   | 176     | 260   | **68%**   |
+| **tests/ddl**    | 🔄 In Progress   | 26      | 81    | **32%**   |
+| **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
+| **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
+| **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
+| **tests/postgres**| 🔄 In Progress  | 53      | 157   | **34%**   |
+| **tests/snowflake**| 🔄 In Progress | 34      | 97    | **35%**   |
+| **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
+| **TOTAL**        | **~54% Complete** | **440** | 813   | **~54%** |
 
-**Line Counts (Updated April 5, 2026):**
+**Line Counts (Updated April 7, 2026):**
 
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 72,150 lines (107% of Rust - AST types and interfaces)
-- Go Tests: 14,131 lines (28% of Rust test coverage)
+- Go Source: 74,079 lines (110% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
+- Go Tests: 14,149 lines (28.3% of Rust test coverage)
 
-**Recent Major Implementations:**
-1. **Lambda Expressions** - Full support for `(x, y) -> expr` and `x -> expr` syntax
-2. **DROP Extensions** - TRIGGER, OPERATOR, STAGE support
-3. **ARRAY Function Fix** - Properly parses `array(1, 2, 3)` as function call
+**Major Missing Parser Chunks (Priority Order):**
 
-**Current Priority: Remaining Major Missing Parser Chunks**
+1. **CREATE TABLE Extensions** (~40+ test failures)
+   - ON CLUSTER (ClickHouse)
+   - CLONE (Snowflake)
+   - LIKE with INCLUDING/EXCLUDING DEFAULTS
+   - PARTITION OF (PostgreSQL)
+   - Hive distribution and formats
+   - ClickHouse PRIMARY KEY, ORDER BY
+   - ON COMMIT (PostgreSQL)
+   - STRICT (SQLite)
+   - Redshift BACKUP, DISTSTYLE, DISTKEY, SORTKEY
 
-1. **LISTEN/NOTIFY** (~5+ tests) - PostgreSQL notification statements
-2. **Geometric Operators** (~5+ tests) - PostgreSQL #, ##, @, etc.
-3. **CREATE VIEW Options** (~5+ tests) - SECURE, DYNAMIC views
-4. **ALTER USER SET** (~5+ tests) - Snowflake user options
-5. **Dollar-Quoted Strings** (~10+ tests) - PostgreSQL function bodies
+2. **ALTER TABLE Operations** (~25+ test failures)
+   - ON CLUSTER
+   - SET options (PostgreSQL storage parameters)
+   - RENAME AS (vs RENAME TO)
+   - Constraint characteristics (DEFERRABLE, etc.)
+   - ALTER COLUMN operations
+   - ENABLE/DISABLE triggers and rules
+
+3. **PostgreSQL-Specific** (~50+ test failures)
+   - COPY TO/FROM
+   - CREATE/DROP EXTENSION
+   - CREATE POLICY
+   - JSON functions with different syntax
+   - Dollar-quoted strings
+
+4. **Other Major Chunks** (~30+ test failures)
+   - LOAD DATA (Hive)
+   - CREATE PROCEDURE
+   - ALTER USER/CREATE USER enhancements
+   - PIVOT/UNPIVOT improvements
+   - Pipe operator enhancements
 
 ---
 
@@ -2639,12 +2662,58 @@ func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.S
 
 **Version:** 1.0  
 **Last Updated:** April 7, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~30%, **Total ~53%**
+**Status:** TPC-H fixture issue, DDL ~32%, DML ~55%, Query ~67%, MySQL ~75%, PostgreSQL ~34%, Snowflake ~35%, **Total ~54%**
 
 **Line Counts:**
 - Rust Source: 67,345 lines (parser + dialects + AST)
 - Go Source: 74,079 lines (110% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: ~53%** (630 passing out of 1,199 total tests)
-- **Tests Fixed This Session:** 7+ tests (POSITION function, all Snowflake SHOW statements)
+- **Current Test Pass Rate: ~54%** (440 passing out of 813 total tests)
+
+---
+
+### April 7, 2026 - Analysis and Planning Session
+
+Analyzed current test failures to identify major missing parser chunks:
+
+**Test Results Summary:**
+| Package | Passing | Failing | Total | Pass Rate |
+|---------|---------|---------|-------|-----------|
+| tests | 176 | 84 | 260 | 68% |
+| tests/ddl | 26 | 55 | 81 | 32% |
+| tests/dml | 18 | 15 | 33 | 55% |
+| tests/query | 39 | 19 | 58 | 67% |
+| tests/mysql | 94 | 31 | 125 | 75% |
+| tests/postgres | 53 | 104 | 157 | 34% |
+| tests/snowflake | 34 | 63 | 97 | 35% |
+| tests/regression | 0 | 2 | 2 | 0% |
+| **TOTAL** | **440** | **373** | **813** | **54%** |
+
+**Major Missing Parser Chunks Identified:**
+
+1. **CREATE TABLE Extensions** (~40+ failures)
+   - Missing: ON CLUSTER, CLONE, LIKE with defaults, PARTITION OF, Hive features, ClickHouse features, ON COMMIT
+   - Reference: src/parser/mod.rs:8339-8522
+
+2. **ALTER TABLE Operations** (~25+ failures)
+   - Missing: ON CLUSTER, SET options, constraint characteristics, RENAME AS
+   - Reference: src/parser/mod.rs:alter module
+
+3. **PostgreSQL COPY** (~10+ failures)
+   - Missing: COPY TO/FROM with various options
+   - Reference: src/parser/mod.rs:parse_copy
+
+4. **CREATE/DROP EXTENSION** (~5+ failures)
+   - Reference: src/parser/mod.rs:parse_create_extension, parse_drop_extension
+
+5. **CREATE PROCEDURE** (~5+ failures)
+   - Reference: src/parser/mod.rs:parse_create_procedure
+
+**Implementation Strategy:**
+- Focus on CREATE TABLE first (biggest impact on DDL tests)
+- Then ALTER TABLE operations
+- Then PostgreSQL-specific features (COPY, EXTENSION)
+
+**Key Pattern:**
+- **Pattern DA: Major Parser Chunks** - When implementing major missing features like CREATE TABLE extensions, always reference the full Rust implementation (src/parser/mod.rs). The Go parser often has minimal implementations that need feature parity. Check for dialect-specific features using `dialect.SupportsXxx()` methods.

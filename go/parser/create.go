@@ -142,11 +142,27 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		return nil, err
 	}
 
+	// Parse LIKE clause (before column list, parenthesized or plain)
+	var like *expr.CreateTableLikeKind
+	like, err = parseCreateTableLike(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse CLONE clause (Snowflake)
+	var clone *ast.ObjectName
+	if p.ParseKeyword("CLONE") {
+		clone, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Parse optional column list and constraints
 	var columns []*expr.ColumnDef
 	var constraints []*expr.TableConstraint
 
-	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen && like == nil {
 		cols, cons, err := parseCreateTableColumns(p)
 		if err != nil {
 			return nil, err
@@ -155,18 +171,29 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		constraints = cons
 	}
 
+	// ClickHouse ON CLUSTER
+	var onCluster *ast.Ident
+	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+		tok := p.NextToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			onCluster = &ast.Ident{Value: word.Word.Value}
+		} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			onCluster = &ast.Ident{Value: str.Value}
+		} else {
+			return nil, p.Expected("identifier or string", tok)
+		}
+	}
+
 	// Parse optional MySQL table options (ENGINE, CHARSET, COLLATE, COMMENT, etc.)
-	// Reference: src/parser/mod.rs:8690-8693
 	var tableOptions *expr.CreateTableOptions
 	if len(columns) > 0 || len(constraints) > 0 {
-		var err error
 		tableOptions, err = parseCreateTableOptions(p)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Check for AS (CREATE TABLE ... AS SELECT)
+	// Parse AS (CREATE TABLE ... AS SELECT)
 	var asQuery *query.Query
 	if p.PeekKeyword("AS") {
 		p.AdvanceToken()
@@ -174,34 +201,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		if err != nil {
 			return nil, err
 		}
-		// Extract query from the returned statement
-		switch q := innerQuery.(type) {
-		case *QueryStatement:
-			asQuery = q.Query
-		case *SelectStatement:
-			// Convert SelectStatement to query.Query
-			asQuery = &query.Query{
-				Body: &query.SelectSetExpr{
-					Select: &q.Select,
-				},
-			}
-		case *ValuesStatement:
-			asQuery = q.Query
-		}
-	}
-
-	// Check for LIKE (CREATE TABLE ... LIKE)
-	var like *expr.CreateTableLikeKind
-	if p.PeekKeyword("LIKE") {
-		p.AdvanceToken()
-		likeTable, err := p.ParseObjectName()
-		if err != nil {
-			return nil, err
-		}
-		like = &expr.CreateTableLikeKind{
-			Name: likeTable,
-			Kind: expr.CreateTableLikePlain,
-		}
+		asQuery = extractQueryFromStatement(innerQuery)
 	}
 
 	return &statement.CreateTable{
@@ -216,6 +216,258 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		TableOptions: tableOptions,
 		Query:        asQuery,
 		Like:         like,
+		Clone:        clone,
+		OnCluster:    onCluster,
+	}, nil
+}
+
+	// Check for IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse table name (with optional unquoted hyphen support for BigQuery)
+	allowUnquotedHyphen := p.GetDialect().Dialect() == "bigquery"
+	tableName, err := parseObjectNameWithHyphen(p, allowUnquotedHyphen)
+	if err != nil {
+		return nil, err
+	}
+
+	// PostgreSQL PARTITION OF for child partition tables
+	var partitionOf *ast.ObjectName
+	if p.ParseKeywords([]string{"PARTITION", "OF"}) {
+		partitionOf, err = parseObjectNameWithHyphen(p, allowUnquotedHyphen)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ClickHouse ON CLUSTER
+	var onCluster *ast.Ident
+	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+		clusterName, err := p.ExpectKeyword("identifier")
+		if err != nil {
+			return nil, err
+		}
+		onCluster = &ast.Ident{Value: clusterName}
+	}
+
+	// Parse LIKE clause (before column list)
+	var like *expr.CreateTableLikeKind
+	like, err = parseCreateTableLike(p, allowUnquotedHyphen)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse CLONE clause (Snowflake)
+	var clone *ast.ObjectName
+	if p.ParseKeyword("CLONE") {
+		clone, err = parseObjectNameWithHyphen(p, allowUnquotedHyphen)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse optional column list and constraints
+	var columns []*expr.ColumnDef
+	var constraints []*expr.TableConstraint
+
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		cols, cons, err := parseCreateTableColumns(p)
+		if err != nil {
+			return nil, err
+		}
+		columns = cols
+		constraints = cons
+	}
+
+	// Hive comment after column def
+	var comment *expr.CommentDef
+	if p.GetDialect().Dialect() == "hive" && p.ParseKeyword("COMMENT") {
+		tok := p.NextToken()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			comment = &expr.CommentDef{Value: str.Value}
+		} else {
+			return nil, p.Expected("comment string", tok)
+		}
+	}
+
+	// PostgreSQL PARTITION OF: partition bound specification
+	var forValues *expr.ForValues
+	if partitionOf != nil {
+		if p.PeekKeyword("DEFAULT") {
+			p.AdvanceToken()
+			forValues = &expr.ForValues{Kind: expr.ForValuesDefault}
+		} else if p.ParseKeywords([]string{"FOR", "VALUES"}) {
+			forValues, err = parsePartitionForValues(p)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected FOR VALUES or DEFAULT after PARTITION OF")
+		}
+	}
+
+	// SQLite WITHOUT ROWID
+	withoutRowid := p.ParseKeywords([]string{"WITHOUT", "ROWID"})
+
+	// Hive distribution
+	var hiveDistribution *expr.HiveDistributionStyle
+	hiveDistribution, err = parseHiveDistribution(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Hive formats
+	var hiveFormats *expr.HiveFormat
+	hiveFormats, err = parseHiveFormats(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional table configuration (partition_by, cluster_by, inherits, table_options)
+	var createTableConfig *expr.CreateTableConfiguration
+	createTableConfig, err = parseOptionalCreateTableConfig(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// ClickHouse PRIMARY KEY
+	var primaryKey expr.Expr
+	if p.GetDialect().SupportsPrimaryKeyInCreateTable() && p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
+		primaryKey, err = NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ORDER BY (ClickHouse, Snowflake, BigQuery)
+	var orderBy *expr.OneOrManyWithParens
+	if p.ParseKeywords([]string{"ORDER", "BY"}) {
+		orderBy, err = parseOrderByClause(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// ON COMMIT (PostgreSQL)
+	var onCommit *expr.OnCommit
+	if p.ParseKeywords([]string{"ON", "COMMIT"}) {
+		onCommit, err = parseCreateTableOnCommit(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// SQLite STRICT
+	strict := p.ParseKeyword("STRICT")
+
+	// Redshift BACKUP YES/NO
+	var backup *bool
+	if p.ParseKeyword("BACKUP") {
+		if p.ParseKeyword("YES") {
+			backup = &[]bool{true}[0]
+		} else if p.ParseKeyword("NO") {
+			backup = &[]bool{false}[0]
+		}
+	}
+
+	// Redshift DISTSTYLE
+	var diststyle *expr.DistStyle
+	if p.ParseKeyword("DISTSTYLE") {
+		diststyle, err = parseDistStyle(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Redshift DISTKEY
+	var distkey expr.Expr
+	if p.ParseKeyword("DISTKEY") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		distkey, err = NewExpressionParser(p).ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Redshift SORTKEY
+	var sortkey []expr.Expr
+	if p.ParseKeyword("SORTKEY") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		sortkey, err = parseCommaSeparatedExpressions(p)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse optional MySQL table options
+	var tableOptions *expr.CreateTableOptions
+	if len(columns) > 0 || len(constraints) > 0 {
+		tableOptions, err = parseCreateTableOptions(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse AS (CREATE TABLE ... AS SELECT)
+	var asQuery *query.Query
+	if p.PeekKeyword("AS") {
+		p.AdvanceToken()
+		innerQuery, err := p.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		asQuery = extractQueryFromStatement(innerQuery)
+	} else if p.GetDialect().SupportsCreateTableSelect() && p.PeekKeyword("SELECT") {
+		// CREATE TABLE ... SELECT (MySQL style)
+		innerQuery, err := p.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		asQuery = extractQueryFromStatement(innerQuery)
+	}
+
+	return &statement.CreateTable{
+		OrReplace:        orReplace,
+		Temporary:        temporary,
+		Global:           global,
+		Transient:        transient,
+		IfNotExists:      ifNotExists,
+		Name:             tableName,
+		Columns:          columns,
+		Constraints:      constraints,
+		TableOptions:     tableOptions,
+		Query:            asQuery,
+		Like:             like,
+		Clone:            clone,
+		Comment:          comment,
+		OnCommit:         onCommit,
+		OnCluster:        onCluster,
+		PrimaryKey:       primaryKey,
+		OrderBy:          orderBy,
+		PartitionBy:      createTableConfig.PartitionBy,
+		ClusterBy:        createTableConfig.ClusterBy,
+		Inherits:         createTableConfig.Inherits,
+		HiveDistribution: hiveDistribution,
+		HiveFormats:      hiveFormats,
+		WithoutRowid:     withoutRowid,
+		PartitionOf:      partitionOf,
+		ForValues:        forValues,
+		Strict:           strict,
+		Backup:           backup,
+		Diststyle:        diststyle,
+		Distkey:          distkey,
+		Sortkey:          sortkey,
+		TableOptions:     tableOptions,
 	}, nil
 }
 
