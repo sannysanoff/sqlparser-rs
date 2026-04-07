@@ -1951,13 +1951,10 @@ type Return struct {
 func (r *Return) statementNode() {}
 
 func (r *Return) String() string {
-	var f strings.Builder
-	f.WriteString("RETURN")
 	if r.Statement != nil {
-		f.WriteString(" ")
-		f.WriteString(r.Statement.String())
+		return r.Statement.String()
 	}
-	return f.String()
+	return "RETURN"
 }
 
 // ============================================================================

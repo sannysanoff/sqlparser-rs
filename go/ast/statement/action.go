@@ -90,6 +90,22 @@ const (
 	ActionTypeUpdate
 	// ActionTypeUsage - USAGE
 	ActionTypeUsage
+	// ActionTypeOwnership - OWNERSHIP (Snowflake)
+	ActionTypeOwnership
+	// ActionTypeRead - READ
+	ActionTypeRead
+	// ActionTypeWrite - WRITE
+	ActionTypeWrite
+	// ActionTypeOperate - OPERATE
+	ActionTypeOperate
+	// ActionTypeApply - APPLY
+	ActionTypeApply
+	// ActionTypeAudit - AUDIT
+	ActionTypeAudit
+	// ActionTypeFailover - FAILOVER
+	ActionTypeFailover
+	// ActionTypeReplicate - REPLICATE
+	ActionTypeReplicate
 )
 
 func (a ActionType) String() string {
@@ -120,6 +136,22 @@ func (a ActionType) String() string {
 		return "UPDATE"
 	case ActionTypeUsage:
 		return "USAGE"
+	case ActionTypeOwnership:
+		return "OWNERSHIP"
+	case ActionTypeRead:
+		return "READ"
+	case ActionTypeWrite:
+		return "WRITE"
+	case ActionTypeOperate:
+		return "OPERATE"
+	case ActionTypeApply:
+		return "APPLY"
+	case ActionTypeAudit:
+		return "AUDIT"
+	case ActionTypeFailover:
+		return "FAILOVER"
+	case ActionTypeReplicate:
+		return "REPLICATE"
 	default:
 		return ""
 	}
@@ -154,6 +186,22 @@ func ParseActionType(s string) (ActionType, bool) {
 		return ActionTypeUpdate, true
 	case "USAGE":
 		return ActionTypeUsage, true
+	case "OWNERSHIP":
+		return ActionTypeOwnership, true
+	case "READ":
+		return ActionTypeRead, true
+	case "WRITE":
+		return ActionTypeWrite, true
+	case "OPERATE":
+		return ActionTypeOperate, true
+	case "APPLY":
+		return ActionTypeApply, true
+	case "AUDIT":
+		return ActionTypeAudit, true
+	case "FAILOVER":
+		return ActionTypeFailover, true
+	case "REPLICATE":
+		return ActionTypeReplicate, true
 	default:
 		return ActionTypeConnect, false
 	}

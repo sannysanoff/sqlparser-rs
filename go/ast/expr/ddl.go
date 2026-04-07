@@ -4497,9 +4497,9 @@ func (r *ReturnStatement) exprNode()        {}
 func (r *ReturnStatement) Span() token.Span { return token.Span{} }
 func (r *ReturnStatement) String() string {
 	if r.Value != nil {
-		return r.Value.String()
+		return "RETURN " + r.Value.String()
 	}
-	return ""
+	return "RETURN"
 }
 
 // ThrowStatement represents THROW statement.

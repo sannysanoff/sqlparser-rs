@@ -358,19 +358,31 @@ func parseGrantees(p *Parser) ([]*statement.Grantee, error) {
 	return grantees, nil
 }
 
-// parseGranteeName parses a grantee name (identifier or 'user'@'host')
+// parseGranteeName parses a grantee name (identifier, 'user'@'host', or 'namespace:username')
 // Reference: src/parser/mod.rs parse_grantee_name (line 17273)
 func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
 	ident, err := p.ParseIdentifier()
 	if err != nil {
 		return nil, err
 	}
+	// Check for MySQL-style 'user'@'host' syntax
 	if p.ConsumeToken(token.TokenAtSign{}) {
 		host, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, err
 		}
 		return &statement.GranteeName{User: ident, Host: host}, nil
+	}
+	// Check for Redshift-style namespace:username syntax
+	// https://docs.aws.amazon.com/redshift/latest/mgmt/redshift-iam-access-control-native-idp.html
+	if p.ConsumeToken(token.TokenColon{}) {
+		secondIdent, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		// Combine namespace:username into a single identifier
+		combinedValue := ident.Value + ":" + secondIdent.Value
+		return &statement.GranteeName{ObjectName: ast.NewObjectNameFromIdents(&ast.Ident{Value: combinedValue})}, nil
 	}
 	return &statement.GranteeName{ObjectName: ast.NewObjectNameFromIdents(ident)}, nil
 }
