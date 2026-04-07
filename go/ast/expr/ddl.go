@@ -2463,23 +2463,116 @@ type MultiTableInsertType int
 
 const (
 	MultiTableInsertTypeNone MultiTableInsertType = iota
+	MultiTableInsertTypeAll
+	MultiTableInsertTypeFirst
 )
 
-func (m MultiTableInsertType) String() string { return "" }
+func (m MultiTableInsertType) String() string {
+	switch m {
+	case MultiTableInsertTypeAll:
+		return "ALL"
+	case MultiTableInsertTypeFirst:
+		return "FIRST"
+	default:
+		return ""
+	}
+}
+
+// MultiTableInsertValues represents the VALUES clause in a multi-table INSERT INTO clause.
+type MultiTableInsertValues struct {
+	Values []MultiTableInsertValue
+}
+
+func (m *MultiTableInsertValues) exprNode() {}
+
+func (m *MultiTableInsertValues) Span() token.Span { return token.Span{} }
+
+func (m *MultiTableInsertValues) String() string {
+	var parts []string
+	for _, v := range m.Values {
+		parts = append(parts, v.String())
+	}
+	return strings.Join(parts, ", ")
+}
+
+// MultiTableInsertValue represents a value in a multi-table INSERT VALUES clause.
+type MultiTableInsertValue struct {
+	IsDefault bool
+	Expr      Expr
+}
+
+func (m *MultiTableInsertValue) exprNode() {}
+
+func (m *MultiTableInsertValue) Span() token.Span { return token.Span{} }
+
+func (m *MultiTableInsertValue) String() string {
+	if m.IsDefault {
+		return "DEFAULT"
+	}
+	if m.Expr != nil {
+		return m.Expr.String()
+	}
+	return ""
+}
 
 // MultiTableInsertIntoClause represents multi-table INSERT INTO clause.
-type MultiTableInsertIntoClause struct{}
+type MultiTableInsertIntoClause struct {
+	TableName *ObjectName
+	Columns   []*Ident
+	Values    *MultiTableInsertValues
+}
 
-func (m *MultiTableInsertIntoClause) exprNode()        {}
+func (m *MultiTableInsertIntoClause) exprNode() {}
+
 func (m *MultiTableInsertIntoClause) Span() token.Span { return token.Span{} }
-func (m *MultiTableInsertIntoClause) String() string   { return "" }
+
+func (m *MultiTableInsertIntoClause) String() string {
+	var sb strings.Builder
+	sb.WriteString("INTO ")
+	if m.TableName != nil {
+		sb.WriteString(m.TableName.String())
+	}
+	if len(m.Columns) > 0 {
+		sb.WriteString(" (")
+		for i, col := range m.Columns {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(col.String())
+		}
+		sb.WriteString(")")
+	}
+	if m.Values != nil {
+		sb.WriteString(" VALUES (")
+		sb.WriteString(m.Values.String())
+		sb.WriteString(")")
+	}
+	return sb.String()
+}
 
 // MultiTableInsertWhenClause represents multi-table INSERT WHEN clause.
-type MultiTableInsertWhenClause struct{}
+type MultiTableInsertWhenClause struct {
+	Condition   Expr
+	IntoClauses []*MultiTableInsertIntoClause
+}
 
-func (m *MultiTableInsertWhenClause) exprNode()        {}
+func (m *MultiTableInsertWhenClause) exprNode() {}
+
 func (m *MultiTableInsertWhenClause) Span() token.Span { return token.Span{} }
-func (m *MultiTableInsertWhenClause) String() string   { return "" }
+
+func (m *MultiTableInsertWhenClause) String() string {
+	var sb strings.Builder
+	sb.WriteString("WHEN ")
+	if m.Condition != nil {
+		sb.WriteString(m.Condition.String())
+	}
+	sb.WriteString(" THEN")
+	for _, into := range m.IntoClauses {
+		sb.WriteString(" ")
+		sb.WriteString(into.String())
+	}
+	return sb.String()
+}
 
 // MergeClause represents a WHEN clause within a MERGE statement.
 // Example: WHEN NOT MATCHED BY SOURCE AND product LIKE '%washer%' THEN DELETE

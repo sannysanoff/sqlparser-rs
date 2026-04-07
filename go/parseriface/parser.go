@@ -28,6 +28,7 @@ package parseriface
 import (
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/datatype"
+	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/token"
 )
 
@@ -75,6 +76,7 @@ type Parser interface {
 	ParseInsert() (ast.Statement, error)
 	ParseQuery() (ast.Statement, error)
 	ParseDataType() (datatype.DataType, error)
+	ExtractQuery(stmt ast.Statement) *query.Query
 
 	// State management
 	GetState() ParserState

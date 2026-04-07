@@ -1213,11 +1213,39 @@ func (d *SnowflakeDialect) ParseStatement(parser dialects.ParserAccessor) (ast.S
 		}
 	}
 
+	// Check for multi-table INSERT: INSERT [OVERWRITE] {ALL | FIRST}
+	if parser.PeekKeyword("INSERT") {
+		// Save position for potential rewind
+		restore := parser.SavePosition()
+		parser.AdvanceToken() // consume INSERT
+
+		// Check for OVERWRITE
+		overwrite := parser.ParseKeyword("OVERWRITE")
+
+		// Check for ALL or FIRST
+		var multiTableType *expr.MultiTableInsertType
+		if parser.ParseKeyword("ALL") {
+			t := expr.MultiTableInsertTypeAll
+			multiTableType = &t
+		} else if parser.ParseKeyword("FIRST") {
+			t := expr.MultiTableInsertTypeFirst
+			multiTableType = &t
+		}
+
+		if multiTableType != nil {
+			// This is a multi-table INSERT
+			stmt, err := d.parseMultiTableInsert(parser, overwrite, multiTableType)
+			return stmt, true, err
+		}
+
+		// Not a multi-table insert, restore position
+		restore()
+	}
+
 	// TODO: Implement other Snowflake-specific statements:
 	// - SHOW OBJECTS
 	// - LIST/LS, REMOVE/RM (file staging commands)
 	// - CREATE STAGE
-	// - Multi-table INSERT (INSERT ALL/FIRST)
 	return nil, false, nil
 }
 
@@ -1969,4 +1997,201 @@ func (d *SnowflakeDialect) ParseColumnOption(parser dialects.ParserAccessor) (di
 	// - [WITH] PROJECTION POLICY
 	// - [WITH] TAG
 	return nil, false, nil
+}
+
+// parseMultiTableInsert parses a Snowflake multi-table INSERT statement.
+// Syntax:
+//   - INSERT [OVERWRITE] ALL intoClause [ ... ] subquery
+//   - INSERT [OVERWRITE] {FIRST | ALL} {WHEN condition THEN intoClause [ ... ]} [ELSE intoClause] subquery
+//
+// Reference: src/dialect/snowflake.rs:parse_multi_table_insert
+func (d *SnowflakeDialect) parseMultiTableInsert(
+	parser dialects.ParserAccessor,
+	overwrite bool,
+	multiTableType *expr.MultiTableInsertType,
+) (ast.Statement, error) {
+	// Check if this is conditional (has WHEN clauses) or unconditional (direct INTO clauses)
+	isConditional := parser.PeekKeyword("WHEN")
+
+	var intoClauses []*expr.MultiTableInsertIntoClause
+	var whenClauses []*expr.MultiTableInsertWhenClause
+	var elseClause []*expr.MultiTableInsertIntoClause
+
+	if isConditional {
+		// Conditional multi-table insert: parse WHEN clauses
+		var err error
+		whenClauses, elseClause, err = d.parseMultiTableInsertWhenClauses(parser)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Unconditional multi-table insert: parse direct INTO clauses
+		var err error
+		intoClauses, err = d.parseMultiTableInsertIntoClauses(parser)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse the source query
+	source, err := parser.ParseQuery()
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the query from the statement
+	sourceQuery := parser.ExtractQuery(source)
+
+	return &statement.Insert{
+		Overwrite:             overwrite,
+		MultiTableInsertType:  multiTableType,
+		MultiTableIntoClauses: intoClauses,
+		MultiTableWhenClauses: whenClauses,
+		MultiTableElseClause:  elseClause,
+		Source:                sourceQuery,
+	}, nil
+}
+
+// parseMultiTableInsertIntoClauses parses one or more INTO clauses for multi-table INSERT.
+func (d *SnowflakeDialect) parseMultiTableInsertIntoClauses(parser dialects.ParserAccessor) ([]*expr.MultiTableInsertIntoClause, error) {
+	var clauses []*expr.MultiTableInsertIntoClause
+
+	for parser.ParseKeyword("INTO") {
+		clause, err := d.parseMultiTableInsertIntoClause(parser)
+		if err != nil {
+			return nil, err
+		}
+		clauses = append(clauses, clause)
+	}
+
+	if len(clauses) == 0 {
+		return nil, fmt.Errorf("expected INTO clause in multi-table INSERT")
+	}
+
+	return clauses, nil
+}
+
+// parseMultiTableInsertIntoClause parses a single INTO clause for multi-table INSERT.
+// Syntax: INTO table_name [(columns)] [VALUES (values)]
+func (d *SnowflakeDialect) parseMultiTableInsertIntoClause(parser dialects.ParserAccessor) (*expr.MultiTableInsertIntoClause, error) {
+	// Parse table name as identifier
+	tableIdent, err := d.parseIdentifier(parser)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build expr.ObjectName from identifier
+	exprTableName := &expr.ObjectName{
+		Parts: []*expr.ObjectNamePart{
+			{Ident: &expr.Ident{Value: tableIdent.Value}},
+		},
+	}
+
+	clause := &expr.MultiTableInsertIntoClause{
+		TableName: exprTableName,
+	}
+
+	// Parse optional column list: (col1, col2, ...)
+	if _, ok := parser.PeekTokenRef().Token.(token.TokenLParen); ok {
+		parser.AdvanceToken() // consume (
+		for {
+			if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
+				parser.AdvanceToken() // consume )
+				break
+			}
+			col, err := d.parseIdentifier(parser)
+			if err != nil {
+				return nil, err
+			}
+			exprCol := &expr.Ident{Value: col.Value}
+			clause.Columns = append(clause.Columns, exprCol)
+			if !parser.ConsumeToken(token.TokenComma{}) {
+				if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
+
+	// Parse optional VALUES clause
+	if parser.ParseKeyword("VALUES") {
+		if _, err := parser.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		values := &expr.MultiTableInsertValues{}
+		for {
+			if _, ok := parser.PeekTokenRef().Token.(token.TokenRParen); ok {
+				parser.AdvanceToken() // consume )
+				break
+			}
+
+			var value expr.MultiTableInsertValue
+			if parser.ParseKeyword("DEFAULT") {
+				value.IsDefault = true
+			} else {
+				exprVal, err := parser.ParseExpression()
+				if err != nil {
+					return nil, err
+				}
+				value.Expr = exprVal.(expr.Expr)
+			}
+			values.Values = append(values.Values, value)
+
+			if !parser.ConsumeToken(token.TokenComma{}) {
+				if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+		clause.Values = values
+	}
+
+	return clause, nil
+}
+
+// parseMultiTableInsertWhenClauses parses WHEN clauses for conditional multi-table INSERT.
+func (d *SnowflakeDialect) parseMultiTableInsertWhenClauses(parser dialects.ParserAccessor) ([]*expr.MultiTableInsertWhenClause, []*expr.MultiTableInsertIntoClause, error) {
+	var whenClauses []*expr.MultiTableInsertWhenClause
+	var elseClause []*expr.MultiTableInsertIntoClause
+
+	// Parse WHEN clauses
+	for parser.ParseKeyword("WHEN") {
+		condition, err := parser.ParseExpression()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if _, err := parser.ExpectKeyword("THEN"); err != nil {
+			return nil, nil, err
+		}
+
+		intoClauses, err := d.parseMultiTableInsertIntoClauses(parser)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		whenClause := &expr.MultiTableInsertWhenClause{
+			Condition:   condition.(expr.Expr),
+			IntoClauses: intoClauses,
+		}
+		whenClauses = append(whenClauses, whenClause)
+	}
+
+	if len(whenClauses) == 0 {
+		return nil, nil, fmt.Errorf("expected at least one WHEN clause in conditional multi-table INSERT")
+	}
+
+	// Parse optional ELSE clause
+	if parser.ParseKeyword("ELSE") {
+		var err error
+		elseClause, err = d.parseMultiTableInsertIntoClauses(parser)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return whenClauses, elseClause, nil
 }

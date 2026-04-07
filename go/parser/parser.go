@@ -477,6 +477,13 @@ func (p *Parser) ParseQuery() (ast.Statement, error) {
 	return parseQuery(p)
 }
 
+// ExtractQuery extracts a *query.Query from an ast.Statement.
+// This is useful for dialect-specific statement parsers that need to
+// extract the query from a parsed statement.
+func (p *Parser) ExtractQuery(stmt ast.Statement) *query.Query {
+	return extractQueryFromStatement(stmt)
+}
+
 func (p *Parser) parseQuery() (ast.Statement, error) {
 	return parseQuery(p)
 }

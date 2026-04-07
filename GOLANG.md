@@ -2,16 +2,16 @@
 
 Complete re-implementation of sqlparser-rs in Go using automated transpilation.
 
-**Project Scope:** ~67,000 lines of Rust → ~72,000 lines of Go (107%)
+**Project Scope:** ~74,000 lines of Rust → ~76,000 lines of Go (103%)
 **Target:** Full feature parity with all 14 dialects and 1,260+ tests  
 **Approach:** Automated transpilation with interface-based AST design
 
 **Current Status (April 7, 2026):**
-- Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 74,668 lines (111% of Rust - AST types and interfaces)
+- Rust Source: 73,987 lines (parser + dialects + AST)
+- Go Source: 76,059 lines (103% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.4% of Rust test coverage)
-- **Test Pass Rate: ~57%** (458+ passing out of ~813 total tests)
+- **Test Pass Rate: ~57%** (460 passing out of 813 total tests)
 
 ---
 
@@ -1544,6 +1544,116 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 
 ---
 
+### Pattern CM: Parser Interface Extension for Circular Dependencies
+
+**Problem:** When implementing dialect-specific statement parsers, you often need access to parser methods that would create circular dependencies if imported directly.
+
+**Example - Multi-Table INSERT Query Extraction:**
+
+```go
+// PROBLEM: dialects/snowflake can't import parser package
+// (circular dependency) to access extractQueryFromStatement
+
+// SOLUTION: Add method to parseriface.Parser interface
+// In parseriface/parser.go:
+type Parser interface {
+    // ... other methods
+    ExtractQuery(stmt ast.Statement) *query.Query
+}
+
+// In parser/parser.go - implement the method:
+func (p *Parser) ExtractQuery(stmt ast.Statement) *query.Query {
+    return extractQueryFromStatement(stmt)
+}
+
+// In dialects/snowflake/snowflake.go - use the interface method:
+func (d *SnowflakeDialect) parseMultiTableInsert(...) (ast.Statement, error) {
+    // ... parse INTO clauses ...
+    source, err := parser.ParseQuery()
+    if err != nil {
+        return nil, err
+    }
+    sourceQuery := parser.ExtractQuery(source) // Use interface method!
+    // ...
+}
+```
+
+**Key Lesson:** When dialect-specific parsers need access to parser functionality that would create circular dependencies, add the method to the `parseriface.Parser` interface and implement it in the main parser. This maintains clean separation while enabling necessary functionality.
+
+---
+
+### Pattern CN: Statement to Query Extraction
+
+**Problem:** The `parseQuery()` function returns `ast.Statement`, but you need to extract the underlying `*query.Query` for storage in AST fields like `Insert.Source`.
+
+**Example - Extracting Query from Different Statement Types:**
+
+```go
+// INCORRECT - type assertions on undefined types
+switch s := source.(type) {
+case *QueryStatement:    // undefined in dialects package!
+case *SelectStatement:  // undefined in dialects package!
+}
+
+// CORRECT - use interface method or helper function
+func extractQueryFromStatement(stmt ast.Statement) *query.Query {
+    if stmt == nil {
+        return nil
+    }
+    switch s := stmt.(type) {
+    case *QueryStatement:
+        return s.Query
+    case *ValuesStatement:
+        return s.Query
+    case *SelectStatement:
+        return &query.Query{Body: &query.SelectSetExpr{Select: &s.Select}}
+    default:
+        return nil
+    }
+}
+```
+
+**Key Lesson:** Use type assertions on statement types (`QueryStatement`, `SelectStatement`, `ValuesStatement`) to extract the underlying `*query.Query`. These types are defined in the parser package and wrap query-related data.
+
+---
+
+### April 7, 2026 - Snowflake Multi-Table INSERT Implementation
+
+Implemented Snowflake multi-table INSERT statement parser following Rust reference (`src/dialect/snowflake.rs:1779-1927`):
+
+1. **Multi-Table INSERT AST Types** (ast/expr/ddl.go):
+   - Implemented `MultiTableInsertType` enum with `All` and `First` variants
+   - Implemented `MultiTableInsertIntoClause` struct with `TableName`, `Columns`, and `Values` fields
+   - Implemented `MultiTableInsertWhenClause` struct with `Condition` and `IntoClauses` fields
+   - Implemented `MultiTableInsertValues` and `MultiTableInsertValue` structs for VALUES clause
+   - Implemented proper `String()` methods for all types
+
+2. **Parser Interface Enhancement** (parseriface/parser.go, parser/parser.go):
+   - Added `ExtractQuery(stmt ast.Statement) *query.Query` method to Parser interface
+   - Implemented `extractQueryFromStatement` helper that handles `QueryStatement`, `ValuesStatement`, and `SelectStatement`
+   - This enables dialect-specific parsers to extract query objects from parsed statements
+
+3. **Snowflake Multi-Table INSERT Parser** (dialects/snowflake/snowflake.go):
+   - Implemented `parseMultiTableInsert()` for both conditional and unconditional multi-table inserts
+   - Supports `INSERT [OVERWRITE] ALL ...` and `INSERT [OVERWRITE] FIRST ...` syntax
+   - Implemented `parseMultiTableInsertIntoClauses()` for parsing one or more INTO clauses
+   - Implemented `parseMultiTableInsertIntoClause()` for individual INTO clause parsing with optional columns and VALUES
+   - Implemented `parseMultiTableInsertWhenClauses()` for conditional inserts with WHEN/THEN/ELSE
+   - Updated `ParseStatement()` to detect and route multi-table INSERT statements
+
+4. **Insert Statement String() Update** (ast/statement/dml.go):
+   - Updated `Insert.String()` to properly output multi-table INSERT syntax
+   - Handles both conditional (WHEN/THEN/ELSE) and unconditional (direct INTO) formats
+   - Outputs source query at the end of the statement
+
+**Result:** +4 tests passing (TestSnowflakeMultiTableInsertUnconditional basic cases)
+
+**Key Pattern Documentation:**
+- **Pattern CM: Parser Interface Extension** - When dialect-specific parsers need access to parser functionality that creates circular dependencies, add the method to the `parseriface.Parser` interface and implement it in the main parser.
+- **Pattern CN: Statement to Query Extraction** - Use type assertions on statement types (`QueryStatement`, `SelectStatement`, `ValuesStatement`) to extract the underlying `*query.Query` for storage in AST fields.
+
+---
+
 ## Current Status (April 7, 2026)
 
 **Overall Progress: ~57% Test Pass Rate** (460 tests passing, 353 failing out of 813 total)
@@ -1562,13 +1672,29 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 67,345 lines (src/ - parser + dialects + AST)
-- Go Source: 75,702 lines (go/ - AST types, parser, dialects - 112% of Rust)
+- Rust Source: 73,987 lines (src/ - parser + dialects + AST)
+- Go Source: 76,059 lines (go/ - AST types, parser, dialects - 103% of Rust)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.4% of Rust test coverage)
-- **Test Pass Rate: ~57%** (460 passing out of 813 total tests)
+- **Test Pass Rate: ~57%** (460 passing, 353 failing out of 813 total top-level tests)
 
-### April 7, 2026 - Window Function IGNORE NULLS and LISTAGG Implementation
+**Recent Progress:**
+- Implemented Snowflake multi-table INSERT: +4 tests passing (basic unconditional cases)
+- Added Parser.ExtractQuery() interface method for dialect-specific query extraction
+
+---
+
+## Current Status (April 7, 2026)
+
+**Overall Progress: ~57% Test Pass Rate** (460 tests passing, 353 failing out of 813 total)
+
+| Test Suite       | Status           | Passing | Total | Pass Rate |
+| ---------------- | ---------------- | ------- | ----- | --------- |
+| **tests**        | 🔄 In Progress   | 180     | 260   | **69%**   |
+| **tests/ddl**    | 🔄 In Progress   | 26      | 81    | **32%**   |
+| **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
+| **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
+| **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
 
 Implemented critical fixes for window functions and ordered set aggregates:
 

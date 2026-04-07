@@ -108,9 +108,39 @@ func (i *Insert) String() string {
 		f.WriteString(" OVERWRITE")
 	}
 
-	if i.MultiTableInsertType != nil {
+	// Handle multi-table insert
+	if i.MultiTableInsertType != nil && *i.MultiTableInsertType != expr.MultiTableInsertTypeNone {
 		f.WriteString(" ")
 		f.WriteString(i.MultiTableInsertType.String())
+
+		// Output WHEN clauses for conditional multi-table insert
+		for _, when := range i.MultiTableWhenClauses {
+			f.WriteString(" ")
+			f.WriteString(when.String())
+		}
+
+		// Output ELSE clause if present
+		if len(i.MultiTableElseClause) > 0 {
+			f.WriteString(" ELSE")
+			for _, into := range i.MultiTableElseClause {
+				f.WriteString(" ")
+				f.WriteString(into.String())
+			}
+		}
+
+		// Output INTO clauses for unconditional multi-table insert
+		for _, into := range i.MultiTableIntoClauses {
+			f.WriteString(" ")
+			f.WriteString(into.String())
+		}
+
+		// Output source query
+		if i.Source != nil {
+			f.WriteString(" ")
+			f.WriteString(i.Source.String())
+		}
+
+		return f.String()
 	}
 
 	if i.Into {
