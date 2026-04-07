@@ -102,6 +102,14 @@ func (c *CreateTable) String() string {
 	if c.OrReplace {
 		f.WriteString("OR REPLACE ")
 	}
+	// LOCAL/GLOBAL comes before TEMPORARY (per SQL standard and Snowflake)
+	if c.Global != nil {
+		if *c.Global {
+			f.WriteString("GLOBAL ")
+		} else {
+			f.WriteString("LOCAL ")
+		}
+	}
 	if c.Temporary {
 		f.WriteString("TEMPORARY ")
 	}
@@ -122,13 +130,6 @@ func (c *CreateTable) String() string {
 	}
 	if c.Snapshot {
 		f.WriteString("SNAPSHOT ")
-	}
-	if c.Global != nil {
-		if *c.Global {
-			f.WriteString("GLOBAL ")
-		} else {
-			f.WriteString("LOCAL ")
-		}
 	}
 	f.WriteString("TABLE ")
 	if c.IfNotExists {
@@ -163,6 +164,54 @@ func (c *CreateTable) String() string {
 			f.WriteString(" ")
 			f.WriteString(opt.String())
 		}
+	}
+
+	// Snowflake-specific: COPY GRANTS
+	if c.CopyGrants {
+		f.WriteString(" COPY GRANTS")
+	}
+
+	// Snowflake-specific: CLUSTER BY
+	if c.ClusterBy != nil && len(c.ClusterBy.Items) > 0 {
+		f.WriteString(" CLUSTER BY (")
+		for i, item := range c.ClusterBy.Items {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(item.String())
+		}
+		f.WriteString(")")
+	}
+
+	// Snowflake-specific: ENABLE_SCHEMA_EVOLUTION
+	if c.EnableSchemaEvolution != nil {
+		f.WriteString(" ENABLE_SCHEMA_EVOLUTION=")
+		if *c.EnableSchemaEvolution {
+			f.WriteString("TRUE")
+		} else {
+			f.WriteString("FALSE")
+		}
+	}
+
+	// Snowflake-specific: CHANGE_TRACKING
+	if c.ChangeTracking != nil {
+		f.WriteString(" CHANGE_TRACKING=")
+		if *c.ChangeTracking {
+			f.WriteString("TRUE")
+		} else {
+			f.WriteString("FALSE")
+		}
+	}
+
+	// Snowflake-specific: DATA_RETENTION_TIME_IN_DAYS
+	if c.DataRetentionTimeInDays != nil {
+		f.WriteString(fmt.Sprintf(" DATA_RETENTION_TIME_IN_DAYS=%d", *c.DataRetentionTimeInDays))
+	}
+
+	// Snowflake-specific: ON COMMIT
+	if c.OnCommit != nil {
+		f.WriteString(" ")
+		f.WriteString(c.OnCommit.String())
 	}
 
 	if c.Query != nil {

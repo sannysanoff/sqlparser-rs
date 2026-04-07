@@ -416,6 +416,10 @@ func (c *ColumnOptionDef) String() string {
 		}
 		return sb.String()
 	}
+	// Handle COMMENT with quoted string value
+	if c.Name == "COMMENT" && c.Value != nil {
+		return fmt.Sprintf("COMMENT '%s'", c.Value.String())
+	}
 	if c.Value != nil {
 		return fmt.Sprintf("%s %s", c.Name, c.Value.String())
 	}

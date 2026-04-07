@@ -142,6 +142,27 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		return nil, err
 	}
 
+	// Snowflake-specific options that can appear before or after columns
+	var copyGrants bool
+	var enableSchemaEvolution *bool
+	var changeTracking *bool
+	var dataRetentionTimeInDays *uint64
+	var clusterBy *expr.WrappedCollection
+	var comment *expr.CommentDef
+	var onCommit *expr.OnCommit
+
+	// For Snowflake, parse options that can appear before the column list
+	if p.GetDialect().Dialect() == "snowflake" {
+		snowflakeOpts := parseSnowflakeCreateTableOptionsBeforeColumns(p)
+		copyGrants = snowflakeOpts.CopyGrants
+		enableSchemaEvolution = snowflakeOpts.EnableSchemaEvolution
+		changeTracking = snowflakeOpts.ChangeTracking
+		dataRetentionTimeInDays = snowflakeOpts.DataRetentionTimeInDays
+		clusterBy = snowflakeOpts.ClusterBy
+		comment = snowflakeOpts.Comment
+		onCommit = snowflakeOpts.OnCommit
+	}
+
 	// PostgreSQL PARTITION OF for child partition tables
 	// Note: This is a PostgreSQL-specific feature, but the dialect check was intentionally
 	// removed to allow GenericDialect and other dialects to parse this syntax.
@@ -251,8 +272,8 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 	}
 
 	// ON COMMIT (PostgreSQL) - using existing OnCommit type
-	var onCommit *expr.OnCommit
-	if p.ParseKeywords([]string{"ON", "COMMIT"}) {
+	// Note: For Snowflake, this is already parsed above
+	if onCommit == nil && p.ParseKeywords([]string{"ON", "COMMIT"}) {
 		onCommit = parseOnCommitClause(p)
 	}
 
@@ -308,6 +329,34 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 	}
 
+	// For Snowflake, parse additional options that can appear after columns
+	// Snowflake allows options in any order, so we use a loop
+	if p.GetDialect().Dialect() == "snowflake" {
+		snowflakeOpts := parseSnowflakeCreateTableOptions(p)
+		// Merge Snowflake options with existing values (later values override earlier ones)
+		if snowflakeOpts.CopyGrants {
+			copyGrants = true
+		}
+		if snowflakeOpts.EnableSchemaEvolution != nil {
+			enableSchemaEvolution = snowflakeOpts.EnableSchemaEvolution
+		}
+		if snowflakeOpts.ChangeTracking != nil {
+			changeTracking = snowflakeOpts.ChangeTracking
+		}
+		if snowflakeOpts.DataRetentionTimeInDays != nil {
+			dataRetentionTimeInDays = snowflakeOpts.DataRetentionTimeInDays
+		}
+		if snowflakeOpts.ClusterBy != nil {
+			clusterBy = snowflakeOpts.ClusterBy
+		}
+		if snowflakeOpts.Comment != nil {
+			comment = snowflakeOpts.Comment
+		}
+		if snowflakeOpts.OnCommit != nil {
+			onCommit = snowflakeOpts.OnCommit
+		}
+	}
+
 	return &statement.CreateTable{
 		OrReplace:        orReplace,
 		Temporary:        temporary,
@@ -335,10 +384,167 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Diststyle:        diststyle,
 		Distkey:          distkey,
 		Sortkey:          sortkey,
+		// Snowflake-specific fields
+		CopyGrants:              copyGrants,
+		EnableSchemaEvolution:   enableSchemaEvolution,
+		ChangeTracking:          changeTracking,
+		DataRetentionTimeInDays: dataRetentionTimeInDays,
+		ClusterBy:               clusterBy,
+		Comment:                 comment,
 	}, nil
 }
 
-// parseCreateTableLike parses the LIKE clause in CREATE TABLE
+// snowflakeCreateTableOptions holds Snowflake-specific CREATE TABLE options
+type snowflakeCreateTableOptions struct {
+	CopyGrants              bool
+	EnableSchemaEvolution   *bool
+	ChangeTracking          *bool
+	DataRetentionTimeInDays *uint64
+	ClusterBy               *expr.WrappedCollection
+	Comment                 *expr.CommentDef
+	OnCommit                *expr.OnCommit
+}
+
+// parseSnowflakeCreateTableOptionsBeforeColumns parses Snowflake options that appear before columns
+// Snowflake allows these options in any order, before or after the column list
+func parseSnowflakeCreateTableOptionsBeforeColumns(p *Parser) snowflakeCreateTableOptions {
+	return parseSnowflakeCreateTableOptionsWithTerminator(p, token.TokenLParen{})
+}
+
+// parseSnowflakeCreateTableOptions parses Snowflake options that appear after columns
+func parseSnowflakeCreateTableOptions(p *Parser) snowflakeCreateTableOptions {
+	return parseSnowflakeCreateTableOptionsWithTerminator(p, nil)
+}
+
+// parseSnowflakeCreateTableOptionsWithTerminator parses Snowflake CREATE TABLE options in a loop
+// until a terminator token is encountered or no more options are available
+func parseSnowflakeCreateTableOptionsWithTerminator(p *Parser, terminator token.Token) snowflakeCreateTableOptions {
+	var opts snowflakeCreateTableOptions
+
+	for {
+		// Check for terminator - if the next token matches the terminator type, stop
+		if terminator != nil {
+			switch terminator.(type) {
+			case token.TokenLParen:
+				if _, isTerminator := p.PeekToken().Token.(token.TokenLParen); isTerminator {
+					break
+				}
+			}
+		}
+
+		tok := p.PeekToken()
+		word, ok := tok.Token.(token.TokenWord)
+		if !ok {
+			break
+		}
+
+		kw := string(word.Word.Keyword)
+		if kw == "" {
+			break
+		}
+
+		switch kw {
+		case "COPY":
+			p.AdvanceToken()
+			if p.ParseKeyword("GRANTS") {
+				opts.CopyGrants = true
+			} else {
+				// Not COPY GRANTS, backtrack
+				p.PrevToken()
+				return opts
+			}
+
+		case "COMMENT":
+			p.AdvanceToken()
+			commentTok := p.NextToken()
+			if str, ok := commentTok.Token.(token.TokenSingleQuotedString); ok {
+				opts.Comment = &expr.CommentDef{Comment: str.Value}
+			} else {
+				// Backtrack
+				p.PrevToken()
+				p.PrevToken()
+				return opts
+			}
+
+		case "CLUSTER":
+			p.AdvanceToken()
+			if p.ParseKeyword("BY") {
+				if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+					p.AdvanceToken() // consume (
+					ep := NewExpressionParser(p)
+					var clusterExprs []expr.Expr
+					for {
+						expr, _ := ep.ParseExpr()
+						if expr == nil {
+							break
+						}
+						clusterExprs = append(clusterExprs, expr)
+						if !p.ConsumeToken(token.TokenComma{}) {
+							break
+						}
+					}
+					if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
+						p.AdvanceToken() // consume )
+					}
+					wrapped := &expr.WrappedCollection{Items: clusterExprs}
+					opts.ClusterBy = wrapped
+				}
+			} else {
+				// Not CLUSTER BY, backtrack
+				p.PrevToken()
+				return opts
+			}
+
+		case "ENABLE_SCHEMA_EVOLUTION":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				val := p.ParseKeyword("TRUE")
+				if !val {
+					val = p.ParseKeyword("FALSE")
+				}
+				opts.EnableSchemaEvolution = &val
+			}
+
+		case "CHANGE_TRACKING":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				val := p.ParseKeyword("TRUE")
+				if !val {
+					val = p.ParseKeyword("FALSE")
+				}
+				opts.ChangeTracking = &val
+			}
+
+		case "DATA_RETENTION_TIME_IN_DAYS":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if num, ok := valTok.Token.(token.TokenNumber); ok {
+					var val uint64
+					fmt.Sscanf(num.Value, "%d", &val)
+					opts.DataRetentionTimeInDays = &val
+				}
+			}
+
+		case "ON":
+			p.AdvanceToken()
+			if p.ParseKeyword("COMMIT") {
+				opts.OnCommit = parseOnCommitClause(p)
+			} else {
+				// Not ON COMMIT, backtrack
+				p.PrevToken()
+				return opts
+			}
+
+		default:
+			// Not a Snowflake option, return what we have
+			return opts
+		}
+	}
+
+	return opts
+}
+
 // Syntax: LIKE table_name [INCLUDING DEFAULTS | EXCLUDING DEFAULTS]
 // Reference: src/parser/mod.rs
 func parseCreateTableLike(p *Parser) (*expr.CreateTableLikeKind, error) {

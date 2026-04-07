@@ -6,12 +6,12 @@ Complete re-implementation of sqlparser-rs in Go using automated transpilation.
 **Target:** Full feature parity with all 14 dialects and 1,260+ tests  
 **Approach:** Automated transpilation with interface-based AST design
 
-**Current Status (April 6, 2026):**
+**Current Status (April 7, 2026):**
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 72,064 lines (107% of Rust - AST types and interfaces)
-- Rust Tests: 49,847 lines
-- Go Tests: 14,131 lines (28% of Rust test coverage)
-- **Test Pass Rate: 47%** (380 passing out of ~813 total tests)
+- Go Source: 74,668 lines (111% of Rust - AST types and interfaces)
+- Rust Tests: 49,886 lines
+- Go Tests: 14,149 lines (28.4% of Rust test coverage)
+- **Test Pass Rate: ~57%** (458+ passing out of ~813 total tests)
 
 ---
 
@@ -1546,7 +1546,7 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 
 ## Current Status (April 7, 2026)
 
-**Overall Progress: ~55.5% Test Pass Rate** (451 tests passing, 362 failing out of 813 total)
+**Overall Progress: ~57% Test Pass Rate** (458+ tests passing, ~355 failing out of 813 total)
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
@@ -1556,17 +1556,17 @@ func parseCreateTable(p *Parser) (ast.Statement, error) {
 | **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
 | **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
 | **tests/postgres**| 🔄 In Progress  | 62      | 157   | **39%**   |
-| **tests/snowflake**| 🔄 In Progress | 34      | 97    | **35%**   |
+| **tests/snowflake**| 🔄 In Progress | 41      | 97    | **42%**   |
 | **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
-| **TOTAL**        | **~55% Complete** | **451** | 813   | **~55%** |
+| **TOTAL**        | **~57% Complete** | **458+**| 813   | **~57%** |
 
 **Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 44,103 lines (src/ - parser + dialects + AST)
-- Go Source: 75,046 lines (go/ - AST types, parser, dialects - 170% of Rust)
-- Rust Tests: 49,847 lines
+- Rust Source: 67,345 lines (src/ - parser + dialects + AST)
+- Go Source: 74,668 lines (go/ - AST types, parser, dialects - 111% of Rust)
+- Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.4% of Rust test coverage)
-- **Test Pass Rate: 55%** (451 passing out of ~813 total tests)
+- **Test Pass Rate: ~57%** (458+ passing out of ~813 total tests)
 
 ### April 7, 2026 - CREATE TABLE Extensions Implementation
 
@@ -1591,6 +1591,36 @@ Implemented major parser chunks to increase test coverage:
 - **Pattern CJ: GROUP BY Modifier Parsing Order** - GROUPING SETS, CUBE, and ROLLUP can appear in GROUP BY as both expressions AND as modifiers after the expression list. The Rust parser handles GROUPING SETS as a modifier (not an expression) and parses it after the WITH modifiers.
 - **Pattern CK: Empty Tuple in GROUP BY** - PostgreSQL allows `GROUP BY ()` for grouping by a constant. Must check for `()` before trying to parse a regular expression.
 - **Pattern CL: CREATE TABLE Clause Order** - ON CLUSTER must be parsed immediately after the table name (and optional PARTITION OF), before the column list. The order matters for correct parsing.
+
+### April 7, 2026 - Snowflake CREATE TABLE Parser Implementation
+
+Implemented comprehensive Snowflake-specific CREATE TABLE parser following Rust reference (`src/dialect/snowflake.rs:816-999`):
+
+1. **Snowflake CREATE TABLE Loop-Based Parser** (parser/create.go):
+   - Implemented loop-based option parsing allowing options in any order (before or after columns)
+   - Reference: `parseSnowflakeCreateTableOptions()`, `parseSnowflakeCreateTableOptionsBeforeColumns()`
+   - **Key insight**: Snowflake allows `CREATE TABLE x COPY GRANTS (c INT)` OR `CREATE TABLE x (c INT) COPY GRANTS`
+
+2. **Implemented Snowflake-specific options**:
+   - `COPY GRANTS` - copy grants from source table
+   - `ENABLE_SCHEMA_EVOLUTION = {TRUE|FALSE}` - enable schema evolution
+   - `CHANGE_TRACKING = {TRUE|FALSE}` - enable change tracking
+   - `DATA_RETENTION_TIME_IN_DAYS = n` - set data retention time
+   - `CLUSTER BY (expr, ...)` - cluster by expressions
+   - `COMMENT 'string'` - table comment
+   - `ON COMMIT {PRESERVE ROWS|DELETE ROWS|DROP}` - transaction behavior
+
+3. **AST Updates** (ast/statement/ddl.go, ast/expr/ddl.go):
+   - Fixed `CreateTable.String()` to output Snowflake options in correct order
+   - Fixed `ColumnOptionDef.String()` to preserve quotes for COMMENT values
+   - Fixed order of LOCAL/GLOBAL vs TEMPORARY (LOCAL comes first per SQL standard)
+   - **+7 tests passing** (TestSnowflakeCreateTableCopyGrants, TestSnowflakeCreateTableEnableSchemaEvolution, TestSnowflakeCreateTableChangeTracking, TestSnowflakeCreateTableDataRetentionTime, TestSnowflakeCreateTableColumnComment, TestSnowflakeCreateTableClusterBy, TestSnowflakeCreateTableComment)
+
+**Key Pattern Documentation:**
+- **Pattern CM: Loop-Based Option Parsing** - When a dialect allows options in any order, use a loop that parses options until a non-matching token is encountered. Store parsed values and continue parsing.
+- **Pattern CN: Column Comment Quoting** - Column-level COMMENT options must preserve quotes in String() output: `COMMENT 'value'` not `COMMENT value`.
+
+---
 
 ### April 7, 2026 - CREATE TABLE Extensions Implementation
 
