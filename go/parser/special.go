@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/operator"
@@ -861,28 +862,128 @@ func (ep *ExpressionParser) parseWindowFrameBound() (*expr.WindowFrameBound, err
 	}
 
 	// Check for INTERVAL expression (used in RANGE frames)
-	// When the next token is a string literal, we need to parse it as an INTERVAL
+	// When the next token is INTERVAL keyword or a string literal, we need to parse it as an INTERVAL
 	// Reference: src/parser/mod.rs:2575-2578
 	nextTok := ep.parser.PeekTokenRef()
-	if _, isString := nextTok.Token.(token.TokenSingleQuotedString); isString {
-		// The expression is a string literal, parse as INTERVAL
-		intervalExpr, err := ep.parseIntervalExpr()
-		if err != nil {
-			return nil, err
+
+	// Check for INTERVAL keyword first
+	if word, ok := nextTok.Token.(token.TokenWord); ok && word.Word.Keyword == "INTERVAL" {
+		// INTERVAL keyword present - manually parse the interval expression
+		// to avoid the double-parsing issue with parseIntervalExpr
+		ep.parser.AdvanceToken() // consume INTERVAL keyword
+
+		// The next token should be a string literal (the value)
+		valTok := ep.parser.PeekToken()
+		if strTok, isString := valTok.Token.(token.TokenSingleQuotedString); isString {
+			ep.parser.AdvanceToken() // consume the string value
+			strVal := strTok.Value
+
+			// Check for temporal unit
+			if ep.isTemporalUnit() {
+				unit := ep.parseTemporalUnit()
+				var intervalExpr expr.Expr = &expr.IntervalExpr{
+					Value:        &expr.ValueExpr{Value: strVal},
+					LeadingField: &unit,
+				}
+				if ep.parser.ParseKeyword("PRECEDING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypePreceding,
+						Expr:      &intervalExpr,
+					}, nil
+				}
+				if ep.parser.ParseKeyword("FOLLOWING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypeFollowing,
+						Expr:      &intervalExpr,
+					}, nil
+				}
+				return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after INTERVAL expression")
+			} else {
+				// No unit found - for dialects that require it, this is an error
+				// but we'll just treat it as a literal
+				var literalExpr expr.Expr = &expr.ValueExpr{Value: strVal}
+				if ep.parser.ParseKeyword("PRECEDING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypePreceding,
+						Expr:      &literalExpr,
+					}, nil
+				}
+				if ep.parser.ParseKeyword("FOLLOWING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypeFollowing,
+						Expr:      &literalExpr,
+					}, nil
+				}
+				return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after expression")
+			}
+		} else {
+			return nil, fmt.Errorf("expected string literal after INTERVAL")
 		}
-		if ep.parser.ParseKeyword("PRECEDING") {
-			return &expr.WindowFrameBound{
-				BoundType: expr.BoundTypePreceding,
-				Expr:      &intervalExpr,
-			}, nil
+	}
+
+	// Check for string literal (format: '1 DAY' or just '1' followed by unit)
+	if strTok, isString := nextTok.Token.(token.TokenSingleQuotedString); isString {
+		strVal := strTok.Value
+
+		if strings.Contains(strVal, " ") {
+			// The string contains the unit, e.g., '1 DAY' - consume it and use as literal
+			ep.parser.AdvanceToken()
+			var literalExpr expr.Expr = &expr.ValueExpr{Value: strVal}
+			if ep.parser.ParseKeyword("PRECEDING") {
+				return &expr.WindowFrameBound{
+					BoundType: expr.BoundTypePreceding,
+					Expr:      &literalExpr,
+				}, nil
+			}
+			if ep.parser.ParseKeyword("FOLLOWING") {
+				return &expr.WindowFrameBound{
+					BoundType: expr.BoundTypeFollowing,
+					Expr:      &literalExpr,
+				}, nil
+			}
+			return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after expression")
+		} else {
+			// The string is just the value, e.g., '1' - need to parse the unit after
+			ep.parser.AdvanceToken() // consume the string value
+
+			// Parse the temporal unit (DAY, MONTH, etc.)
+			if ep.isTemporalUnit() {
+				unit := ep.parseTemporalUnit()
+				var intervalExpr expr.Expr = &expr.IntervalExpr{
+					Value:        &expr.ValueExpr{Value: strVal},
+					LeadingField: &unit,
+				}
+				if ep.parser.ParseKeyword("PRECEDING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypePreceding,
+						Expr:      &intervalExpr,
+					}, nil
+				}
+				if ep.parser.ParseKeyword("FOLLOWING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypeFollowing,
+						Expr:      &intervalExpr,
+					}, nil
+				}
+				return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after expression")
+			} else {
+				// No unit found, just use the literal
+				var literalExpr expr.Expr = &expr.ValueExpr{Value: strVal}
+				if ep.parser.ParseKeyword("PRECEDING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypePreceding,
+						Expr:      &literalExpr,
+					}, nil
+				}
+				if ep.parser.ParseKeyword("FOLLOWING") {
+					return &expr.WindowFrameBound{
+						BoundType: expr.BoundTypeFollowing,
+						Expr:      &literalExpr,
+					}, nil
+				}
+				return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after expression")
+			}
 		}
-		if ep.parser.ParseKeyword("FOLLOWING") {
-			return &expr.WindowFrameBound{
-				BoundType: expr.BoundTypeFollowing,
-				Expr:      &intervalExpr,
-			}, nil
-		}
-		return nil, fmt.Errorf("expected PRECEDING or FOLLOWING after INTERVAL expression")
 	}
 
 	// Expression bound (number or other expression)

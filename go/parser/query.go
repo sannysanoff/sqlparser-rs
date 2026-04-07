@@ -2124,11 +2124,100 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		}
 	}
 
+	// Check for MYSQL-specific table hints: USE INDEX, IGNORE INDEX, FORCE INDEX
+	var indexHints []query.TableIndexHints
+	if p.GetDialect().SupportsIndexHints() {
+		indexHints = parseTableIndexHints(p)
+	}
+
 	return &query.TableTableFactor{
-		Name:   astObjectNameToQuery(name),
-		Alias:  alias,
-		Sample: sampleKind,
+		Name:       astObjectNameToQuery(name),
+		Alias:      alias,
+		Sample:     sampleKind,
+		IndexHints: indexHints,
 	}, nil
+}
+
+// parseTableIndexHints parses MySQL-style index hints: USE INDEX, IGNORE INDEX, FORCE INDEX
+// Reference: src/parser/mod.rs:12440-12497
+func parseTableIndexHints(p *Parser) []query.TableIndexHints {
+	var hints []query.TableIndexHints
+
+	for {
+		var hintType query.TableIndexHintType
+		if p.ParseKeyword("USE") {
+			hintType = query.TableIndexHintTypeUse
+		} else if p.ParseKeyword("IGNORE") {
+			hintType = query.TableIndexHintTypeIgnore
+		} else if p.ParseKeyword("FORCE") {
+			hintType = query.TableIndexHintTypeForce
+		} else {
+			break
+		}
+
+		// Expect INDEX or KEY
+		var indexType query.TableIndexType
+		if p.ParseKeyword("INDEX") {
+			indexType = query.TableIndexTypeIndex
+		} else if p.ParseKeyword("KEY") {
+			indexType = query.TableIndexTypeKey
+		} else {
+			// Invalid syntax, but we'll just break
+			break
+		}
+
+		// Optional FOR clause: FOR JOIN, FOR ORDER BY, FOR GROUP BY
+		var forClause *query.TableIndexHintForClause
+		if p.ParseKeyword("FOR") {
+			var clause query.TableIndexHintForClause
+			if p.ParseKeyword("JOIN") {
+				clause = query.TableIndexHintForClauseJoin
+			} else if p.ParseKeyword("ORDER") && p.ParseKeyword("BY") {
+				clause = query.TableIndexHintForClauseOrderBy
+			} else if p.ParseKeyword("GROUP") && p.ParseKeyword("BY") {
+				clause = query.TableIndexHintForClauseGroupBy
+			} else {
+				// Invalid, but continue
+				clause = query.TableIndexHintForClauseJoin
+			}
+			forClause = &clause
+		}
+
+		// Expect parenthesized index name list
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			break
+		}
+
+		var indexNames []query.Ident
+		// Check for empty list: )
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); !isRParen {
+			// Parse comma-separated identifier list
+			for {
+				ident, err := p.ParseIdentifier()
+				if err != nil {
+					break
+				}
+				indexNames = append(indexNames, query.Ident{Value: ident.Value})
+
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+		}
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			break
+		}
+
+		hints = append(hints, query.TableIndexHints{
+			HintType:   hintType,
+			IndexType:  indexType,
+			ForClause:  forClause,
+			IndexNames: indexNames,
+		})
+	}
+
+	return hints
 }
 
 // parseTableFunctionArgs parses the arguments for a table-valued function
@@ -2209,28 +2298,60 @@ func wrapQueryAsQuery(stmt ast.Statement) *query.Query {
 	}
 }
 
-// parseLateralTable parses LATERAL (subquery)
+// parseLateralTable parses LATERAL followed by either:
+// - A subquery: LATERAL (SELECT ...)
+// - A table function: LATERAL function_name(...)
+// Reference: src/parser/mod.rs:15474-15489
 func parseLateralTable(p *Parser) (query.TableFactor, error) {
+	// LATERAL must be followed by either a subquery or a table function
+	if p.ConsumeToken(token.TokenLParen{}) {
+		// It's a subquery: LATERAL (SELECT ...)
+		subquery, err := parseQuery(p)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		alias, err := parseTableAlias(p)
+		if err != nil {
+			return nil, err
+		}
+
+		return &query.DerivedTableFactor{
+			Lateral:  true,
+			Subquery: wrapQueryAsQuery(subquery),
+			Alias:    alias,
+		}, nil
+	}
+
+	// It's a table function: LATERAL function_name(...)
+	// Parse the function name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect opening paren for function args
 	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
-	_, err := parseQuery(p)
+	// Parse function arguments
+	args, err := parseTableFunctionArgs(p)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-		return nil, err
-	}
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
 
-	alias, err := parseTableAlias(p)
-	if err != nil {
-		return nil, err
-	}
-
-	return &query.DerivedTableFactor{
+	return &query.FunctionTableFactor{
 		Lateral: true,
+		Name:    astObjectNameToQuery(name),
+		Args:    args,
 		Alias:   alias,
 	}, nil
 }
@@ -2349,6 +2470,10 @@ func isReservedForTableAlias(keyword string) bool {
 		"WINDOW": true, "QUALIFY": true, "SET": true,
 		"PIVOT": true, "UNPIVOT": true, "MATCH_RECOGNIZE": true, "SEMANTIC_VIEW": true,
 		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
+		// MySQL index hints - these are not aliases
+		"USE": true, "IGNORE": true, "FORCE": true,
+		// Other clause-starting keywords
+		"PARTITION": true, "TABLESAMPLE": true, "SAMPLE": true,
 	}
 	return reserved[keyword]
 }
@@ -2642,10 +2767,6 @@ func parseWindowFrame(p *Parser) (*query.WindowFrame, error) {
 
 // parseWindowFrameBound parses a window frame bound
 func parseWindowFrameBound(p *Parser) (query.WindowFrameBound, error) {
-	// DEBUG
-	curTok := p.GetCurrentToken()
-	fmt.Printf("DEBUG parseWindowFrameBound: curTok=%T=%v\n", curTok.Token, curTok.Token)
-
 	if p.ParseKeyword("CURRENT") {
 		if !p.ParseKeyword("ROW") {
 			return nil, fmt.Errorf("expected ROW after CURRENT")
@@ -2664,10 +2785,55 @@ func parseWindowFrameBound(p *Parser) (query.WindowFrameBound, error) {
 	}
 
 	// Expression bound (could be a number or INTERVAL expression)
-	ep := NewExpressionParser(p)
-	exprBound, err := ep.ParseExpr()
-	if err != nil {
-		return nil, err
+	// Reference: src/parser/mod.rs:2575-2578
+	// Check for INTERVAL expression starting with a string literal OR the INTERVAL keyword
+	curTok := p.PeekToken()
+	var exprBound expr.Expr
+	var err error
+
+	if strTok, isString := curTok.Token.(token.TokenSingleQuotedString); isString {
+		// This is an INTERVAL expression like '1' DAY or '1 DAY' (string contains unit)
+		// Parse the value first (already peeked as string)
+		ep := NewExpressionParser(p)
+
+		// Check if the string contains just the value or value+unit
+		strVal := strTok.Value
+		if strings.Contains(strVal, " ") {
+			// The string contains the unit, e.g., '1 DAY' - this is the full interval
+			// Just parse it as a literal and let the String() method handle it
+			p.AdvanceToken() // consume the string
+			exprBound = &expr.ValueExpr{Value: strVal}
+		} else {
+			// The string is just the value, e.g., '1' - need to parse the unit after
+			p.AdvanceToken() // consume the string value
+
+			// Parse the temporal unit (DAY, MONTH, etc.)
+			if ep.isTemporalUnit() {
+				unit := ep.parseTemporalUnit()
+				// Create an interval expression with value and unit
+				exprBound = &expr.IntervalExpr{
+					Value:        &expr.ValueExpr{Value: strVal},
+					LeadingField: &unit,
+				}
+			} else {
+				// No unit found, just use the literal
+				exprBound = &expr.ValueExpr{Value: strVal}
+			}
+		}
+	} else if word, ok := curTok.Token.(token.TokenWord); ok && word.Word.Keyword == "INTERVAL" {
+		// INTERVAL keyword present, parse the full interval expression
+		ep := NewExpressionParser(p)
+		exprBound, err = ep.parseIntervalExpr()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Regular expression
+		ep := NewExpressionParser(p)
+		exprBound, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if p.ParseKeyword("PRECEDING") {
