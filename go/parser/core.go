@@ -219,14 +219,15 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 		return dialect.PrecValue(parseriface.PrecedenceEq), nil
 
 	case token.TokenArrow, token.TokenLongArrow,
-		token.TokenHashArrow, token.TokenHashLongArrow:
-		return dialect.PrecValue(parseriface.PrecedenceEq), nil
-
-	case token.TokenAtArrow, token.TokenArrowAt,
+		token.TokenHashArrow, token.TokenHashLongArrow,
+		token.TokenAtArrow, token.TokenArrowAt,
 		token.TokenHashMinus, token.TokenAtQuestion,
 		token.TokenAtAt, token.TokenQuestion,
-		token.TokenQuestionAnd, token.TokenQuestionPipe,
-		token.TokenAtSign:
+		token.TokenQuestionAnd, token.TokenQuestionPipe:
+		// JSON operators - supported by all dialects
+		return dialect.PrecValue(parseriface.PrecedencePgOther), nil
+
+	case token.TokenAtSign:
 		if dialects.SupportsGeometricTypes(dialect) {
 			return dialect.PrecValue(parseriface.PrecedenceEq), nil
 		}

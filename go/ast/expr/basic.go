@@ -198,9 +198,10 @@ func (p *Prefixed) String() string {
 
 // TypedString represents a typed string literal like DATE '2020-01-01' (Expr::TypedString in Rust).
 type TypedString struct {
-	SpanVal  token.Span
-	DataType string
-	Value    string
+	SpanVal        token.Span
+	DataType       string
+	Value          string
+	UsesOdbcSyntax bool // For ODBC syntax like {d '2025-07-17'}
 }
 
 func (t *TypedString) exprNode() {}
@@ -212,6 +213,16 @@ func (t *TypedString) Span() token.Span {
 
 // String returns the SQL representation.
 func (t *TypedString) String() string {
+	if t.UsesOdbcSyntax {
+		switch t.DataType {
+		case "DATE":
+			return fmt.Sprintf("{d '%s'}", t.Value)
+		case "TIME":
+			return fmt.Sprintf("{t '%s'}", t.Value)
+		case "TIMESTAMP":
+			return fmt.Sprintf("{ts '%s'}", t.Value)
+		}
+	}
 	return fmt.Sprintf("%s '%s'", t.DataType, t.Value)
 }
 

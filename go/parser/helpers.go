@@ -1224,3 +1224,120 @@ func (ep *ExpressionParser) parseGeometricType(kind string) (expr.Expr, error) {
 		Value:    val.String(),
 	}, nil
 }
+
+// parseLBraceExpr parses an expression starting with '{'
+// This handles ODBC literals like {d '2025-07-17'}, {t '14:12:01'}, {ts '2025-07-17 14:12:01'}
+// and falls back to dictionary literal syntax if not an ODBC literal.
+func (ep *ExpressionParser) parseLBraceExpr() (expr.Expr, error) {
+	// Try to parse as ODBC literal first
+	if odbcExpr, ok := ep.tryParseOdbcLiteral(); ok {
+		return odbcExpr, nil
+	}
+
+	// Fall back to dictionary expression
+	return ep.parseDictionaryExpr()
+}
+
+// tryParseOdbcLiteral tries to parse an ODBC literal (datetime or function)
+// Returns (expr, true) if successful, (nil, false) if not an ODBC literal
+func (ep *ExpressionParser) tryParseOdbcLiteral() (expr.Expr, bool) {
+	// Try ODBC function body first: {fn function_name(args)}
+	if fnExpr, ok := ep.tryParseOdbcFnBody(); ok {
+		// Expect closing '}'
+		if _, err := ep.parser.ExpectToken(token.TokenRBrace{}); err != nil {
+			return nil, false
+		}
+		return fnExpr, true
+	}
+
+	// Try ODBC datetime literal: {d '...'}, {t '...'}, {ts '...'}
+	if dtExpr, ok := ep.tryParseOdbcDatetime(); ok {
+		// Expect closing '}'
+		if _, err := ep.parser.ExpectToken(token.TokenRBrace{}); err != nil {
+			return nil, false
+		}
+		return dtExpr, true
+	}
+
+	return nil, false
+}
+
+// tryParseOdbcFnBody tries to parse {fn function_name(args)}
+func (ep *ExpressionParser) tryParseOdbcFnBody() (expr.Expr, bool) {
+	// Check for FN keyword (case insensitive)
+	if !ep.parser.ParseKeyword("FN") {
+		return nil, false
+	}
+
+	// Parse function name
+	fnName, err := ep.parseObjectName()
+	if err != nil {
+		return nil, false
+	}
+
+	// Parse function arguments
+	fnExpr, err := ep.parseFunctionWithName(fnName)
+	if err != nil {
+		return nil, false
+	}
+
+	return fnExpr, true
+}
+
+// tryParseOdbcDatetime tries to parse {d '...'}, {t '...'}, or {ts '...'}
+func (ep *ExpressionParser) tryParseOdbcDatetime() (expr.Expr, bool) {
+	spanStart := ep.parser.GetCurrentToken().Span
+
+	// Peek at the next token to see if it's d, t, or ts
+	// Note: These are not keywords, they're literal letters
+	nextTok := ep.parser.PeekTokenRef()
+	wordTok, ok := nextTok.Token.(token.TokenWord)
+	if !ok {
+		return nil, false
+	}
+
+	// Convert to lowercase string for comparison (like Rust does)
+	wordStr := wordTok.Word.Value
+	var dataType string
+	switch wordStr {
+	case "t":
+		dataType = "TIME"
+	case "d":
+		dataType = "DATE"
+	case "ts":
+		dataType = "TIMESTAMP"
+	default:
+		return nil, false
+	}
+
+	// Consume the word token
+	ep.parser.NextToken()
+
+	// Parse the string literal value
+	val, err := ep.parseValue()
+	if err != nil {
+		return nil, false
+	}
+
+	// Extract the raw string value from the ValueExpr
+	var rawValue string
+	if valExpr, ok := val.(*expr.ValueExpr); ok {
+		switch v := valExpr.Value.(type) {
+		case token.TokenSingleQuotedString:
+			rawValue = v.Value
+		case token.TokenDoubleQuotedString:
+			rawValue = v.Value
+		default:
+			rawValue = val.String()
+		}
+	} else {
+		rawValue = val.String()
+	}
+
+	return &expr.TypedString{
+		SpanVal:        mergeSpans(spanStart, val.Span()),
+		DataType:       dataType,
+		Value:          rawValue,
+		UsesOdbcSyntax: true,
+	}, true
+}

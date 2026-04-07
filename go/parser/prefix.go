@@ -357,8 +357,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return ep.parseValue()
 
 	case token.TokenLBrace:
-		ep.parser.PrevToken()
-		return ep.parseDictionaryExpr()
+		return ep.parseLBraceExpr()
 
 	default:
 		return nil, ep.parser.ExpectedAt("an expression", tokIndex)
