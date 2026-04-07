@@ -75,6 +75,11 @@ func (g *Grant) String() string {
 		f.WriteString(" WITH GRANT OPTION")
 	}
 
+	if g.CurrentGrants != nil && *g.CurrentGrants != CurrentGrantsNone {
+		f.WriteString(" ")
+		f.WriteString(g.CurrentGrants.String())
+	}
+
 	if g.AsGrantor != nil {
 		f.WriteString(" AS ")
 		f.WriteString(g.AsGrantor.String())
@@ -488,6 +493,24 @@ const (
 	GrantObjectTypeAllFunctionsInSchema
 	// GrantObjectTypeFutureTablesInSchema - FUTURE TABLES IN SCHEMA
 	GrantObjectTypeFutureTablesInSchema
+	// GrantObjectTypeWarehouses - Warehouses (ON WAREHOUSE ...)
+	GrantObjectTypeWarehouses
+	// GrantObjectTypeIntegrations - Integrations (ON INTEGRATION ...)
+	GrantObjectTypeIntegrations
+	// GrantObjectTypeProcedures - Procedures (ON PROCEDURE ...)
+	GrantObjectTypeProcedures
+	// GrantObjectTypeFunctions - Functions (ON FUNCTION ...)
+	GrantObjectTypeFunctions
+	// GrantObjectTypeFutureSchemasInDatabase - FUTURE SCHEMAS IN DATABASE
+	GrantObjectTypeFutureSchemasInDatabase
+	// GrantObjectTypeFutureExternalTablesInSchema - FUTURE EXTERNAL TABLES IN SCHEMA
+	GrantObjectTypeFutureExternalTablesInSchema
+	// GrantObjectTypeFutureViewsInSchema - FUTURE VIEWS IN SCHEMA
+	GrantObjectTypeFutureViewsInSchema
+	// GrantObjectTypeFutureMaterializedViewsInSchema - FUTURE MATERIALIZED VIEWS IN SCHEMA
+	GrantObjectTypeFutureMaterializedViewsInSchema
+	// GrantObjectTypeFutureSequencesInSchema - FUTURE SEQUENCES IN SCHEMA
+	GrantObjectTypeFutureSequencesInSchema
 )
 
 // GrantObjects represents the objects on which privileges are granted
@@ -586,6 +609,78 @@ func (g *GrantObjects) String() string {
 		}
 	case GrantObjectTypeAllFunctionsInSchema:
 		f.WriteString("ALL FUNCTIONS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeWarehouses:
+		f.WriteString("WAREHOUSE ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeIntegrations:
+		f.WriteString("INTEGRATION ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeProcedures:
+		f.WriteString("PROCEDURE ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeFunctions:
+		f.WriteString("FUNCTION ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeFutureSchemasInDatabase:
+		f.WriteString("FUTURE SCHEMAS IN DATABASE ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeFutureExternalTablesInSchema:
+		f.WriteString("FUTURE EXTERNAL TABLES IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeFutureViewsInSchema:
+		f.WriteString("FUTURE VIEWS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeFutureMaterializedViewsInSchema:
+		f.WriteString("FUTURE MATERIALIZED VIEWS IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeFutureSequencesInSchema:
+		f.WriteString("FUTURE SEQUENCES IN SCHEMA ")
 		for i, schema := range g.Schemas {
 			if i > 0 {
 				f.WriteString(", ")
@@ -694,3 +789,15 @@ const (
 	// CurrentGrantsRevoke - REVOKE CURRENT GRANTS
 	CurrentGrantsRevoke
 )
+
+// String returns the SQL representation
+func (c CurrentGrantsKind) String() string {
+	switch c {
+	case CurrentGrantsCopy:
+		return "COPY CURRENT GRANTS"
+	case CurrentGrantsRevoke:
+		return "REVOKE CURRENT GRANTS"
+	default:
+		return ""
+	}
+}

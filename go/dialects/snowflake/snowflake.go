@@ -587,9 +587,11 @@ func (d *SnowflakeDialect) SupportsNamedFnArgsWithAssignmentOperator() bool {
 	return false
 }
 
-// SupportsNamedFnArgsWithRArrowOperator returns false for Snowflake.
+// SupportsNamedFnArgsWithRArrowOperator returns true for Snowflake.
+// Snowflake uses => for named function arguments in functions like FLATTEN.
+// See: https://docs.snowflake.com/en/sql-reference/functions/flatten
 func (d *SnowflakeDialect) SupportsNamedFnArgsWithRArrowOperator() bool {
-	return false
+	return true
 }
 
 // SupportsNamedFnArgsWithExprName returns false for Snowflake.

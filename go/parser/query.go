@@ -2331,6 +2331,8 @@ func parseTableIndexHints(p *Parser) []query.TableIndexHints {
 
 // parseTableFunctionArgs parses the arguments for a table-valued function
 // Handles both empty args () and non-empty args (arg1, arg2, ...)
+// Supports named arguments like FLATTEN(input => expr, outer => true)
+// Reference: src/parser/mod.rs:17878-17897 parse_table_function_args
 func parseTableFunctionArgs(p *Parser) ([]query.FunctionArg, error) {
 	var args []query.FunctionArg
 
@@ -2339,14 +2341,18 @@ func parseTableFunctionArgs(p *Parser) ([]query.FunctionArg, error) {
 		return args, nil
 	}
 
-	// Parse non-empty argument list
+	// Parse non-empty argument list using function arg parser
+	// This supports named arguments (name => value) unlike regular expressions
 	ep := NewExpressionParser(p)
 	for {
-		argExpr, err := ep.ParseExpr()
+		funcArg, err := ep.ParseFunctionArg()
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, query.FunctionArg{Expr: exprToQueryExpr(argExpr)})
+
+		// Convert expr.FunctionArg to query.FunctionArg
+		queryArg := convertFunctionArgToQuery(funcArg)
+		args = append(args, queryArg)
 
 		// Check for comma or closing paren
 		if p.ConsumeToken(token.TokenComma{}) {
@@ -2359,6 +2365,23 @@ func parseTableFunctionArgs(p *Parser) ([]query.FunctionArg, error) {
 	}
 
 	return args, nil
+}
+
+// convertFunctionArgToQuery converts an expr.FunctionArg to a query.FunctionArg
+// Handles both regular expression arguments and named arguments
+func convertFunctionArgToQuery(arg expr.FunctionArg) query.FunctionArg {
+	switch a := arg.(type) {
+	case *expr.FunctionArgNamed:
+		// Named argument: name => value, name = value, etc.
+		// For now, we represent it as a query expression that stringifies correctly
+		return query.FunctionArg{Expr: &queryExprWrapper{expr: a}}
+	case *expr.FunctionArgExpr:
+		// Regular expression argument
+		return query.FunctionArg{Expr: &queryExprWrapper{expr: a.Expr}}
+	default:
+		// Fallback: wrap the argument as an expression
+		return query.FunctionArg{Expr: &queryExprWrapper{expr: arg.(expr.Expr)}}
+	}
 }
 
 // exprToQueryExpr converts an expr.Expr to a query.Expr
@@ -3127,6 +3150,9 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	} else if qStmt, ok := innerQuery.(*QueryStatement); ok {
 		// Nested CTE (WITH clause inside CTE)
 		cte.Query = qStmt.Query
+	} else if sQuery, ok := innerQuery.(*statement.Query); ok {
+		// Query with WITH clause
+		cte.Query = sQuery.Query
 	}
 	cte.Alias = alias
 

@@ -216,7 +216,7 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 		}
 
 		// Parse argument
-		arg, err := ep.parseFunctionArg()
+		arg, err := ep.ParseFunctionArg()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -289,10 +289,10 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 	return args, clauses, nil
 }
 
-// parseFunctionArg parses a single function argument
+// ParseFunctionArg parses a single function argument
 // Handles named arguments (name => value, name = value, etc.) and unnamed expressions
 // Reference: src/parser/mod.rs:17788-17836 parse_function_args
-func (ep *ExpressionParser) parseFunctionArg() (expr.FunctionArg, error) {
+func (ep *ExpressionParser) ParseFunctionArg() (expr.FunctionArg, error) {
 	// Check for wildcard * (used in COUNT(*) and similar)
 	if ep.parser.ConsumeToken(token.TokenMul{}) {
 		wildcard := &expr.Wildcard{}
@@ -1173,7 +1173,7 @@ func (ep *ExpressionParser) parseExcludeClause() (*expr.ExcludeSelectItem, error
 		}
 		return &expr.ExcludeSelectItem{Columns: parts}, nil
 	}
-	
+
 	// Single column without parens: EXCLUDE col
 	col, err := ep.parseObjectName()
 	if err != nil {
@@ -1185,18 +1185,18 @@ func (ep *ExpressionParser) parseExcludeClause() (*expr.ExcludeSelectItem, error
 // parseObjectNameList parses a comma-separated list of object names
 func (ep *ExpressionParser) parseObjectNameList() ([]*expr.ObjectName, error) {
 	var names []*expr.ObjectName
-	
+
 	for {
 		name, err := ep.parseObjectName()
 		if err != nil {
 			return nil, err
 		}
 		names = append(names, name)
-		
+
 		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
-	
+
 	return names, nil
 }

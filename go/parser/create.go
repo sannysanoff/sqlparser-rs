@@ -1188,6 +1188,8 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 		}
 	case *QueryStatement:
 		q = s.Query
+	case *statement.Query:
+		q = s.Query
 	default:
 		return nil, fmt.Errorf("expected SELECT query in CREATE VIEW, got %T", stmt)
 	}

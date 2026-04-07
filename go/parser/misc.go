@@ -186,6 +186,12 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		{[]string{"ALL", "MATERIALIZED", "VIEWS", "IN", "SCHEMA"}, statement.GrantObjectTypeAllMaterializedViewsInSchema},
 		{[]string{"ALL", "EXTERNAL", "TABLES", "IN", "SCHEMA"}, statement.GrantObjectTypeAllExternalTablesInSchema},
 		{[]string{"ALL", "FUNCTIONS", "IN", "SCHEMA"}, statement.GrantObjectTypeAllFunctionsInSchema},
+		{[]string{"FUTURE", "SCHEMAS", "IN", "DATABASE"}, statement.GrantObjectTypeFutureSchemasInDatabase},
+		{[]string{"FUTURE", "TABLES", "IN", "SCHEMA"}, statement.GrantObjectTypeFutureTablesInSchema},
+		{[]string{"FUTURE", "EXTERNAL", "TABLES", "IN", "SCHEMA"}, statement.GrantObjectTypeFutureExternalTablesInSchema},
+		{[]string{"FUTURE", "VIEWS", "IN", "SCHEMA"}, statement.GrantObjectTypeFutureViewsInSchema},
+		{[]string{"FUTURE", "MATERIALIZED", "VIEWS", "IN", "SCHEMA"}, statement.GrantObjectTypeFutureMaterializedViewsInSchema},
+		{[]string{"FUTURE", "SEQUENCES", "IN", "SCHEMA"}, statement.GrantObjectTypeFutureSequencesInSchema},
 	} {
 		if matched, err := parseAllInSchema(spec.keywords, spec.objectType); err != nil {
 			return nil, nil, err
@@ -204,6 +210,10 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		{"DATABASE", statement.GrantObjectTypeDatabases},
 		{"SCHEMA", statement.GrantObjectTypeSchemas},
 		{"VIEW", statement.GrantObjectTypeViews},
+		{"WAREHOUSE", statement.GrantObjectTypeWarehouses},
+		{"INTEGRATION", statement.GrantObjectTypeIntegrations},
+		{"PROCEDURE", statement.GrantObjectTypeProcedures},
+		{"FUNCTION", statement.GrantObjectTypeFunctions},
 	} {
 		if matched, err := parseSingleObjectType(spec.keyword, spec.objectType); err != nil {
 			return nil, nil, err
@@ -332,6 +342,12 @@ func parseGrantees(p *Parser) ([]*statement.Grantee, error) {
 	}
 
 	for {
+		// Check for reserved keywords that should terminate the grantee list
+		// COPY CURRENT GRANTS and REVOKE CURRENT GRANTS come after grantees
+		if p.PeekKeyword("COPY") || p.PeekKeyword("REVOKE") {
+			break
+		}
+
 		newGranteeType := granteeType
 		for _, gt := range granteeTypes {
 			if p.ParseKeywords(gt.keywords) {
