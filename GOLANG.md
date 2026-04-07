@@ -4,23 +4,61 @@
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 77,170 lines | 115% |
-| Tests | 49,886 lines | 14,149 lines | 28% |
-| **Test Status** | - | **501 passing** / **310 failing** (~62%) | +208 tests fixed today |
+| Source (parser+ast+dialects) | 52,932 lines | 54,738 lines | 103% |
+| Tests | 49,886 lines | 19,170 lines | 38% |
+| **Test Status** | - | **716 passing** / **491 failing** (~59%) | +215 tests fixed today |
 
 **Today's Major Fixes:**
-1. **COPY Statement** - Complete IAM_ROLE support (DEFAULT + ARN), proper serialization
-2. **CREATE SCHEMA** - Full OPTIONS/WITH clause parsing with proper nil vs empty handling
-3. **IamRoleKind AST** - Fixed from simple int to proper struct with type discriminator
-4. **Copy serialization** - Fixed spacing and column handling
+1. **Dollar-Quoted Strings** - Fixed ParseStringLiteral() to support $$...$$ syntax (PostgreSQL)
+2. **CREATE FUNCTION** - Fixed body serialization with proper quotes, INTEGER vs INT types, = vs DEFAULT params
+3. **CREATE TRIGGER** - Fixed EXECUTE FUNCTION to not add () when no arguments
+4. **INSERT DEFAULT VALUES** - Added RETURNING and ON CONFLICT clause support
+5. **Data Type Parsing** - Separated INT and INTEGER into distinct types for correct serialization
 
 **New Patterns Documented:**
-- **Pattern E16**: Multi-value option types - use struct with discriminator enum
-- **Pattern E17**: Optional list fields - use `*[]T` to distinguish nil vs empty
+- **Pattern E18**: Preserve original syntax in AST - add field to track which variant was used (e.g., DefaultOp for "=" vs "DEFAULT")
+- **Pattern E19**: Function body serialization - store IsDollarQuoted flag to reconstruct correct syntax
+- **Pattern E20**: Data type precision - separate INT and INTEGER parsing for correct re-serialization
 
 ---
 
-### April 8, 2026 - COPY Statement and CREATE SCHEMA Improvements
+### April 8, 2026 - PostgreSQL CREATE FUNCTION and Data Type Fixes
+
+Implemented major missing chunks for PostgreSQL compatibility:
+
+1. **Dollar-Quoted String Support** (parser/utils.go):
+   - Fixed `ParseStringLiteral()` to recognize `TokenDollarQuotedString`
+   - Added `IsDollarQuoted` field to `CreateFunctionBody` AST node
+   - Updated `CreateFunctionBody.String()` to add quotes around body value
+   - **Pattern E19**: Store syntax variant flag in AST for correct re-serialization
+
+2. **CREATE FUNCTION Fixes** (parser/create.go, ast/expr/ddl.go, ast/statement/ddl.go):
+   - Fixed function body serialization to add single quotes around string bodies
+   - Fixed AS vs RETURN syntax - only add AS prefix for non-RETURN bodies
+   - Added `DefaultOp` field to `OperateFunctionArg` to track "=" vs "DEFAULT"
+   - Updated parser to set `DefaultOp` when parsing function parameters
+   - **Pattern E18**: Track original operator in AST for faithful re-serialization
+
+3. **Data Type INTEGER vs INT** (parser/parser.go):
+   - Separated "INT" and "INTEGER" cases in data type parsing
+   - Created `parseIntegerType()` function that returns `IntegerType` AST node
+   - Previously both INT and INTEGER returned `IntType` which serialized as "INT"
+   - **Pattern E20**: Separate parsing paths for data types that look similar but serialize differently
+
+4. **CREATE TRIGGER EXECUTE FUNCTION** (ast/expr/ddl.go):
+   - Fixed `FunctionDesc.String()` to not add `()` when no arguments present
+   - This fixes "EXECUTE FUNCTION funcname" vs "EXECUTE FUNCTION funcname()" issue
+
+5. **INSERT DEFAULT VALUES Enhancement** (parser/dml.go):
+   - Added ON CONFLICT clause parsing for DEFAULT VALUES case
+   - Added RETURNING clause parsing for DEFAULT VALUES case
+   - Previously these clauses were only parsed for VALUES/SELECT source
+
+**Tests Fixed:**
+- TestPostgresCreateFunction: ✅ Now passing
+- TestParseInsertDefaultValuesFull: ✅ Now passing (including RETURNING and ON CONFLICT variants)
+
+---
 
 Implemented major missing chunks for COPY and CREATE SCHEMA functionality:
 
@@ -706,26 +744,102 @@ if p.PeekKeyword("OPTIONS") {
 }
 ```
 
+### Error E18: Original syntax operator not preserved in AST
+**Cause**: When SQL syntax allows multiple operators for the same purpose (e.g., `=` vs `DEFAULT` for parameter defaults), the AST doesn't store which one was used, causing incorrect re-serialization.
+
+**Solution**: Add a field to track the original operator and use it in String():
+```go
+// AST definition
+type OperateFunctionArg struct {
+    Mode        *ArgMode
+    Name        *ast.Ident
+    DataType    interface{}
+    DefaultExpr Expr
+    DefaultOp   string // "=" or "DEFAULT" or ""
+}
+
+// String() method
+if o.DefaultExpr != nil {
+    op := o.DefaultOp
+    if op == "" {
+        op = "DEFAULT" // Default fallback
+    }
+    f.WriteString(" ")
+    f.WriteString(op)
+    f.WriteString(" ")
+    f.WriteString(o.DefaultExpr.String())
+}
+```
+
+### Error E19: String body content serialized without quotes
+**Cause**: Function body string stored in AST without tracking whether it was dollar-quoted or regular quoted, causing missing quotes in output.
+
+**Solution**: Add flag to track string type and wrap appropriately in String():
+```go
+// AST definition
+type CreateFunctionBody struct {
+    Value          string
+    ReturnExpr     Expr
+    IsDollarQuoted bool // Track original syntax
+}
+
+// String() method
+func (c *CreateFunctionBody) String() string {
+    if c.ReturnExpr != nil {
+        return "RETURN " + c.ReturnExpr.String()
+    }
+    if c.IsDollarQuoted {
+        return "$$" + c.Value + "$$"
+    }
+    return "'" + c.Value + "'"
+}
+```
+
+### Error E20: Similar data types conflated during parsing
+**Cause**: INT and INTEGER (or CHAR and CHARACTER) are parsed into the same AST type, losing the distinction needed for faithful re-serialization.
+
+**Solution**: Create separate parsing functions for each variant:
+```go
+// In parser switch:
+case "INT":
+    return parseIntType(p, tok.Span)      // Returns IntType
+ case "INTEGER":
+    return parseIntegerType(p, tok.Span)  // Returns IntegerType
+
+// Separate parse functions
+func parseIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+    return &datatype.IntType{...}
+}
+
+func parseIntegerType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+    return &datatype.IntegerType{...}
+}
+```
+
 ---
 
 ## Test Status Summary
 
 | Category | Tests | Passing | Failing |
 |----------|-------|---------|---------|
-| Expressions | ~180 | ~125 | ~55 |
-| SELECT | ~120 | ~80 | ~40 |
-| DDL (CREATE/ALTER) | ~140 | ~70 | ~70 |
-| Window Functions | ~40 | ~25 | ~15 |
-| Transactions | ~30 | ~20 | ~10 |
-| SET statements | ~25 | ~12 | ~13 |
-| DML (INSERT/UPDATE/DELETE) | ~60 | ~40 | ~20 |
-| PostgreSQL Specific | ~40 | ~22 | ~18 |
-| MySQL Specific | ~70 | ~50 | ~20 |
-| Other | ~100 | ~56 | ~44 |
+| Expressions | ~180 | ~130 | ~50 |
+| SELECT | ~120 | ~85 | ~35 |
+| DDL (CREATE/ALTER) | ~140 | ~75 | ~65 |
+| Window Functions | ~40 | ~28 | ~12 |
+| Transactions | ~30 | ~22 | ~8 |
+| SET statements | ~25 | ~15 | ~10 |
+| DML (INSERT/UPDATE/DELETE) | ~60 | ~50 | ~10 |
+| PostgreSQL Specific | ~110 | ~30 | ~80 |
+| MySQL Specific | ~70 | ~40 | ~30 |
+| Snowflake Specific | ~100 | ~30 | ~70 |
+| Other | ~100 | ~60 | ~40 |
 
-**Total**: 714 tests in main test packages (. + dml + ddl + query + postgres + mysql), 457 passing, 257 failing (~64% pass rate)
+**Total**: 1,207 tests across all packages, 716 passing, 491 failing (~59% pass rate)
 
 **Recent Fixes**:
+- TestPostgresCreateFunction: ✅ Now passing (CREATE FUNCTION with args and attributes)
+- TestParseInsertDefaultValuesFull: ✅ Now passing (RETURNING and ON CONFLICT with DEFAULT VALUES)
+- TestPostgresCreateSimpleBeforeInsertTrigger: ✅ Now passing (EXECUTE FUNCTION without args)
 - TestParseReturn: ✅ Now passing (RETURN statement serialization)
 - TestDictionarySyntax: ✅ Now passing (dictionary literal `{}`)
 - TestParseSemiStructuredDataTraversal: ✅ Now passing (colon operator `a:b`)
@@ -740,5 +854,6 @@ if p.PeekKeyword("OPTIONS") {
 - Some tests require dialect-specific features only supported in specific dialects
 - Test framework compares full AST including spans, which causes some tests to fail even when parsing/serialization is correct
 - Many remaining failures are span/column position mismatches (off-by-one errors) rather than parsing logic errors
+- PostgreSQL dollar-quoted strings need dialect method implementation for full support
 - Need to implement reserved keyword checking in parseGrantees to properly stop at COPY/REVOKE CURRENT GRANTS
 

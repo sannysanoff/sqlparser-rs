@@ -151,8 +151,32 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 
 	// Check for DEFAULT VALUES
 	if p.ParseKeywords([]string{"DEFAULT", "VALUES"}) {
+		// Parse optional ON CONFLICT clause
+		var onInsert *expr.OnInsert
+		if p.ParseKeyword("ON") {
+			if p.ParseKeyword("CONFLICT") {
+				onInsert, err = parseOnConflict(p)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		// Parse optional RETURNING clause
+		var returning []*query.SelectItem
+		if p.ParseKeyword("RETURNING") {
+			items, err := parseProjection(p)
+			if err != nil {
+				return nil, err
+			}
+			for i := range items {
+				item := items[i]
+				returning = append(returning, &item)
+			}
+		}
+
 		return finishInsert(p, insertToken, optimizerHints, orConflict, priority, ignore, replaceInto,
-			overwrite, into, hasTableKeyword, tableName, tableAlias, nil, nil, true, nil, nil, nil, nil)
+			overwrite, into, hasTableKeyword, tableName, tableAlias, nil, nil, true, nil, nil, onInsert, returning)
 	}
 
 	// Parse optional column list (col1, col2, ...) - can be empty ()

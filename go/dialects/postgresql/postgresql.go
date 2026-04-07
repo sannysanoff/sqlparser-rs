@@ -716,6 +716,11 @@ func (d *PostgreSqlDialect) SupportsDollarPlaceholder() bool {
 	return true
 }
 
+// SupportsDollarQuotedString returns true for PostgreSqlDialect.
+func (d *PostgreSqlDialect) SupportsDollarQuotedString() bool {
+	return true
+}
+
 // SupportsCreateIndexWithClause returns true for PostgreSqlDialect.
 func (d *PostgreSqlDialect) SupportsCreateIndexWithClause() bool {
 	return true

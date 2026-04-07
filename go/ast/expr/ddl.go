@@ -953,6 +953,7 @@ type OperateFunctionArg struct {
 	Name        *ast.Ident
 	DataType    interface{} // datatype.DataType - using interface{} to avoid import cycle
 	DefaultExpr Expr
+	DefaultOp   string // "=" or "DEFAULT" or "", empty means no default
 }
 
 func (o *OperateFunctionArg) exprNode()        {}
@@ -973,7 +974,13 @@ func (o *OperateFunctionArg) String() string {
 		}
 	}
 	if o.DefaultExpr != nil {
-		f.WriteString(" DEFAULT ")
+		op := o.DefaultOp
+		if op == "" {
+			op = "DEFAULT"
+		}
+		f.WriteString(" ")
+		f.WriteString(op)
+		f.WriteString(" ")
 		f.WriteString(o.DefaultExpr.String())
 	}
 	return f.String()
@@ -1123,8 +1130,9 @@ type FunctionSetValue struct {
 
 // CreateFunctionBody represents function body.
 type CreateFunctionBody struct {
-	Value      string // For AS 'string' syntax
-	ReturnExpr Expr   // For RETURN expr syntax
+	Value          string // For AS 'string' syntax
+	ReturnExpr     Expr   // For RETURN expr syntax
+	IsDollarQuoted bool   // Whether the original was a dollar-quoted string
 }
 
 func (c *CreateFunctionBody) exprNode()        {}
@@ -1133,7 +1141,11 @@ func (c *CreateFunctionBody) String() string {
 	if c.ReturnExpr != nil {
 		return "RETURN " + c.ReturnExpr.String()
 	}
-	return c.Value
+	// Add quotes around the value if it's a string body
+	if c.IsDollarQuoted {
+		return "$$" + c.Value + "$$"
+	}
+	return "'" + c.Value + "'"
 }
 
 // FunctionDefinitionSetParam represents function definition set parameter.
@@ -2123,14 +2135,17 @@ func (f *FunctionDesc) Span() token.Span { return token.Span{} }
 func (f *FunctionDesc) String() string {
 	var sb strings.Builder
 	sb.WriteString(f.Name.String())
-	sb.WriteString("(")
-	for i, arg := range f.Args {
-		if i > 0 {
-			sb.WriteString(", ")
+	// Only add () if there are arguments
+	if len(f.Args) > 0 {
+		sb.WriteString("(")
+		for i, arg := range f.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(arg.String())
 		}
-		sb.WriteString(arg.String())
+		sb.WriteString(")")
 	}
-	sb.WriteString(")")
 	return sb.String()
 }
 

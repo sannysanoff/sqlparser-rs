@@ -2619,11 +2619,14 @@ func parseCreateFunction(p *Parser, orReplace, temporary bool) (ast.Statement, e
 		} else if p.PeekKeyword("AS") {
 			p.NextToken()
 			// Parse function body as string literal or dollar-quoted string
+			tok := p.PeekToken()
 			bodyStr, err := p.ParseStringLiteral()
 			if err != nil {
 				return nil, err
 			}
-			body = &expr.CreateFunctionBody{Value: bodyStr}
+			// Check if it was a dollar-quoted string
+			_, isDollarQuoted := tok.Token.(token.TokenDollarQuotedString)
+			body = &expr.CreateFunctionBody{Value: bodyStr, IsDollarQuoted: isDollarQuoted}
 		} else if p.PeekKeyword("IMMUTABLE") {
 			p.NextToken()
 			b := expr.FunctionBehaviorImmutable
@@ -2768,10 +2771,17 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 
 		// Check for DEFAULT or = value
 		var defaultExpr expr.Expr
-		if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
-			if p.PeekKeyword("DEFAULT") {
-				p.NextToken()
+		var defaultOp string
+		if p.PeekKeyword("DEFAULT") {
+			p.NextToken()
+			defaultOp = "DEFAULT"
+			exprParser := NewExpressionParser(p)
+			defaultExpr, err = exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
 			}
+		} else if p.ConsumeToken(token.TokenEq{}) {
+			defaultOp = "="
 			exprParser := NewExpressionParser(p)
 			defaultExpr, err = exprParser.ParseExpr()
 			if err != nil {
@@ -2784,6 +2794,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 			Name:        name,
 			DataType:    dataType,
 			DefaultExpr: defaultExpr,
+			DefaultOp:   defaultOp,
 		}, nil
 	}
 
@@ -2824,10 +2835,17 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 
 				// Check for DEFAULT or = value
 				var defaultExpr expr.Expr
-				if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
-					if p.PeekKeyword("DEFAULT") {
-						p.NextToken()
+				var defaultOp string
+				if p.PeekKeyword("DEFAULT") {
+					p.NextToken()
+					defaultOp = "DEFAULT"
+					exprParser := NewExpressionParser(p)
+					defaultExpr, err = exprParser.ParseExpr()
+					if err != nil {
+						return nil, err
 					}
+				} else if p.ConsumeToken(token.TokenEq{}) {
+					defaultOp = "="
 					exprParser := NewExpressionParser(p)
 					defaultExpr, err = exprParser.ParseExpr()
 					if err != nil {
@@ -2839,6 +2857,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 					Mode:        mode,
 					DataType:    firstDataType,
 					DefaultExpr: defaultExpr,
+					DefaultOp:   defaultOp,
 				}, nil
 			}
 
@@ -2847,10 +2866,17 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 
 			// Check for DEFAULT or = value
 			var defaultExpr expr.Expr
-			if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
-				if p.PeekKeyword("DEFAULT") {
-					p.NextToken()
+			var defaultOp string
+			if p.PeekKeyword("DEFAULT") {
+				p.NextToken()
+				defaultOp = "DEFAULT"
+				exprParser := NewExpressionParser(p)
+				defaultExpr, err = exprParser.ParseExpr()
+				if err != nil {
+					return nil, err
 				}
+			} else if p.ConsumeToken(token.TokenEq{}) {
+				defaultOp = "="
 				exprParser := NewExpressionParser(p)
 				defaultExpr, err = exprParser.ParseExpr()
 				if err != nil {
@@ -2863,6 +2889,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 				Name:        name,
 				DataType:    secondDataType,
 				DefaultExpr: defaultExpr,
+				DefaultOp:   defaultOp,
 			}, nil
 		}
 	}
@@ -2870,10 +2897,17 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 	// Next token is not a type keyword, so firstDataType is the actual data type
 	// Check for DEFAULT or = value
 	var defaultExpr expr.Expr
-	if p.PeekKeyword("DEFAULT") || p.ConsumeToken(token.TokenEq{}) {
-		if p.PeekKeyword("DEFAULT") {
-			p.NextToken()
+	var defaultOp string
+	if p.PeekKeyword("DEFAULT") {
+		p.NextToken()
+		defaultOp = "DEFAULT"
+		exprParser := NewExpressionParser(p)
+		defaultExpr, err = exprParser.ParseExpr()
+		if err != nil {
+			return nil, err
 		}
+	} else if p.ConsumeToken(token.TokenEq{}) {
+		defaultOp = "="
 		exprParser := NewExpressionParser(p)
 		defaultExpr, err = exprParser.ParseExpr()
 		if err != nil {
@@ -2885,6 +2919,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 		Mode:        mode,
 		DataType:    firstDataType,
 		DefaultExpr: defaultExpr,
+		DefaultOp:   defaultOp,
 	}, nil
 }
 

@@ -1931,8 +1931,10 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 			return &datatype.SignedIntegerType{SpanVal: tok.Span}, nil
 		}
 		return &datatype.SignedType{SpanVal: tok.Span}, nil
-	case "INT", "INTEGER":
+	case "INT":
 		return parseIntType(p, tok.Span)
+	case "INTEGER":
+		return parseIntegerType(p, tok.Span)
 	case "INT4":
 		return parseInt4Type(p, tok.Span)
 	case "INT8":
@@ -2238,6 +2240,19 @@ func parseIntType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 		p.ParseKeyword("SIGNED")
 	}
 	return &datatype.IntType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+}
+
+// parseIntegerType parses INTEGER with optional display width and UNSIGNED modifier
+func parseIntegerType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+	displayWidth := parseOptionalPrecision(p)
+	if p.ParseKeyword("UNSIGNED") {
+		return &datatype.IntegerUnsignedType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
+	}
+	// MySQL allows optional SIGNED keyword
+	if p.GetDialect().SupportsIndexHints() {
+		p.ParseKeyword("SIGNED")
+	}
+	return &datatype.IntegerType{DisplayWidth: displayWidth, SpanVal: spanVal}, nil
 }
 
 // parseInt4Type parses INT4 with optional display width and UNSIGNED modifier

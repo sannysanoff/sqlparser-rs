@@ -611,7 +611,12 @@ func (c *CreateFunction) String() string {
 	}
 
 	if c.Body != nil {
-		f.WriteString(" AS ")
+		// Only add AS for non-RETURN bodies
+		if c.Body.ReturnExpr == nil {
+			f.WriteString(" AS ")
+		} else {
+			f.WriteString(" ")
+		}
 		f.WriteString(c.Body.String())
 	}
 

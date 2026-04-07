@@ -547,6 +547,12 @@ func (p *Parser) ParseStringLiteral() (string, error) {
 		return str.Value, nil
 	}
 
+	// Check for dollar-quoted string (PostgreSQL)
+	if str, ok := tok.Token.(token.TokenDollarQuotedString); ok {
+		p.AdvanceToken()
+		return str.Value, nil
+	}
+
 	return "", p.Expected("string literal", tok)
 }
 
