@@ -2571,13 +2571,80 @@ Implemented critical fixes for PostgreSQL/Redshift geometric operators:
 
 ---
 
+### April 7, 2026 - SHOW Statement Major Improvements
+
+Implemented comprehensive fixes for Snowflake SHOW statement parsing, adding support for parent type keywords and proper filter positioning.
+
+**1. SHOW Statement IN Clause Parent Types (parser/show.go):**
+   - Added support for `IN ACCOUNT/DATABASE/SCHEMA/TABLE/VIEW` syntax
+   - Fixed parsing of parent type keywords that come after IN/FROM
+   - Updated `parseShowStmtOptions()` to check for special keywords and set `ParentType`
+   - Now correctly parses: `SHOW DATABASES IN ACCOUNT myaccount`, `SHOW TABLES IN SCHEMA myschema`
+
+**2. SHOW TABLES HISTORY Support (parser/show.go):**
+   - Added `HISTORY` keyword parsing for `SHOW TABLES HISTORY`
+   - Updated `parseShowTables()` to parse optional HISTORY keyword (not for EXTERNAL TABLES)
+   - Reference: Rust `parse_show_tables` at src/parser/mod.rs:15157
+
+**3. SHOW COLUMNS IN TABLE Support (parser/show.go):**
+   - Added support for Snowflake-style `SHOW COLUMNS LIKE 'pattern' IN TABLE tbl`
+   - Parses TABLE/VIEW keywords after IN clause
+   - Handles optional table names (e.g., `SHOW COLUMNS IN TABLE` without table name)
+   - Sets `FilterPosition` to `Infix` when LIKE/WHERE appears before IN for correct String() output
+   - Reference: Rust `maybe_parse_show_stmt_in` at src/parser/mod.rs:19871
+
+**Key Pattern Documentation:**
+- **Pattern CI: SHOW Statement Parent Types** - When parsing SHOW statement IN/FROM clauses, check for special parent type keywords (ACCOUNT, DATABASE, SCHEMA, TABLE, VIEW) before trying to parse the parent name. These keywords are optional and change how the parent name is interpreted.
+- **Pattern CJ: Optional Object Names** - Use `maybe_parse` pattern (try to parse and ignore errors) for optional object names like table names in `SHOW COLUMNS IN TABLE`.
+- **Pattern CK: Filter Position Tracking** - When parsing SHOW statements with LIKE/WHERE clauses that can appear in different positions (before or after IN/FROM), set the `FilterPosition` field correctly so that String() output preserves the original order.
+
+**Result:** +5 tests passing (all Snowflake SHOW tests now pass: SHOW DATABASES, SHOW SCHEMAS, SHOW TABLES, SHOW VIEWS, SHOW OBJECTS, SHOW COLUMNS). Pass rate improved.
+
+---
+
+### April 7, 2026 - POSITION Function Fix
+
+Fixed critical bug in POSITION expression parsing where the 3-argument Snowflake-style syntax `position('an', 'banana', 1)` was failing.
+
+**Root Cause:** In `parsePositionExpr`, the `startIndex` for backtracking was captured BEFORE consuming `(`, but when backtracking to try as a regular function call, `parseFunctionWithName` also tried to consume `(`, causing a mismatch.
+
+**Fix:** Move `startIndex` capture to AFTER consuming `(`. This ensures that when backtracking, the parser is positioned after `(`, and `parseFunctionWithName` can correctly consume it.
+
+```go
+// CORRECT - capture startIndex AFTER consuming '('
+func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.Span) (expr.Expr, error) {
+    // First, consume the '(' token - this is required for both syntaxes
+    if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+        return nil, err
+    }
+    
+    // Save position AFTER consuming '(' for potential backtracking
+    startIndex := ep.parser.GetCurrentIndex()
+    
+    // Try to parse special POSITION(expr IN expr) syntax...
+    // If that fails, backtrack and try as regular function
+    if !ep.parser.ParseKeyword("IN") {
+        ep.parser.SetCurrentIndex(startIndex)
+        return ep.parseFunctionWithName(...)  // This will now correctly find '('
+    }
+}
+```
+
+**Key Pattern Documentation:**
+- **Pattern CH: Backtracking Index Position** - When implementing backtracking for syntax variants, ensure the saved index position accounts for tokens that have already been consumed. If a token is consumed before attempting a parse, the backtrack position should be after that token, not before it.
+
+**Result:** +1 test passing (TestParsePosition). Pass rate: 53% → 53.1% (434/813)
+
+---
+
 **Version:** 1.0  
 **Last Updated:** April 7, 2026  
-**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~25%, **Total ~53%**
+**Status:** TPC-H fixture issue, DDL ~40%, DML ~53%, Query ~43%, MySQL ~52%, PostgreSQL ~30%, Snowflake ~30%, **Total ~53%**
 
 **Line Counts:**
 - Rust Source: 67,345 lines (parser + dialects + AST)
-- Go Source: 73,745 lines (109.5% of Rust - AST types and interfaces)
+- Go Source: 74,079 lines (110% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
 - Go Tests: 14,149 lines (28.3% of Rust test coverage)
-- **Current Test Pass Rate: 53%** (433 passing out of 813 total tests)
+- **Current Test Pass Rate: ~53%** (630 passing out of 1,199 total tests)
+- **Tests Fixed This Session:** 7+ tests (POSITION function, all Snowflake SHOW statements)

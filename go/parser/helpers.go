@@ -616,12 +616,13 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 // Following the Rust implementation, if the special POSITION(expr IN expr) syntax
 // doesn't parse correctly, it falls back to treating POSITION as a regular function.
 func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.Span) (expr.Expr, error) {
-	// Save position for potential backtracking
-	startIndex := ep.parser.GetCurrentIndex()
-
+	// First, consume the '(' token - this is required for both syntaxes
 	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
+
+	// Save position AFTER consuming '(' for potential backtracking
+	startIndex := ep.parser.GetCurrentIndex()
 
 	// Try to parse the special POSITION(substr IN str) syntax
 	betweenPrec := ep.getPrecedence(parseriface.PrecedenceBetween)
@@ -637,7 +638,7 @@ func (ep *ExpressionParser) parsePositionExpr(word token.TokenWord, span token.S
 
 	// Check for IN keyword - if not found, this might be Snowflake-style function call
 	if !ep.parser.ParseKeyword("IN") {
-		// Backtrack and parse as regular function
+		// Backtrack and try as regular function
 		ep.parser.SetCurrentIndex(startIndex)
 		return ep.parseFunctionWithName(&expr.ObjectName{
 			SpanVal: span,

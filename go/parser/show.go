@@ -138,6 +138,13 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 
 	options := &expr.ShowStatementOptions{}
 
+	// Parse optional LIKE/WHERE before FROM/IN (for Snowflake-style: SHOW COLUMNS LIKE 'x' IN TABLE t)
+	if p.PeekKeyword("LIKE") || p.PeekKeyword("WHERE") {
+		options.Filter = parseShowFilter(p)
+		// Mark filter as infix position (before IN/FROM)
+		options.FilterPosition = expr.ShowStatementFilterPositionInfix
+	}
+
 	// Parse FROM or IN clause
 	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
 		clause := expr.ShowStatementInClauseFrom
@@ -146,14 +153,32 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 		}
 		p.AdvanceToken()
 
-		// Parse table name
-		tableName, err := p.ParseObjectName()
-		if err != nil {
-			return nil, err
+		// Check for special keyword TABLE/VIEW after IN (Snowflake-style: SHOW COLUMNS IN TABLE tbl)
+		parentType := ""
+		if p.ParseKeyword("TABLE") {
+			parentType = "TABLE"
+		} else if p.ParseKeyword("VIEW") {
+			parentType = "VIEW"
 		}
-		options.ShowIn = &expr.ShowStatementIn{
-			Clause:     clause,
-			ParentName: tableName,
+
+		// Parse table/view name (optional - may not be present)
+		tableName, _ := p.ParseObjectName()
+		if tableName != nil {
+			options.ShowIn = &expr.ShowStatementIn{
+				Clause:     clause,
+				ParentName: tableName,
+			}
+			if parentType != "" {
+				options.ShowIn.ParentType = &ast.Ident{Value: parentType}
+			}
+		} else {
+			// No table name - just have the clause and parent type
+			options.ShowIn = &expr.ShowStatementIn{
+				Clause: clause,
+			}
+			if parentType != "" {
+				options.ShowIn.ParentType = &ast.Ident{Value: parentType}
+			}
 		}
 
 		// MySQL also supports a second FROM clause for the database:
@@ -171,8 +196,11 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 		}
 	}
 
-	// Parse optional LIKE/WHERE
-	options.Filter = parseShowFilter(p)
+	// Parse optional LIKE/WHERE if not already parsed (suffix position - after IN/FROM)
+	if options.Filter == nil {
+		options.Filter = parseShowFilter(p)
+		// FilterPosition stays as default (None/Suffix)
+	}
 
 	return &statement.ShowColumns{
 		Extended:    extended,
@@ -186,6 +214,9 @@ func parseShowColumns(p *Parser, extended, full bool) (ast.Statement, error) {
 func parseShowTables(p *Parser, terse, extended, full, external bool) (ast.Statement, error) {
 	p.AdvanceToken()
 
+	// Parse optional HISTORY keyword (not for EXTERNAL TABLES)
+	history := !external && p.ParseKeyword("HISTORY")
+
 	options := parseShowStmtOptions(p)
 
 	return &statement.ShowTables{
@@ -193,6 +224,7 @@ func parseShowTables(p *Parser, terse, extended, full, external bool) (ast.State
 		Extended:    extended,
 		Full:        full,
 		External:    external,
+		History:     history,
 		ShowOptions: options,
 	}, nil
 }
@@ -383,19 +415,46 @@ func parseShowStmtOptions(p *Parser) *expr.ShowStatementOptions {
 		}
 	}
 
-	// Parse optional IN/FROM clause
+	// Parse optional IN/FROM clause with support for parent types (ACCOUNT, DATABASE, SCHEMA, TABLE, VIEW)
 	if p.PeekKeyword("FROM") || p.PeekKeyword("IN") {
 		clause := expr.ShowStatementInClauseFrom
 		if p.PeekKeyword("IN") {
 			clause = expr.ShowStatementInClauseIn
 		}
 		p.AdvanceToken()
-		dbName, err := p.ParseIdentifier()
-		if err == nil {
-			options.ShowIn = &expr.ShowStatementIn{
-				Clause:     clause,
-				ParentName: &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: dbName}}},
+
+		// Check for special parent type keywords (ACCOUNT, DATABASE, SCHEMA, TABLE, VIEW)
+		parentTypeKeywords := []string{"ACCOUNT", "DATABASE", "SCHEMA", "TABLE", "VIEW"}
+		parentType := ""
+		for _, kw := range parentTypeKeywords {
+			if p.ParseKeyword(kw) {
+				parentType = kw
+				break
 			}
+		}
+
+		// Parse optional parent name (object name)
+		// This handles cases like "SHOW DATABASES IN ACCOUNT myaccount"
+		// or "SHOW TABLES IN SCHEMA" (no name)
+		var parentName *ast.ObjectName
+		if parentType != "" {
+			// Try to parse an identifier as the parent name, but it's optional
+			if ident, err := p.ParseIdentifier(); err == nil {
+				parentName = &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: ident}}}
+			}
+		} else {
+			// No parent type keyword found, parse identifier as the parent name
+			if ident, err := p.ParseIdentifier(); err == nil {
+				parentName = &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: ident}}}
+			}
+		}
+
+		options.ShowIn = &expr.ShowStatementIn{
+			Clause:     clause,
+			ParentName: parentName,
+		}
+		if parentType != "" {
+			options.ShowIn.ParentType = &ast.Ident{Value: parentType}
 		}
 	}
 
