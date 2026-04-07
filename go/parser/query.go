@@ -27,6 +27,7 @@ import (
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/dialects/postgresql"
+	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
 
@@ -1394,10 +1395,14 @@ func parsePivotTableFactor(p *Parser, table query.TableFactor) (query.TableFacto
 	tok := p.PeekToken()
 	if _, ok := tok.Token.(token.TokenLParen); ok {
 		// Parenthesized list of value columns
+		// Use precedence that stops before IN/BETWEEN to avoid consuming IN keyword
+		// Reference: src/parser/mod.rs:16599-16603
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
-		valueColumns, err = parseCommaSeparatedQueryExprs(p)
+		dialect := p.GetDialect()
+		betweenPrec := dialect.PrecValue(parseriface.PrecedenceBetween)
+		valueColumns, err = parseCommaSeparatedQueryExprsWithPrecedence(p, betweenPrec)
 		if err != nil {
 			return nil, err
 		}
@@ -1406,8 +1411,12 @@ func parsePivotTableFactor(p *Parser, table query.TableFactor) (query.TableFacto
 		}
 	} else {
 		// Single value column
+		// Use precedence that stops before IN/BETWEEN to avoid consuming IN keyword
+		// Reference: src/parser/mod.rs:16600-16603
 		ep := NewExpressionParser(p)
-		expr, err := ep.ParseExpr()
+		dialect := p.GetDialect()
+		betweenPrec := dialect.PrecValue(parseriface.PrecedenceBetween)
+		expr, err := ep.ParseExprWithPrecedence(betweenPrec)
 		if err != nil {
 			return nil, err
 		}
@@ -1885,6 +1894,27 @@ func parseCommaSeparatedQueryExprs(p *Parser) ([]query.Expr, error) {
 	ep := NewExpressionParser(p)
 	for {
 		e, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, &queryExprWrapper{expr: e})
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return exprs, nil
+}
+
+// parseCommaSeparatedQueryExprsWithPrecedence parses a comma-separated list of query expressions
+// with a minimum precedence. Used for PIVOT value columns to avoid consuming IN keyword.
+func parseCommaSeparatedQueryExprsWithPrecedence(p *Parser, precedence uint8) ([]query.Expr, error) {
+	var exprs []query.Expr
+
+	ep := NewExpressionParser(p)
+	for {
+		e, err := ep.ParseExprWithPrecedence(precedence)
 		if err != nil {
 			return nil, err
 		}
@@ -3621,6 +3651,8 @@ func parseQueryIdents(p *Parser) ([]query.Ident, error) {
 }
 
 // parseQueryIdentWithAliasList parses a comma-separated list of identifiers with optional aliases
+// The AS keyword is optional: `id AS alias` or `id alias`
+// Reference: src/parser/mod.rs:12370-12375
 func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
 	var mappings []query.IdentWithAlias
 
@@ -3630,17 +3662,18 @@ func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
 			return nil, err
 		}
 
-		mapping := query.IdentWithAlias{
-			Ident: query.Ident{Value: id.Value},
+		// AS keyword is optional
+		p.ParseKeyword("AS")
+
+		// Parse the alias identifier
+		alias, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
 		}
 
-		// Check for optional AS alias
-		if p.ParseKeyword("AS") {
-			alias, err := p.ParseIdentifier()
-			if err != nil {
-				return nil, err
-			}
-			mapping.Alias = query.Ident{Value: alias.Value}
+		mapping := query.IdentWithAlias{
+			Ident: query.Ident{Value: id.Value},
+			Alias: query.Ident{Value: alias.Value},
 		}
 
 		mappings = append(mappings, mapping)
@@ -3653,9 +3686,22 @@ func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
 	return mappings, nil
 }
 
-// parseSetQuantifier parses ALL/DISTINCT for set operations
+// parseSetQuantifier parses ALL/DISTINCT/BY NAME for set operations
+// Reference: src/parser/mod.rs:14214-14241
 func parseSetQuantifier(p *Parser, op string) query.SetQuantifier {
+	// Check for DISTINCT BY NAME
+	if p.ParseKeywords([]string{"DISTINCT", "BY", "NAME"}) {
+		return query.SetQuantifierDistinctByName
+	}
+	// Check for BY NAME
+	if p.ParseKeywords([]string{"BY", "NAME"}) {
+		return query.SetQuantifierByName
+	}
+	// Check for ALL [BY NAME]
 	if p.ParseKeyword("ALL") {
+		if p.ParseKeywords([]string{"BY", "NAME"}) {
+			return query.SetQuantifierAllByName
+		}
 		return query.SetQuantifierAll
 	}
 	if p.ParseKeyword("DISTINCT") {
@@ -3664,12 +3710,24 @@ func parseSetQuantifier(p *Parser, op string) query.SetQuantifier {
 	return query.SetQuantifierNone
 }
 
-// parseDistinctRequiredSetQuantifier parses DISTINCT (required) for INTERSECT/EXCEPT
+// parseDistinctRequiredSetQuantifier parses DISTINCT/ALL/BY NAME for INTERSECT/EXCEPT
+// Reference: src/parser/mod.rs:14214-14241
 func parseDistinctRequiredSetQuantifier(p *Parser, op string) query.SetQuantifier {
+	// Check for DISTINCT BY NAME
+	if p.ParseKeywords([]string{"DISTINCT", "BY", "NAME"}) {
+		return query.SetQuantifierDistinctByName
+	}
+	// Check for BY NAME (implies DISTINCT)
+	if p.ParseKeywords([]string{"BY", "NAME"}) {
+		return query.SetQuantifierByName
+	}
 	if p.ParseKeyword("DISTINCT") {
 		return query.SetQuantifierDistinct
 	}
 	if p.ParseKeyword("ALL") {
+		if p.ParseKeywords([]string{"BY", "NAME"}) {
+			return query.SetQuantifierAllByName
+		}
 		return query.SetQuantifierAll
 	}
 	return query.SetQuantifierDistinct // Default to DISTINCT for INTERSECT/EXCEPT
@@ -3752,11 +3810,13 @@ func parseTableSample(p *Parser) (*query.TableSample, error) {
 		return nil, err
 	}
 
-	var unit query.TableSampleUnit = query.TableSampleUnitPercent
+	var unitPtr *query.TableSampleUnit
 	if p.ParseKeyword("PERCENT") {
-		unit = query.TableSampleUnitPercent
+		unit := query.TableSampleUnitPercent
+		unitPtr = &unit
 	} else if p.ParseKeyword("ROWS") {
-		unit = query.TableSampleUnitRows
+		unit := query.TableSampleUnitRows
+		unitPtr = &unit
 	}
 
 	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
@@ -3798,7 +3858,6 @@ func parseTableSample(p *Parser) (*query.TableSample, error) {
 	}
 
 	sampleMethodPtr := &sampleMethod
-	unitPtr := &unit
 
 	return &query.TableSample{
 		Modifier: query.TableSampleModifierTableSample,

@@ -7,11 +7,11 @@ Complete re-implementation of sqlparser-rs in Go using automated transpilation.
 **Approach:** Automated transpilation with interface-based AST design
 
 **Current Status (April 7, 2026):**
-- Rust Source: 73,987 lines (parser + dialects + AST)
-- Go Source: 76,059 lines (103% of Rust - AST types and interfaces)
+- Rust Source: 67,345 lines (parser + dialects + AST)
+- Go Source: 75,890 lines (113% of Rust - AST types and interfaces)
 - Rust Tests: 49,886 lines
-- Go Tests: 14,149 lines (28.4% of Rust test coverage)
-- **Test Pass Rate: ~57%** (460 passing out of 813 total tests)
+- Go Tests: 13,911 lines (28% of Rust test coverage)
+- **Test Pass Rate: ~55%** (665 passing out of 1207 total tests)
 
 ---
 
@@ -1617,6 +1617,126 @@ func extractQueryFromStatement(stmt ast.Statement) *query.Query {
 
 ---
 
+### Pattern DA: Precedence-Based Expression Parsing
+
+**Problem:** When parsing expressions that should stop before certain operators (like IN, BETWEEN), using `ParseExpr()` consumes too much input.
+
+**Example - PIVOT Value Column Parsing:**
+
+```go
+// INCORRECT - consumes IN as part of expression
+func parsePivotTableFactor(p *Parser, table query.TableFactor) (query.TableFactor, error) {
+    // Parse value column
+    ep := NewExpressionParser(p)
+    expr, err := ep.ParseExpr()  // Parses "month IN (...)" as IN expression!
+    // Now we're at ) instead of IN
+}
+// Result: "Expected: IN, found: )"
+
+// CORRECT - use precedence to stop before IN
+func parsePivotTableFactor(p *Parser, table query.TableFactor) (query.TableFactor, error) {
+    // Parse value column with precedence
+    ep := NewExpressionParser(p)
+    dialect := p.GetDialect()
+    betweenPrec := dialect.PrecValue(parseriface.PrecedenceBetween)
+    expr, err := ep.ParseExprWithPrecedence(betweenPrec)  // Stops at IN
+    // Now we're at IN as expected
+}
+// Result: PIVOT parses correctly
+```
+
+**Key Lesson:** Use `ParseExprWithPrecedence()` when you need to stop expression parsing before certain operators. Reference: `src/parser/mod.rs:16600-16603` for Rust's use of `parse_subexpr` with `Precedence::Between`.
+
+---
+
+### Pattern DB: Optional AS Keyword
+
+**Problem:** Some SQL constructs have optional AS keyword (e.g., `RENAME old new` vs `RENAME old AS new`). The parser must handle both.
+
+**Example - Pipe Operator RENAME:**
+
+```go
+// INCORRECT - requires AS keyword
+func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
+    id, _ := p.ParseIdentifier()
+    if p.ParseKeyword("AS") {  // Fails if AS is not present!
+        alias, _ := p.ParseIdentifier()
+    }
+}
+
+// CORRECT - AS is optional
+func parseQueryIdentWithAliasList(p *Parser) ([]query.IdentWithAlias, error) {
+    id, _ := p.ParseIdentifier()
+    p.ParseKeyword("AS")  // Try to consume AS, but don't fail if not present
+    alias, _ := p.ParseIdentifier()  // Always parse the alias
+}
+```
+
+**Key Lesson:** For optional keywords, use `ParseKeyword()` without checking the return value. The Rust `parse_keyword()` function returns whether it was found but doesn't fail. Reference: `src/parser/mod.rs:12370-12375` for `parse_identifier_with_optional_alias`.
+
+---
+
+### Pattern DC: Default Dialect Capabilities
+
+**Problem:** Dialect capability methods may return hardcoded values that don't match the Rust default implementation.
+
+**Example - Boolean Literals Support:**
+
+```go
+// INCORRECT - hardcoded false
+func (d *BigQueryDialect) SupportsBooleanLiterals() bool {
+    return false  // Wrong! Rust default is true
+}
+
+// CORRECT - matches Rust default
+// In src/dialect/mod.rs:1155, default implementation returns true
+func (d *BigQueryDialect) SupportsBooleanLiterals() bool {
+    return true
+}
+```
+
+**Key Lesson:** Check `src/dialect/mod.rs` for default implementations. Most dialects use defaults (e.g., `supports_boolean_literals` defaults to `true`). Only override when the dialect explicitly differs (like MSSQL and Oracle which return `false`).
+
+---
+
+### Pattern DD: Unit/Default Handling
+
+**Problem:** When a value has optional units (like TABLESAMPLE), defaulting to a specific unit causes incorrect String() output.
+
+**Example - TABLESAMPLE Quantity:**
+
+```go
+// INCORRECT - defaults to PERCENT
+func parseTableSample(p *Parser) (*query.TableSample, error) {
+    var unit query.TableSampleUnit = query.TableSampleUnitPercent  // Wrong default!
+    if p.ParseKeyword("PERCENT") {
+        unit = query.TableSampleUnitPercent
+    } else if p.ParseKeyword("ROWS") {
+        unit = query.TableSampleUnitRows
+    }
+    // If neither found, unit is still PERCENT - incorrect!
+}
+// Result: "TABLESAMPLE (50)" becomes "TABLESAMPLE (50 PERCENT)"
+
+// CORRECT - nil when not specified
+func parseTableSample(p *Parser) (*query.TableSample, error) {
+    var unitPtr *query.TableSampleUnit  // nil by default
+    if p.ParseKeyword("PERCENT") {
+        unit := query.TableSampleUnitPercent
+        unitPtr = &unit
+    } else if p.ParseKeyword("ROWS") {
+        unit := query.TableSampleUnitRows
+        unitPtr = &unit
+    }
+    // If neither found, unitPtr is nil - correct!
+}
+// Result: "TABLESAMPLE (50)" stays as "TABLESAMPLE (50)"
+```
+
+**Key Lesson:** When a construct has optional modifiers/units, use `nil`/None rather than a default value. Only set the unit when explicitly specified. Reference: `src/parser/mod.rs:15900-15906` for Rust's handling of optional units.
+
+---
+
 ### April 7, 2026 - Snowflake Multi-Table INSERT Implementation
 
 Implemented Snowflake multi-table INSERT statement parser following Rust reference (`src/dialect/snowflake.rs:1779-1927`):
@@ -1873,6 +1993,48 @@ Implemented comprehensive PostgreSQL parser features:
 
 ---
 
+### April 7, 2026 - PIVOT/UNPIVOT and Pipe Operators Implementation
+
+Implemented comprehensive fixes for PIVOT/UNPIVOT parsing and pipe operators:
+
+1. **PIVOT/UNPIVOT Parser Fix** (parser/query.go):
+   - Fixed value column parsing to use precedence-based expression parsing
+   - The issue was that `month IN (...)` was being parsed as an IN expression instead of just `month`
+   - Used `ParseExprWithPrecedence(betweenPrec)` to stop before IN/BETWEEN operators
+   - Added `parseCommaSeparatedQueryExprsWithPrecedence()` helper for parenthesized value columns
+   - Fixed `PivotTableFactor.String()` to include space before opening paren: `PIVOT (...)`
+   - **+2 tests passing** (TestParsePivotTable, TestParsePivotUnpivotTable)
+
+2. **Pipe Operators - RENAME Fix** (parser/query.go):
+   - Fixed `parseQueryIdentWithAliasList()` to handle implicit aliases (without AS keyword)
+   - The Rust `parse_identifier_with_optional_alias()` consumes AS keyword optionally
+   - **+1 test passing** (TestParsePipeOperatorRename)
+
+3. **Pipe Operators - Set Quantifiers Fix** (parser/query.go):
+   - Added support for `BY NAME`, `ALL BY NAME`, `DISTINCT BY NAME` syntax
+   - Updated `parseSetQuantifier()` and `parseDistinctRequiredSetQuantifier()` to handle Snowflake-style set quantifiers
+   - **+3 tests passing** (TestParsePipeOperatorUnion, TestParsePipeOperatorIntersect, TestParsePipeOperatorExcept)
+
+4. **Boolean Literals Fix** (dialects/bigquery/bigquery.go, dialects/ansi/ansi.go, ast/expr/basic.go):
+   - Fixed BigQuery and ANSI dialects to return `true` for `SupportsBooleanLiterals()` (matching Rust default)
+   - Fixed `ValueExpr.String()` to output lowercase `true`/`false` instead of uppercase `TRUE`/`FALSE`
+   - **+1 test passing** (TestParsePipeOperatorLimit)
+
+5. **TABLESAMPLE Fix** (parser/query.go):
+   - Fixed `parseTableSample()` to not default to PERCENT unit
+   - Changed unit to be `nil` when neither PERCENT nor ROWS is specified
+   - **+1 test passing** (TestParsePipeOperatorTablesample)
+
+**Result:** +8 tests now passing. All pipe operator tests (14 total) now pass.
+
+**Key Pattern Documentation:**
+- **Pattern DA: Precedence-Based Expression Parsing** - When parsing expressions that should stop before certain operators (like IN), use `ParseExprWithPrecedence()` with the appropriate precedence level.
+- **Pattern DB: Optional AS Keyword** - For constructs like `RENAME old new`, the AS keyword is optional. Always try to parse it but don't fail if it's missing.
+- **Pattern DC: Default Dialect Capabilities** - Check the Rust default implementation in `src/dialect/mod.rs`. Most dialects use defaults (e.g., `supports_boolean_literals` defaults to `true`). Only override when the dialect explicitly differs.
+- **Pattern DD: Unit/Default Handling** - When a value has optional units (like TABLESAMPLE), default to `nil`/None rather than a default unit. Only set the unit when explicitly specified.
+
+---
+
 ### April 5, 2026 - Lambda Expression Implementation
 
 Implemented comprehensive lambda expression parsing following Rust reference:
@@ -2041,23 +2203,25 @@ Implemented missing Spark/Hive statement parsers:
 
 | Test Suite       | Status           | Passing | Total | Pass Rate |
 | ---------------- | ---------------- | ------- | ----- | --------- |
-| **TPC-H**        | ⚠️ Fixture issue  | 0       | 44    | **0%**    |
-| **DDL Tests**    | 🔄 In Progress   | ~120    | ~300  | **40%**   |
-| **DML Tests**    | 🔄 In Progress   | ~80     | ~150  | **53%**   |
-| **Query Tests**  | 🔄 In Progress   | ~150    | ~350  | **43%**   |
-| **MySQL**        | 🔄 In Progress   | ~60     | ~125  | **48%**   |
-| **PostgreSQL**   | 🔄 In Progress   | ~45     | ~157  | **29%**   |
-| **Snowflake**    | 🔄 In Progress   | ~18     | ~97   | **19%**   |
-| **TOTAL**        | **~42% Complete** | **~339**| 813   | **~42%** |
+| **tests**        | 🔄 In Progress   | 188     | 260   | **72%**   |
+| **tests/ddl**    | 🔄 In Progress   | 26      | 81    | **32%**   |
+| **tests/dml**    | 🔄 In Progress   | 18      | 33    | **55%**   |
+| **tests/query**  | 🔄 In Progress   | 39      | 58    | **67%**   |
+| **tests/mysql**  | 🔄 In Progress   | 94      | 125   | **75%**   |
+| **tests/postgres**| 🔄 In Progress  | 62      | 157   | **39%**   |
+| **tests/snowflake**| 🔄 In Progress | 41      | 97    | **42%**   |
+| **tests/regression**| 🔄 In Progress| 0       | 2     | **0%**    |
+| **TOTAL**        | **~55% Complete** | **665**| 1207  | **~55%** |
 
-**Line Counts:**
+**Line Counts (Updated April 7, 2026):**
 
-- Rust Source: 67,345 lines
-- Go Source: 72,064 lines (107% of Rust - AST types and interfaces)
-- Rust Tests: 49,847 lines
-- Go Tests: 14,131 lines (28%)
+- Rust Source: 67,345 lines (src/ - parser + dialects + AST)
+- Go Source: 75,890 lines (go/ - AST types, parser, dialects - 113% of Rust)
+- Rust Tests: 49,886 lines
+- Go Tests: 13,911 lines (28% of Rust test coverage)
+- **Test Pass Rate: ~55%** (665 passing, 542 failing out of 1207 total tests)
 
-**Recent Focus:** ANALYZE, IF statement, END statement, GRANT objects, major missing DDL/DML parsers
+**Recent Focus:** PIVOT/UNPIVOT, Pipe Operators, Boolean literals dialect fix
 
 ---
 

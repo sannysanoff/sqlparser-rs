@@ -751,9 +751,10 @@ func (d *AnsiDialect) SupportsTopBeforeDistinct() bool {
 	return false
 }
 
-// SupportsBooleanLiterals returns false for AnsiDialect.
+// SupportsBooleanLiterals returns true for AnsiDialect.
+// Reference: src/dialect/mod.rs:1155 - default implementation returns true
 func (d *AnsiDialect) SupportsBooleanLiterals() bool {
-	return false
+	return true
 }
 
 // SupportsShowLikeBeforeIn returns false for AnsiDialect.

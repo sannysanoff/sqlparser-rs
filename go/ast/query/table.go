@@ -326,7 +326,7 @@ func (p *PivotTableFactor) String() string {
 	} else {
 		valueColStr = "(" + strings.Join(valCols, ", ") + ")"
 	}
-	result := fmt.Sprintf("%s PIVOT(%s FOR %s IN (%s))",
+	result := fmt.Sprintf("%s PIVOT (%s FOR %s IN (%s))",
 		p.Table.String(), strings.Join(aggs, ", "), valueColStr, p.ValueSource.String())
 	if p.DefaultOnNull != nil {
 		result += fmt.Sprintf(" DEFAULT ON NULL (%s)", p.DefaultOnNull.String())

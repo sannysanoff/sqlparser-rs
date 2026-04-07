@@ -782,9 +782,10 @@ func (d *BigQueryDialect) SupportsTopBeforeDistinct() bool {
 	return false
 }
 
-// SupportsBooleanLiterals returns false for BigQueryDialect.
+// SupportsBooleanLiterals returns true for BigQueryDialect.
+// Reference: src/dialect/mod.rs:1155 - default implementation returns true
 func (d *BigQueryDialect) SupportsBooleanLiterals() bool {
-	return false
+	return true
 }
 
 // SupportsShowLikeBeforeIn returns false for BigQueryDialect.
