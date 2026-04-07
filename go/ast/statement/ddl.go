@@ -663,13 +663,22 @@ type AlterTable struct {
 	Only       bool
 	Operations []*expr.AlterTableOperation
 	Location   *expr.HiveSetLocation
+	TableType  expr.AlterTableType // Iceberg, Dynamic, External, or None (regular)
 }
 
 func (a *AlterTable) statementNode() {}
 
 func (a *AlterTable) String() string {
 	var f strings.Builder
-	f.WriteString("ALTER TABLE ")
+	if a.TableType == expr.AlterTableTypeIceberg {
+		f.WriteString("ALTER ICEBERG TABLE ")
+	} else if a.TableType == expr.AlterTableTypeDynamic {
+		f.WriteString("ALTER DYNAMIC TABLE ")
+	} else if a.TableType == expr.AlterTableTypeExternal {
+		f.WriteString("ALTER EXTERNAL TABLE ")
+	} else {
+		f.WriteString("ALTER TABLE ")
+	}
 	if a.IfExists {
 		f.WriteString("IF EXISTS ")
 	}

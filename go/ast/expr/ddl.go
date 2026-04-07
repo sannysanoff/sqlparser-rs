@@ -1366,7 +1366,34 @@ const (
 	AlterTableOpEnableReplicaTrigger
 	AlterTableOpReplicaIdentity
 	AlterTableOpValidateConstraint
+	// Snowflake-specific clustering operations
+	AlterTableOpDropClusteringKey
+	AlterTableOpSuspendRecluster
+	AlterTableOpResumeRecluster
 )
+
+// AlterTableType represents the type of table for ALTER TABLE (e.g., ICEBERG, DYNAMIC, EXTERNAL)
+type AlterTableType int
+
+const (
+	AlterTableTypeNone AlterTableType = iota
+	AlterTableTypeIceberg
+	AlterTableTypeDynamic
+	AlterTableTypeExternal
+)
+
+func (a AlterTableType) String() string {
+	switch a {
+	case AlterTableTypeIceberg:
+		return "ICEBERG"
+	case AlterTableTypeDynamic:
+		return "DYNAMIC"
+	case AlterTableTypeExternal:
+		return "EXTERNAL"
+	default:
+		return ""
+	}
+}
 
 // RenameTableAsKind represents whether RENAME AS or RENAME TO was used
 type RenameTableAsKind int
@@ -1709,6 +1736,13 @@ func (a *AlterTableOperation) String() string {
 			buf.WriteString(a.DropConstraintName.String())
 		}
 		return buf.String()
+	// Snowflake-specific clustering operations
+	case AlterTableOpDropClusteringKey:
+		return "DROP CLUSTERING KEY"
+	case AlterTableOpSuspendRecluster:
+		return "SUSPEND RECLUSTER"
+	case AlterTableOpResumeRecluster:
+		return "RESUME RECLUSTER"
 	default:
 		return ""
 	}

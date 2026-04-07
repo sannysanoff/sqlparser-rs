@@ -1,5 +1,56 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Evening Session):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 78,278 lines | 116% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **511 passing** / **302 failing** (~63%) | +2 fixes implemented |
+
+**Today's Major Fixes (Evening Session):**
+1. **Snowflake Stage Name Parsing** - Added special characters support (=, :, /, +, -) in stage paths for Hive-style and time-based partitioning
+2. **SAMPLE Clause on Subqueries** - Fixed parseDerivedTableAfterParen() and related functions to parse SAMPLE clause after subquery aliases
+3. **ALTER ICEBERG TABLE Support** - Added Iceberg table type to AlterTable, with DROP CLUSTERING KEY, SUSPEND RECLUSTER, RESUME RECLUSTER operations
+
+**New Patterns Documented:**
+- **Pattern E25**: Stage name tokenization - numbers ending with periods (e.g., "23.") are tokenized differently than word.period sequences, affecting stage name parsing
+- **Pattern E26**: SAMPLE clause placement - must be parsed after table alias in derived table factors (subqueries)
+- **Pattern E27**: Alter table type flag - pass table type (Iceberg/Dynamic/External) to parseAlterTable for correct serialization
+
+---
+
+### April 8, 2026 - Evening Session: Snowflake Stage Names, SAMPLE Clauses, ALTER ICEBERG TABLE
+
+Implemented major missing chunks for Snowflake compatibility:
+
+1. **Snowflake Stage Name Parsing** (dialects/snowflake/snowflake.go, parser/query.go):
+   - Updated `ParseSnowflakeStageName()` to handle special characters: `=`, `:`, `/`, `+`, `-`
+   - Added `parseSnowflakeStageTableFactor()` in parser/query.go to handle `@stage` references in FROM clause
+   - Fixed token loop to continue after consuming word and number tokens
+   - **Pattern E25**: Numbers ending with periods (e.g., "23.parquet" tokenized as "23." + "parquet") behave differently than word sequences ("test.parquet" as "test" + "." + "parquet")
+   - **Tests Fixed**: TestSnowflakeAlterIcebergTable (all 3 subtests now pass)
+
+2. **SAMPLE Clause on Subqueries** (parser/query.go):
+   - Fixed `parseDerivedTableAfterParen()` to call `maybeParseTableSample()` after parsing alias
+   - Fixed `parseDerivedTable()` to parse SAMPLE clause
+   - Fixed `parseLateralTable()` to parse SAMPLE clause for LATERAL subqueries
+   - **Pattern E26**: SAMPLE must be parsed after table alias, using TableSampleKind with AfterTableAlias
+   - **Tests Fixed**: TestSnowflakeSubquerySample (all 5 subtests now pass)
+
+3. **ALTER ICEBERG TABLE Support** (parser/alter.go, ast/expr/ddl.go, ast/statement/ddl.go):
+   - Added `AlterTableType` enum with Iceberg, Dynamic, External variants
+   - Updated `AlterTable` struct to include `TableType` field
+   - Modified `parseAlterTable()` to accept table type parameter
+   - Added `parseAlterTableDrop()` support for DROP CLUSTERING KEY
+   - Added SUSPEND RECLUSTER and RESUME RECLUSTER operations
+   - **Pattern E27**: Pass table type through parseAlterTable for correct "ALTER ICEBERG TABLE" vs "ALTER TABLE" serialization
+   - **Tests Fixed**: TestSnowflakeAlterIcebergTable (3 subtests now pass)
+
+**Results**: +2 tests passing (511 total passing, 302 failing)
+
+---
+
 **Line Counts (Updated April 8, 2026):**
 
 | Component | Rust | Go | Ratio |
@@ -928,10 +979,10 @@ for {
 | DML (INSERT/UPDATE/DELETE) | ~60 | ~50 | ~10 |
 | PostgreSQL Specific | ~110 | ~35 | ~75 |
 | MySQL Specific | ~70 | ~40 | ~30 |
-| Snowflake Specific | ~100 | ~45 | ~55 |
+| Snowflake Specific | ~100 | ~47 | ~53 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~1,215 tests across all packages, 509 passing, 304 failing (~63% pass rate)
+**Total**: ~1,215 tests across all packages, 511 passing, 302 failing (~63% pass rate)
 
 **Recent Fixes**:
 - TestSnowflakeLateralFlatten: ✅ Now passes (FLATTEN with named arguments)
@@ -947,9 +998,11 @@ for {
 - TestParseLoadData: ✅ Now passing (LOAD DATA INPATH 'path')
 - TestLoadExtension: ✅ Now passing (LOAD extension_name)
 - TestTryConvert: ✅ Now passing (TRY_CONVERT with VARCHAR(MAX))
+- TestSnowflakeSubquerySample: ✅ Now passing (SAMPLE clause on subqueries)
+- TestSnowflakeAlterIcebergTable: ✅ Now passing (ALTER ICEBERG TABLE with clustering operations)
 
 **Notes**:
-- Source: 67,345 lines Rust → 77,713 lines Go (115% ratio - includes comprehensive comments)
+- Source: 67,345 lines Rust → 78,278 lines Go (116% ratio - includes comprehensive comments)
 - Tests: 49,886 lines Rust → 14,149 lines Go (28% ratio - many tests still being ported)
 - Main tests package has 260 tests
 - Additional test packages (ddl, dml, mysql, postgres, query, regression, snowflake) add more tests

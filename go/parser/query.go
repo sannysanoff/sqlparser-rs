@@ -28,6 +28,7 @@ import (
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/dialects/postgresql"
+	"github.com/user/sqlparser/dialects/snowflake"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
 )
@@ -1276,6 +1277,11 @@ func parseTableFactor(p *Parser) (query.TableFactor, error) {
 		}
 	}
 
+	// Check for Snowflake stage reference: @mystage or @namespace.stage/path
+	if _, isAtSign := p.PeekToken().Token.(token.TokenAtSign); isAtSign {
+		return parseSnowflakeStageTableFactor(p)
+	}
+
 	// Otherwise, it's a table name (possibly with PIVOT/UNPIVOT)
 	return parseTableNameWithPivot(p)
 }
@@ -1313,6 +1319,67 @@ func parseTableNameWithPivot(p *Parser) (query.TableFactor, error) {
 	}
 
 	return table, nil
+}
+
+// parseSnowflakeStageTableFactor parses a Snowflake stage reference as a table factor.
+// Handles syntax like: @mystage, @namespace.stage, @~/path, @%table
+// Reference: src/parser/mod.rs:15807-15836
+func parseSnowflakeStageTableFactor(p *Parser) (query.TableFactor, error) {
+	// Use the Snowflake dialect's stage name parsing
+	if sfDialect, ok := p.dialect.(*snowflake.SnowflakeDialect); ok {
+		stageName, err := sfDialect.ParseSnowflakeStageName(p)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse optional stage function args: (file_format => 'fmt', pattern => 'pat')
+		var args *query.TableFunctionArgs
+		if p.ConsumeToken(token.TokenLParen{}) {
+			ep := NewExpressionParser(p)
+			var funcArgs []query.FunctionArg
+			for {
+				if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+					p.AdvanceToken()
+					break
+				}
+
+				arg, err := ep.ParseFunctionArg()
+				if err != nil {
+					return nil, err
+				}
+				funcArgs = append(funcArgs, convertFunctionArgToQuery(arg))
+
+				if p.ConsumeToken(token.TokenComma{}) {
+					continue
+				}
+				if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+					p.AdvanceToken()
+					break
+				}
+			}
+			if len(funcArgs) > 0 {
+				args = &query.TableFunctionArgs{
+					Args: funcArgs,
+				}
+			}
+		}
+
+		// Parse optional alias
+		alias, _ := tryParseTableAlias(p)
+
+		return &query.TableTableFactor{
+			Name:       astObjectNameToQuery(stageName),
+			Alias:      alias,
+			Args:       args,
+			WithHints:  nil,
+			Version:    nil,
+			Partitions: nil,
+			Sample:     nil,
+			IndexHints: nil,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("expected Snowflake dialect for stage reference")
 }
 
 // isParenthesizedStart checks if next token is a left paren
@@ -1417,9 +1484,17 @@ func parseDerivedTableAfterParen(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
+	// Parse optional SAMPLE clause after alias
+	// Reference: src/parser/mod.rs:16514-16527
+	var sample *query.TableSampleKind
+	if parsedSample := maybeParseTableSample(p); parsedSample != nil {
+		sample = &query.TableSampleKind{AfterTableAlias: parsedSample}
+	}
+
 	var table query.TableFactor = &query.DerivedTableFactor{
 		Subquery: wrapQueryAsQuery(subquery),
 		Alias:    alias,
+		Sample:   sample,
 	}
 
 	// Check for PIVOT/UNPIVOT operations after derived table
@@ -2412,9 +2487,16 @@ func parseDerivedTable(p *Parser) (query.TableFactor, error) {
 		return nil, err
 	}
 
+	// Parse optional SAMPLE clause after alias
+	var sample *query.TableSampleKind
+	if parsedSample := maybeParseTableSample(p); parsedSample != nil {
+		sample = &query.TableSampleKind{AfterTableAlias: parsedSample}
+	}
+
 	return &query.DerivedTableFactor{
 		Subquery: wrapQueryAsQuery(subquery),
 		Alias:    alias,
+		Sample:   sample,
 	}, nil
 }
 
@@ -2452,10 +2534,17 @@ func parseLateralTable(p *Parser) (query.TableFactor, error) {
 			return nil, err
 		}
 
+		// Parse optional SAMPLE clause after alias
+		var sample *query.TableSampleKind
+		if parsedSample := maybeParseTableSample(p); parsedSample != nil {
+			sample = &query.TableSampleKind{AfterTableAlias: parsedSample}
+		}
+
 		return &query.DerivedTableFactor{
 			Lateral:  true,
 			Subquery: wrapQueryAsQuery(subquery),
 			Alias:    alias,
+			Sample:   sample,
 		}, nil
 	}
 

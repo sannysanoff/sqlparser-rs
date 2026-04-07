@@ -1273,7 +1273,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 	}
 
 	// Parse the target (INTO clause)
-	into, err := d.parseSnowflakeStageName(parser)
+	into, err := d.ParseSnowflakeStageName(parser)
 	if err != nil {
 		return nil, err
 	}
@@ -1343,7 +1343,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 				}
 
 				// Parse stage name
-				fromObj, err = d.parseSnowflakeStageName(parser)
+				fromObj, err = d.ParseSnowflakeStageName(parser)
 				if err != nil {
 					return nil, err
 				}
@@ -1392,7 +1392,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 		}
 	} else {
 		// Non-parenthesized source - parse stage name
-		fromObj, err = d.parseSnowflakeStageName(parser)
+		fromObj, err = d.ParseSnowflakeStageName(parser)
 		if err != nil {
 			return nil, err
 		}
@@ -1578,18 +1578,20 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 	}, nil
 }
 
-// parseSnowflakeStageName parses a Snowflake stage name which can include:
+// ParseSnowflakeStageName parses a Snowflake stage name which can include:
 // - @namespace.%table_name
 // - @namespace.stage_name/path
 // - @~/path
 // - Regular table names
-func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccessor) (*ast.ObjectName, error) {
+// This is exported for use by the parser package.
+func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccessor) (*ast.ObjectName, error) {
 	parts := []ast.ObjectNamePart{}
 
 	// Check for @ prefix (stage reference)
 	if parser.ConsumeToken(token.TokenAtSign{}) {
 		// Stage reference - parse the stage identifier
 		// Can be: @namespace.stage_name, @stage_name, @~/path, @%table_name
+		// Also supports special chars: = (for partitioning), : (for time), /, %, ~, +, -
 		var stageName strings.Builder
 		stageName.WriteString("@")
 
@@ -1598,9 +1600,13 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 			switch t := tok.Token.(type) {
 			case token.TokenWord:
 				stageName.WriteString(t.Word.Value)
+				continue // Continue to next token
 			case token.TokenPeriod:
 				stageName.WriteRune('.')
 				continue
+			case token.TokenNumber:
+				stageName.WriteString(t.Value)
+				continue // Continue to next token
 			case token.TokenChar:
 				if t.Char == '/' || t.Char == '%' || t.Char == '~' {
 					stageName.WriteRune(t.Char)
@@ -1613,6 +1619,24 @@ func (d *SnowflakeDialect) parseSnowflakeStageName(parser dialects.ParserAccesso
 					})
 					return &ast.ObjectName{Parts: parts}, nil
 				}
+			case token.TokenColon:
+				stageName.WriteRune(':')
+				continue
+			case token.TokenEq:
+				stageName.WriteRune('=')
+				continue
+			case token.TokenPlus:
+				stageName.WriteRune('+')
+				continue
+			case token.TokenMinus:
+				stageName.WriteRune('-')
+				continue
+			case token.TokenMod:
+				stageName.WriteRune('%')
+				continue
+			case token.TokenDiv:
+				stageName.WriteRune('/')
+				continue
 			case token.TokenSingleQuotedString:
 				stageName.WriteString("'")
 				stageName.WriteString(t.Value)

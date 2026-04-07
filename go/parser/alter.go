@@ -32,7 +32,7 @@ import (
 func parseAlter(p *Parser) (ast.Statement, error) {
 	// Check for various ALTER object types
 	if p.ParseKeyword("TABLE") {
-		return parseAlterTable(p)
+		return parseAlterTable(p, expr.AlterTableTypeNone)
 	}
 	if p.ParseKeyword("VIEW") {
 		return parseAlterView(p)
@@ -61,7 +61,7 @@ func parseAlter(p *Parser) (ast.Statement, error) {
 	if p.ParseKeyword("ICEBERG") {
 		// ICEBERG TABLE
 		if p.ParseKeyword("TABLE") {
-			return parseAlterTable(p) // Iceberg flag would be handled in AST
+			return parseAlterTable(p, expr.AlterTableTypeIceberg)
 		}
 		return nil, fmt.Errorf("expected TABLE after ALTER ICEBERG")
 	}
@@ -78,8 +78,10 @@ func parseAlter(p *Parser) (ast.Statement, error) {
 }
 
 // parseAlterTable parses ALTER TABLE statements
-func parseAlterTable(p *Parser) (ast.Statement, error) {
-	alterTable := &statement.AlterTable{}
+func parseAlterTable(p *Parser, tableType expr.AlterTableType) (ast.Statement, error) {
+	alterTable := &statement.AlterTable{
+		TableType: tableType,
+	}
 
 	// Parse table name
 	tableName, err := p.ParseObjectName()
@@ -165,6 +167,18 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 	// PostgreSQL NO FORCE ROW LEVEL SECURITY
 	if p.ParseKeywords([]string{"NO", "FORCE", "ROW", "LEVEL", "SECURITY"}) {
 		op.Op = expr.AlterTableOpNoForceRowLevelSecurity
+		return op, nil
+	}
+
+	// Snowflake SUSPEND RECLUSTER
+	if p.ParseKeywords([]string{"SUSPEND", "RECLUSTER"}) {
+		op.Op = expr.AlterTableOpSuspendRecluster
+		return op, nil
+	}
+
+	// Snowflake RESUME RECLUSTER
+	if p.ParseKeywords([]string{"RESUME", "RECLUSTER"}) {
+		op.Op = expr.AlterTableOpResumeRecluster
 		return op, nil
 	}
 
@@ -353,6 +367,15 @@ func parseAlterTableDrop(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTa
 		}
 		op.DropColumnNames = append(op.DropColumnNames, name)
 		return op, nil
+	}
+
+	// Check for CLUSTERING KEY (Snowflake)
+	if p.ParseKeyword("CLUSTERING") {
+		if p.ParseKeyword("KEY") {
+			op.Op = expr.AlterTableOpDropClusteringKey
+			return op, nil
+		}
+		return nil, fmt.Errorf("expected KEY after CLUSTERING")
 	}
 
 	// Check for COLUMN keyword
