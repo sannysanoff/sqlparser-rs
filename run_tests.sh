@@ -1,4 +1,4 @@
 #!/bin/bash
-cd /Users/san/Fun/sqlparser-rs/go
-echo "=== Test Summary ==="
-go test ./tests/... 2>&1 | grep -E "(^ok|^FAIL)"
+cd /Users/san/Fun/sqlparser-rs/go/tests
+echo "=== Running Tests ==="
+go test -v -count=1 . 2>&1
