@@ -878,9 +878,20 @@ type InitializeKind int
 
 const (
 	InitializeKindNone InitializeKind = iota
+	InitializeKindOnCreate
+	InitializeKindOnSchedule
 )
 
-func (i InitializeKind) String() string { return "" }
+func (i InitializeKind) String() string {
+	switch i {
+	case InitializeKindOnCreate:
+		return "ON_CREATE"
+	case InitializeKindOnSchedule:
+		return "ON_SCHEDULE"
+	default:
+		return ""
+	}
+}
 
 // ViewEnvelope represents view envelope.
 type ViewEnvelope struct{}

@@ -1,5 +1,57 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Night Session):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 92,715 lines | 138% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **513 passing** / **298 failing** (~63%) | +2 tests passing |
+
+**Today's Major Fixes (Night Session):**
+1. **CREATE ICEBERG TABLE Support** - Added full support for Snowflake CREATE ICEBERG TABLE with BASE_LOCATION, CATALOG, EXTERNAL_VOLUME, CATALOG_SYNC, STORAGE_SERIALIZATION_POLICY options
+2. **CREATE DYNAMIC TABLE Support** - Added full support for Snowflake CREATE DYNAMIC TABLE with TARGET_LAG, WAREHOUSE, REFRESH_MODE, INITIALIZE, REQUIRE USER options
+3. **CREATE DYNAMIC ICEBERG TABLE** - Added support for combined DYNAMIC + ICEBERG table modifiers
+4. **AS Query for DYNAMIC Tables** - Fixed parsing of AS SELECT clause that appears after all Snowflake-specific options in DYNAMIC tables
+
+**New Patterns Documented:**
+- **Pattern E28**: DYNAMIC before ICEBERG - When both modifiers are present, parse DYNAMIC first, then check for ICEBERG keyword
+- **Pattern E29**: AS query position for DYNAMIC tables - In Snowflake DYNAMIC tables, AS query comes AFTER all table options (unlike standard CREATE TABLE AS)
+- **Pattern E30**: REQUIRE USER serialization - Boolean flag fields in AST must be explicitly serialized in String() method
+
+---
+
+### April 8, 2026 - Night Session: CREATE ICEBERG/DYNAMIC TABLE Support
+
+Implemented major missing chunks for Snowflake CREATE TABLE syntax:
+
+1. **CREATE ICEBERG TABLE** (parser/create.go, ast/statement/ddl.go):
+   - Added `iceberg` and `dynamic` parameters to `parseCreateTable()` function
+   - Modified `parseCreate()` to parse ICEBERG and DYNAMIC keywords before TABLE
+   - Added parsing for ICEBERG-specific options: EXTERNAL_VOLUME, CATALOG, BASE_LOCATION, CATALOG_SYNC, STORAGE_SERIALIZATION_POLICY
+   - Updated CreateTable AST to include all new fields
+   - Updated CreateTable.String() to serialize all new options
+   - **Pattern E28**: Parse DYNAMIC before ICEBERG to handle "CREATE DYNAMIC ICEBERG TABLE"
+   - **Tests Fixed**: TestSnowflakeCreateIcebergTable (all subtests now pass)
+
+2. **CREATE DYNAMIC TABLE** (parser/create.go, ast/statement/ddl.go, ast/expr/ddl.go):
+   - Added DYNAMIC table modifier support in parseCreate()
+   - Added parsing for DYNAMIC-specific options: TARGET_LAG, WAREHOUSE, REFRESH_MODE, INITIALIZE
+   - Added InitializeKind constants: InitializeKindOnCreate, InitializeKindOnSchedule
+   - Added RequireUser flag for REQUIRE USER option
+   - **Pattern E29**: AS query for DYNAMIC tables must be parsed after all options (not in standard position)
+   - **Pattern E30**: REQUIRE USER is a boolean flag that must be serialized
+   - **Tests Fixed**: TestSnowflakeCreateDynamicTable (all 4 subtests now pass)
+
+3. **CREATE STAGE (Basic)** (parser/create.go):
+   - Added basic parseCreateStage() function stub
+   - Added STAGE to CREATE statement switch
+   - Returns basic CreateStage statement without full stage params parsing
+
+**Results**: +2 tests passing (513 total passing, 298 failing)
+
+---
+
 **Line Counts (Updated April 8, 2026 - Evening Session):**
 
 | Component | Rust | Go | Ratio |

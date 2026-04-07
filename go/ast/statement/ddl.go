@@ -87,6 +87,7 @@ type CreateTable struct {
 	Warehouse                  *ast.Ident
 	RefreshMode                *expr.RefreshModeKind
 	Initialize                 *expr.InitializeKind
+	RequireUser                bool
 	// Redshift-specific fields
 	Backup    *bool
 	Diststyle *expr.DistStyle
@@ -212,6 +213,40 @@ func (c *CreateTable) String() string {
 	if c.OnCommit != nil {
 		f.WriteString(" ")
 		f.WriteString(c.OnCommit.String())
+	}
+
+	// Snowflake ICEBERG options
+	if c.ExternalVolume != nil {
+		f.WriteString(fmt.Sprintf(" EXTERNAL_VOLUME='%s'", *c.ExternalVolume))
+	}
+	if c.Catalog != nil {
+		f.WriteString(fmt.Sprintf(" CATALOG='%s'", *c.Catalog))
+	}
+	if c.BaseLocation != nil {
+		f.WriteString(fmt.Sprintf(" BASE_LOCATION='%s'", *c.BaseLocation))
+	}
+	if c.CatalogSync != nil {
+		f.WriteString(fmt.Sprintf(" CATALOG_SYNC='%s'", *c.CatalogSync))
+	}
+	if c.StorageSerializationPolicy != nil {
+		f.WriteString(fmt.Sprintf(" STORAGE_SERIALIZATION_POLICY=%s", c.StorageSerializationPolicy.String()))
+	}
+
+	// Snowflake DYNAMIC table options
+	if c.TargetLag != nil {
+		f.WriteString(fmt.Sprintf(" TARGET_LAG='%s'", *c.TargetLag))
+	}
+	if c.Warehouse != nil {
+		f.WriteString(fmt.Sprintf(" WAREHOUSE=%s", c.Warehouse.String()))
+	}
+	if c.RefreshMode != nil {
+		f.WriteString(fmt.Sprintf(" REFRESH_MODE=%s", c.RefreshMode.String()))
+	}
+	if c.Initialize != nil {
+		f.WriteString(fmt.Sprintf(" INITIALIZE=%s", c.Initialize.String()))
+	}
+	if c.RequireUser {
+		f.WriteString(" REQUIRE USER")
 	}
 
 	if c.Query != nil {

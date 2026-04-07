@@ -51,14 +51,23 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	// Check for TEMPORARY/TEMP
 	temporary := p.ParseKeyword("TEMPORARY") || p.ParseKeyword("TEMP")
 
+	// Check for VOLATILE (Snowflake)
+	volatile := p.ParseKeyword("VOLATILE")
+
 	// Check for PERSISTENT (DuckDB)
 	// Note: Persistent is not stored separately, it's just a modifier
 	p.ParseKeyword("PERSISTENT")
 
+	// Check for DYNAMIC (Snowflake)
+	dynamic := p.ParseKeyword("DYNAMIC")
+
+	// Check for ICEBERG (Snowflake) - can appear after DYNAMIC
+	iceberg := p.ParseKeyword("ICEBERG")
+
 	// Try various CREATE targets
 	switch {
 	case p.PeekKeyword("TABLE"):
-		return parseCreateTable(p, orReplace, temporary, globalOpt, transient)
+		return parseCreateTable(p, orReplace, temporary, globalOpt, transient, volatile, iceberg, dynamic)
 	case p.PeekKeyword("VIEW"):
 		return parseCreateView(p, orReplace, temporary, false)
 	case p.PeekKeyword("ALGORITHM"), p.PeekKeyword("DEFINER"), p.PeekKeyword("SQL"):
@@ -105,6 +114,8 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 		return parseCreateUser(p, orReplace)
 	case p.PeekKeyword("PROCEDURE"):
 		return parseCreateProcedure(p, false)
+	case p.PeekKeyword("STAGE"):
+		return parseCreateStage(p, orReplace, temporary, transient)
 	case p.PeekKeyword("SECURE"):
 		// CREATE SECURE VIEW or CREATE SECURE MATERIALIZED VIEW
 		p.NextToken() // consume SECURE
@@ -128,7 +139,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 
 // parseCreateTable parses CREATE TABLE
 // Reference: src/parser/mod.rs:8339
-func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transient bool) (ast.Statement, error) {
+func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transient bool, volatile bool, iceberg bool, dynamic bool) (ast.Statement, error) {
 	// Consume TABLE keyword
 	if _, err := p.ExpectKeyword("TABLE"); err != nil {
 		return nil, err
@@ -151,6 +162,17 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 	var clusterBy *expr.WrappedCollection
 	var comment *expr.CommentDef
 	var onCommit *expr.OnCommit
+	// Additional Snowflake options for ICEBERG and DYNAMIC tables
+	var externalVolume *string
+	var baseLocation *string
+	var catalog *string
+	var catalogSync *string
+	var storageSerializationPolicy *expr.StorageSerializationPolicy
+	var targetLag *string
+	var warehouse *ast.Ident
+	var refreshMode *expr.RefreshModeKind
+	var initialize *expr.InitializeKind
+	var requireUser bool
 
 	// For Snowflake, parse options that can appear before the column list
 	if p.GetDialect().Dialect() == "snowflake" {
@@ -162,6 +184,35 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		clusterBy = snowflakeOpts.ClusterBy
 		comment = snowflakeOpts.Comment
 		onCommit = snowflakeOpts.OnCommit
+		requireUser = snowflakeOpts.RequireUser
+		// Additional options
+		if snowflakeOpts.ExternalVolume != nil {
+			externalVolume = snowflakeOpts.ExternalVolume
+		}
+		if snowflakeOpts.BaseLocation != nil {
+			baseLocation = snowflakeOpts.BaseLocation
+		}
+		if snowflakeOpts.Catalog != nil {
+			catalog = snowflakeOpts.Catalog
+		}
+		if snowflakeOpts.CatalogSync != nil {
+			catalogSync = snowflakeOpts.CatalogSync
+		}
+		if snowflakeOpts.StorageSerializationPolicy != nil {
+			storageSerializationPolicy = snowflakeOpts.StorageSerializationPolicy
+		}
+		if snowflakeOpts.TargetLag != nil {
+			targetLag = snowflakeOpts.TargetLag
+		}
+		if snowflakeOpts.Warehouse != nil {
+			warehouse = snowflakeOpts.Warehouse
+		}
+		if snowflakeOpts.RefreshMode != nil {
+			refreshMode = snowflakeOpts.RefreshMode
+		}
+		if snowflakeOpts.Initialize != nil {
+			initialize = snowflakeOpts.Initialize
+		}
 	}
 
 	// PostgreSQL PARTITION OF for child partition tables
@@ -356,6 +407,48 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		if snowflakeOpts.OnCommit != nil {
 			onCommit = snowflakeOpts.OnCommit
 		}
+		// Additional options
+		if snowflakeOpts.ExternalVolume != nil {
+			externalVolume = snowflakeOpts.ExternalVolume
+		}
+		if snowflakeOpts.BaseLocation != nil {
+			baseLocation = snowflakeOpts.BaseLocation
+		}
+		if snowflakeOpts.Catalog != nil {
+			catalog = snowflakeOpts.Catalog
+		}
+		if snowflakeOpts.CatalogSync != nil {
+			catalogSync = snowflakeOpts.CatalogSync
+		}
+		if snowflakeOpts.StorageSerializationPolicy != nil {
+			storageSerializationPolicy = snowflakeOpts.StorageSerializationPolicy
+		}
+		if snowflakeOpts.TargetLag != nil {
+			targetLag = snowflakeOpts.TargetLag
+		}
+		if snowflakeOpts.Warehouse != nil {
+			warehouse = snowflakeOpts.Warehouse
+		}
+		if snowflakeOpts.RefreshMode != nil {
+			refreshMode = snowflakeOpts.RefreshMode
+		}
+		if snowflakeOpts.Initialize != nil {
+			initialize = snowflakeOpts.Initialize
+		}
+		if snowflakeOpts.RequireUser {
+			requireUser = true
+		}
+	}
+
+	// For Snowflake DYNAMIC tables, AS query comes after all options
+	// Check if we haven't parsed AS query yet and there's one now
+	if asQuery == nil && p.PeekKeyword("AS") {
+		p.AdvanceToken()
+		innerQuery, err := p.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		asQuery = extractQueryFromStatement(innerQuery)
 	}
 
 	return &statement.CreateTable{
@@ -363,6 +456,9 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Temporary:        temporary,
 		Global:           global,
 		Transient:        transient,
+		Volatile:         volatile,
+		Iceberg:          iceberg,
+		Dynamic:          dynamic,
 		IfNotExists:      ifNotExists,
 		Name:             tableName,
 		Columns:          columns,
@@ -392,6 +488,17 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		DataRetentionTimeInDays: dataRetentionTimeInDays,
 		ClusterBy:               clusterBy,
 		Comment:                 comment,
+		// Additional Snowflake fields
+		ExternalVolume:             externalVolume,
+		BaseLocation:               baseLocation,
+		Catalog:                    catalog,
+		CatalogSync:                catalogSync,
+		StorageSerializationPolicy: storageSerializationPolicy,
+		TargetLag:                  targetLag,
+		Warehouse:                  warehouse,
+		RefreshMode:                refreshMode,
+		Initialize:                 initialize,
+		RequireUser:                requireUser,
 	}, nil
 }
 
@@ -404,6 +511,17 @@ type snowflakeCreateTableOptions struct {
 	ClusterBy               *expr.WrappedCollection
 	Comment                 *expr.CommentDef
 	OnCommit                *expr.OnCommit
+	// Additional Snowflake options for ICEBERG and DYNAMIC tables
+	ExternalVolume             *string
+	BaseLocation               *string
+	Catalog                    *string
+	CatalogSync                *string
+	StorageSerializationPolicy *expr.StorageSerializationPolicy
+	TargetLag                  *string
+	Warehouse                  *ast.Ident
+	RefreshMode                *expr.RefreshModeKind
+	Initialize                 *expr.InitializeKind
+	RequireUser                bool
 }
 
 // parseSnowflakeCreateTableOptionsBeforeColumns parses Snowflake options that appear before columns
@@ -535,6 +653,80 @@ func parseSnowflakeCreateTableOptionsWithTerminator(p *Parser, terminator token.
 				// Not ON COMMIT, backtrack
 				p.PrevToken()
 				return opts
+			}
+
+		// ICEBERG table options
+		case "EXTERNAL_VOLUME":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					opts.ExternalVolume = &str.Value
+				}
+			}
+
+		case "CATALOG":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					opts.Catalog = &str.Value
+				}
+			}
+
+		case "BASE_LOCATION":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					opts.BaseLocation = &str.Value
+				}
+			}
+
+		case "CATALOG_SYNC":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					opts.CatalogSync = &str.Value
+				}
+			}
+
+		// DYNAMIC table options
+		case "TARGET_LAG":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.NextToken()
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					opts.TargetLag = &str.Value
+				}
+			}
+
+		case "WAREHOUSE":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				ident, _ := p.ParseIdentifier()
+				if ident != nil {
+					opts.Warehouse = ident
+				}
+			}
+
+		case "INITIALIZE":
+			p.AdvanceToken()
+			if p.ConsumeToken(token.TokenEq{}) {
+				if p.ParseKeyword("ON_CREATE") {
+					kind := expr.InitializeKindOnCreate
+					opts.Initialize = &kind
+				} else if p.ParseKeyword("ON_SCHEDULE") {
+					kind := expr.InitializeKindOnSchedule
+					opts.Initialize = &kind
+				}
+			}
+
+		case "REQUIRE":
+			p.AdvanceToken()
+			if p.ParseKeyword("USER") {
+				opts.RequireUser = true
 			}
 
 		default:
@@ -4017,4 +4209,33 @@ func parseDistStyle(p *Parser) *expr.DistStyle {
 		return &expr.DistStyle{Style: "AUTO"}
 	}
 	return nil
+}
+
+// parseCreateStage parses a CREATE STAGE statement (Snowflake)
+// Reference: src/dialect/snowflake.rs:parse_create_stage
+func parseCreateStage(p *Parser, orReplace bool, temporary bool, transient bool) (ast.Statement, error) {
+	// Consume STAGE keyword
+	if _, err := p.ExpectKeyword("STAGE"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF NOT EXISTS
+	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse stage name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: Parse stage params, directory table params, file_format, copy_options, comment
+	// For now, return a basic CreateStage statement
+
+	return &statement.CreateStage{
+		OrReplace:   orReplace,
+		Temporary:   temporary,
+		IfNotExists: ifNotExists,
+		Name:        name,
+		StageParams: &expr.StageParamsObject{},
+	}, nil
 }
