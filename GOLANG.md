@@ -3301,3 +3301,42 @@ Analyzed current test failures to identify major missing parser chunks:
 
 **Key Pattern:**
 - **Pattern DA: Major Parser Chunks** - When implementing major missing features like CREATE TABLE extensions, always reference the full Rust implementation (src/parser/mod.rs). The Go parser often has minimal implementations that need feature parity. Check for dialect-specific features using `dialect.SupportsXxx()` methods.
+
+---
+
+### April 7, 2026 - CREATE POLICY and TABLESAMPLE Fixes
+
+Implemented critical fixes for CREATE POLICY and TABLESAMPLE parsing:
+
+1. **CREATE POLICY Keyword Fix** (parser/create.go):
+   - **Root Cause**: `parseCreate` was checking for POLICY keyword with `PeekKeyword("POLICY")` but not consuming it before calling `parseCreatePolicy`
+   - **Fix**: Added `p.NextToken()` to consume the POLICY keyword before calling `parseCreatePolicy`
+   - **+1 test passing** (TestParseCreatePolicy)
+   - **Pattern CO: Always Consume Keywords Before Delegating** - When using `PeekKeyword()` to check for a keyword before calling a specific parser function, always consume the keyword with `p.NextToken()` or `p.AdvanceToken()` before delegating. The specific parser expects the keyword to already be consumed.
+
+2. **TABLESAMPLE for FROM Clause Tables** (parser/query.go):
+   - **Root Cause**: TABLESAMPLE was only parsed for pipe operators (`|> TABLESAMPLE`), not for regular table references in FROM clause
+   - **Implementation**: Added `maybeParseTableSample()` function that handles:
+     - `TABLESAMPLE` and `SAMPLE` keywords
+     - Sampling methods: BERNOULLI, ROW, SYSTEM, BLOCK
+     - BUCKET syntax: `BUCKET n OUT OF m [ON expr]`
+     - Parenthesized and non-parenthesized quantities
+     - Optional units: PERCENT, ROWS
+     - SEED and REPEATABLE clauses
+   - **Dialect Support**: Uses `SupportsTableSampleBeforeAlias()` to determine if TABLESAMPLE appears before or after table alias
+   - **Integration**: Modified `parseTableName()` to call `maybeParseTableSample()` at appropriate positions
+   - **+2 tests passing** (TestTableSample, TestParseTableSample)
+   - **Pattern CP: Table Factor Post-Parsing** - After parsing a table name in a table factor, check for additional clauses in this order: JSON path → PARTITION → version → function args → WITH ORDINALITY → TABLESAMPLE → alias → index hints → WITH hints.
+
+**Key Pattern Documentation:**
+- **Pattern CO: Keyword Consumption** - When `PeekKeyword()` is used in a switch case to dispatch to a specific parser, the keyword must be consumed before calling the parser function. The specific parser expects to parse the content AFTER the keyword.
+- **Pattern CP: TABLESAMPLE Position** - Different dialects place TABLESAMPLE in different positions relative to the table alias. Check `SupportsTableSampleBeforeAlias()` to determine the correct parsing order.
+
+---
+
+**Line Counts (Updated April 7, 2026):**
+- Rust Source: 67,345 lines (parser + dialects + AST)
+- Go Source: 76,120 lines (113% of Rust - AST types and interfaces)
+- Rust Tests: 49,886 lines
+- Go Tests: 14,149 lines (28.3% of Rust test coverage)
+- **Current Test Pass Rate: ~54%** (442 passing out of 813 total tests)

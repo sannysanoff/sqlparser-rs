@@ -2106,12 +2106,28 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		}, nil
 	}
 
+	// Check for TABLESAMPLE before alias (some dialects)
+	var sampleKind *query.TableSampleKind
+	if p.GetDialect().SupportsTableSampleBeforeAlias() {
+		if sample := maybeParseTableSample(p); sample != nil {
+			sampleKind = &query.TableSampleKind{BeforeTableAlias: sample}
+		}
+	}
+
 	// Check for alias
 	alias, _ := tryParseTableAlias(p)
 
+	// Check for TABLESAMPLE after alias (other dialects)
+	if sampleKind == nil {
+		if sample := maybeParseTableSample(p); sample != nil {
+			sampleKind = &query.TableSampleKind{AfterTableAlias: sample}
+		}
+	}
+
 	return &query.TableTableFactor{
-		Name:  astObjectNameToQuery(name),
-		Alias: alias,
+		Name:   astObjectNameToQuery(name),
+		Alias:  alias,
+		Sample: sampleKind,
 	}, nil
 }
 
@@ -3869,4 +3885,123 @@ func parseTableSample(p *Parser) (*query.TableSample, error) {
 		},
 		Seed: seed,
 	}, nil
+}
+
+// maybeParseTableSample attempts to parse a TABLESAMPLE or SAMPLE clause
+// Returns nil if no TABLESAMPLE keyword is found
+// Reference: src/parser/mod.rs:15838
+func maybeParseTableSample(p *Parser) *query.TableSample {
+	// Check for TABLESAMPLE or SAMPLE keyword
+	var modifier query.TableSampleModifier
+	if p.ParseKeyword("TABLESAMPLE") {
+		modifier = query.TableSampleModifierTableSample
+	} else if p.ParseKeyword("SAMPLE") {
+		modifier = query.TableSampleModifierSample
+	} else {
+		return nil
+	}
+
+	// Parse sampling method: BERNOULLI, ROW, SYSTEM, BLOCK
+	var method *query.TableSampleMethod
+	if p.ParseKeyword("BERNOULLI") {
+		m := query.TableSampleMethodBernoulli
+		method = &m
+	} else if p.ParseKeyword("ROW") {
+		m := query.TableSampleMethodRow
+		method = &m
+	} else if p.ParseKeyword("SYSTEM") {
+		m := query.TableSampleMethodSystem
+		method = &m
+	} else if p.ParseKeyword("BLOCK") {
+		m := query.TableSampleMethodBlock
+		method = &m
+	}
+
+	// Check if parenthesized
+	parenthesized := p.ConsumeToken(token.TokenLParen{})
+
+	var quantity *query.TableSampleQuantity
+	var bucket *query.TableSampleBucket
+
+	if parenthesized && p.ParseKeyword("BUCKET") {
+		// Parse BUCKET syntax: BUCKET n OUT OF m [ON expr]
+		ep := NewExpressionParser(p)
+		selectedBucket, _ := ep.ParseExpr()
+		if p.ParseKeywords([]string{"OUT", "OF"}) {
+			total, _ := ep.ParseExpr()
+			var on query.Expr
+			if p.ParseKeyword("ON") {
+				onVal, _ := ep.ParseExpr()
+				on = exprToQueryExpr(onVal)
+			}
+			bucket = &query.TableSampleBucket{
+				Bucket: query.ValueWithSpan{Value: selectedBucket.String()},
+				Total:  query.ValueWithSpan{Value: total.String()},
+				On:     on,
+			}
+		}
+	} else {
+		// Parse quantity expression
+		ep := NewExpressionParser(p)
+		value, err := ep.ParseExpr()
+		if err != nil {
+			// Try to parse as placeholder/word if expression fails
+			tok := p.NextToken()
+			if word, ok := tok.Token.(token.TokenWord); ok {
+				value = &expr.ValueExpr{Value: word.Word.Value}
+			}
+		}
+
+		// Parse optional unit: ROWS or PERCENT
+		var unit *query.TableSampleUnit
+		if p.ParseKeyword("ROWS") {
+			u := query.TableSampleUnitRows
+			unit = &u
+		} else if p.ParseKeyword("PERCENT") {
+			u := query.TableSampleUnitPercent
+			unit = &u
+		}
+
+		quantity = &query.TableSampleQuantity{
+			Parenthesized: parenthesized,
+			Value:         value,
+			Unit:          unit,
+		}
+	}
+
+	if parenthesized {
+		p.ExpectToken(token.TokenRParen{})
+	}
+
+	// Parse optional SEED or REPEATABLE
+	var seed *query.TableSampleSeed
+	if p.ParseKeyword("REPEATABLE") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err == nil {
+			ep := NewExpressionParser(p)
+			seedVal, _ := ep.ParseExpr()
+			p.ExpectToken(token.TokenRParen{})
+			seed = &query.TableSampleSeed{
+				Modifier: query.TableSampleSeedModifierRepeatable,
+				Value:    query.ValueWithSpan{Value: seedVal.String()},
+			}
+		}
+	} else if p.ParseKeyword("SEED") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err == nil {
+			ep := NewExpressionParser(p)
+			seedVal, _ := ep.ParseExpr()
+			p.ExpectToken(token.TokenRParen{})
+			seed = &query.TableSampleSeed{
+				Modifier: query.TableSampleSeedModifierSeed,
+				Value:    query.ValueWithSpan{Value: seedVal.String()},
+			}
+		}
+	}
+
+	return &query.TableSample{
+		Modifier: modifier,
+		Name:     method,
+		Quantity: quantity,
+		Bucket:   bucket,
+		Seed:     seed,
+	}
 }

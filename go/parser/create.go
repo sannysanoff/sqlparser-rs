@@ -86,6 +86,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("TRIGGER"):
 		return parseCreateTrigger(p, orReplace)
 	case p.PeekKeyword("POLICY"):
+		p.NextToken() // Consume POLICY keyword
 		return parseCreatePolicy(p, orReplace)
 	case p.PeekKeyword("FUNCTION"):
 		return parseCreateFunction(p, orReplace, temporary)
