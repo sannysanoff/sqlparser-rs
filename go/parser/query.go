@@ -23,6 +23,7 @@ import (
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
+	"github.com/user/sqlparser/ast/operator"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
 	"github.com/user/sqlparser/dialects"
@@ -692,9 +693,30 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 
 	// Parse expression
 	ep := NewExpressionParser(p)
-	expr, err := ep.ParseExpr()
+	parsedExpr, err := ep.ParseExpr()
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for = alias assignment (e.g., SELECT alias = expr FROM t)
+	// This is supported by MSSQL and some other dialects
+	if binOp, ok := parsedExpr.(*expr.BinaryOp); ok {
+		if binOp.Op == operator.BOpEq {
+			if leftIdent, ok := binOp.Left.(*expr.Identifier); ok {
+				if dialects.SupportsEqAliasAssignment(p.GetDialect()) {
+					// Convert expr.Ident to query.Ident
+					aliasIdent := query.Ident{Value: leftIdent.Ident.Value}
+					if leftIdent.Ident.QuoteStyle != nil {
+						q := byte(*leftIdent.Ident.QuoteStyle)
+						aliasIdent.QuoteStyle = &q
+					}
+					return &query.AliasedExpr{
+						Expr:  &queryExprWrapper{expr: binOp.Right},
+						Alias: aliasIdent,
+					}, nil
+				}
+			}
+		}
 	}
 
 	// Check for alias (AS name or just name)
@@ -704,7 +726,7 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 			return nil, err
 		}
 		return &query.AliasedExpr{
-			Expr:  &queryExprWrapper{expr: expr},
+			Expr:  &queryExprWrapper{expr: parsedExpr},
 			Alias: astIdentToQuery(aliasIdent),
 		}, nil
 	}
@@ -716,14 +738,14 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 			aliasIdent, err := p.ParseIdentifier()
 			if err == nil {
 				return &query.AliasedExpr{
-					Expr:  &queryExprWrapper{expr: expr},
+					Expr:  &queryExprWrapper{expr: parsedExpr},
 					Alias: astIdentToQuery(aliasIdent),
 				}, nil
 			}
 		}
 	}
 
-	return &query.UnnamedExpr{Expr: &queryExprWrapper{expr: expr}}, nil
+	return &query.UnnamedExpr{Expr: &queryExprWrapper{expr: parsedExpr}}, nil
 }
 
 // parseWildcardAdditionalOptions parses optional EXCLUDE, EXCEPT, REPLACE, RENAME, ILIKE for wildcards

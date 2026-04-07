@@ -444,6 +444,26 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 		}
 		dataType = dt.Value
 
+		// Check for data type arguments like VARCHAR(MAX) or DECIMAL(10,5)
+		if ep.parser.ConsumeToken(token.TokenLParen{}) {
+			dataType += "("
+			// Parse the content inside parentheses
+			for {
+				tok := ep.parser.PeekTokenRef()
+				if ep.parser.ConsumeToken(token.TokenRParen{}) {
+					dataType += ")"
+					break
+				}
+				if ep.parser.ConsumeToken(token.TokenComma{}) {
+					dataType += ", "
+					continue
+				}
+				// Add the token string representation
+				dataType += tok.Token.String()
+				ep.parser.AdvanceToken()
+			}
+		}
+
 		if _, err := ep.parser.ExpectToken(token.TokenComma{}); err != nil {
 			return nil, err
 		}
@@ -487,6 +507,26 @@ func (ep *ExpressionParser) parseConvertExpr(isTry bool) (expr.Expr, error) {
 				return nil, err
 			}
 			dataType = dt.Value
+
+			// Check for data type arguments like VARCHAR(MAX) or DECIMAL(10,5)
+			if ep.parser.ConsumeToken(token.TokenLParen{}) {
+				dataType += "("
+				// Parse the content inside parentheses
+				for {
+					tok := ep.parser.PeekTokenRef()
+					if ep.parser.ConsumeToken(token.TokenRParen{}) {
+						dataType += ")"
+						break
+					}
+					if ep.parser.ConsumeToken(token.TokenComma{}) {
+						dataType += ", "
+						continue
+					}
+					// Add the token string representation
+					dataType += tok.Token.String()
+					ep.parser.AdvanceToken()
+				}
+			}
 
 			// Check for CHARACTER SET
 			if ep.parser.ParseKeywords([]string{"CHARACTER", "SET"}) {

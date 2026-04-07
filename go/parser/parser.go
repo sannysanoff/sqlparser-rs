@@ -793,14 +793,15 @@ func (p *Parser) parseLoad() (ast.Statement, error) {
 			return nil, err
 		}
 
-		// Parse path string
-		pathTok, err := p.ExpectToken(token.TokenSingleQuotedString{})
-		if err != nil {
-			return nil, err
-		}
+		// Parse path string - check for single-quoted string without using ExpectToken
+		// because ExpectToken compares both type AND value
+		pathTok := p.PeekTokenRef()
 		path := ""
 		if str, ok := pathTok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken() // consume the token
 			path = str.Value
+		} else {
+			return nil, p.expectedRef("single-quoted string", pathTok)
 		}
 
 		// Parse optional OVERWRITE
