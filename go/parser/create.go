@@ -93,7 +93,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("ROLE"):
 		return parseCreateRole(p, orReplace)
 	case p.PeekKeyword("DATABASE"):
-		return parseCreateDatabase(p)
+		return parseCreateDatabase(p, orReplace, transient)
 	case p.PeekKeyword("SCHEMA"):
 		return parseCreateSchema(p)
 	case p.PeekKeyword("SEQUENCE"):
@@ -1802,7 +1802,7 @@ func parseCreateRole(p *Parser, orReplace bool) (ast.Statement, error) {
 	}, nil
 }
 
-func parseCreateDatabase(p *Parser) (ast.Statement, error) {
+func parseCreateDatabase(p *Parser, orReplace bool, transient bool) (ast.Statement, error) {
 	// Consume DATABASE keyword
 	if _, err := p.ExpectKeyword("DATABASE"); err != nil {
 		return nil, err
@@ -1817,11 +1817,22 @@ func parseCreateDatabase(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
+	// Parse optional CLONE (Snowflake style) - must come before LOCATION options
+	var clone *ast.ObjectName
+	if p.PeekKeyword("CLONE") {
+		p.NextToken()
+		clone, err = p.ParseObjectName()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Parse optional LOCATION/MANAGEDLOCATION (Hive/Databricks style)
 	var location, managedLocation *string
 	for {
 		if p.PeekKeyword("LOCATION") {
 			p.NextToken()
+			p.ConsumeToken(token.TokenEq{}) // Optional =
 			loc, err := p.ParseStringLiteral()
 			if err != nil {
 				return nil, err
@@ -1829,6 +1840,7 @@ func parseCreateDatabase(p *Parser) (ast.Statement, error) {
 			location = &loc
 		} else if p.PeekKeyword("MANAGEDLOCATION") {
 			p.NextToken()
+			p.ConsumeToken(token.TokenEq{}) // Optional =
 			loc, err := p.ParseStringLiteral()
 			if err != nil {
 				return nil, err
@@ -1839,13 +1851,43 @@ func parseCreateDatabase(p *Parser) (ast.Statement, error) {
 		}
 	}
 
-	// Parse optional CLONE (Snowflake style)
-	var clone *ast.ObjectName
-	if p.PeekKeyword("CLONE") {
-		p.NextToken()
-		clone, err = p.ParseObjectName()
-		if err != nil {
-			return nil, err
+	// Parse Snowflake-specific options in a loop
+	var dataRetentionTimeInDays, maxDataExtensionTimeInDays *uint64
+	var comment *string
+
+	for {
+		if p.PeekKeyword("DATA_RETENTION_TIME_IN_DAYS") {
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			val, err := parseLiteralUint(p)
+			if err != nil {
+				return nil, err
+			}
+			dataRetentionTimeInDays = &val
+		} else if p.PeekKeyword("MAX_DATA_EXTENSION_TIME_IN_DAYS") {
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			val, err := parseLiteralUint(p)
+			if err != nil {
+				return nil, err
+			}
+			maxDataExtensionTimeInDays = &val
+		} else if p.PeekKeyword("COMMENT") {
+			p.NextToken()
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			c, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			comment = &c
+		} else {
+			break
 		}
 	}
 
@@ -1895,13 +1937,18 @@ func parseCreateDatabase(p *Parser) (ast.Statement, error) {
 	}
 
 	return &statement.CreateDatabase{
-		DbName:           dbName,
-		IfNotExists:      ifNotExists,
-		Location:         location,
-		ManagedLocation:  managedLocation,
-		Clone:            clone,
-		DefaultCharset:   defaultCharset,
-		DefaultCollation: defaultCollation,
+		DbName:                     dbName,
+		IfNotExists:                ifNotExists,
+		OrReplace:                  orReplace,
+		Transient:                  transient,
+		Location:                   location,
+		ManagedLocation:            managedLocation,
+		Clone:                      clone,
+		DataRetentionTimeInDays:    dataRetentionTimeInDays,
+		MaxDataExtensionTimeInDays: maxDataExtensionTimeInDays,
+		Comment:                    comment,
+		DefaultCharset:             defaultCharset,
+		DefaultCollation:           defaultCollation,
 	}, nil
 }
 

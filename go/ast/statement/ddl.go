@@ -1066,6 +1066,27 @@ func (c *CreateDatabase) String() string {
 	}
 	f.WriteString(c.DbName.String())
 
+	// CLONE clause (Snowflake)
+	if c.Clone != nil {
+		f.WriteString(" CLONE ")
+		f.WriteString(c.Clone.String())
+	}
+
+	// Snowflake-specific options
+	if c.DataRetentionTimeInDays != nil {
+		f.WriteString(" DATA_RETENTION_TIME_IN_DAYS = ")
+		f.WriteString(fmt.Sprintf("%d", *c.DataRetentionTimeInDays))
+	}
+	if c.MaxDataExtensionTimeInDays != nil {
+		f.WriteString(" MAX_DATA_EXTENSION_TIME_IN_DAYS = ")
+		f.WriteString(fmt.Sprintf("%d", *c.MaxDataExtensionTimeInDays))
+	}
+	if c.Comment != nil {
+		f.WriteString(" COMMENT = '")
+		f.WriteString(*c.Comment)
+		f.WriteString("'")
+	}
+
 	// Output MySQL-style CHARACTER SET and COLLATE options
 	// Note: We always output DEFAULT CHARACTER SET and DEFAULT COLLATE as the normalized form
 	if c.DefaultCharset != nil {

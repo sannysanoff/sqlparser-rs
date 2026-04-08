@@ -1,15 +1,39 @@
 ---
 
-## Latest Update: April 9, 2026 - Session 32 (ASOF JOIN, PIVOT, Validations)
+## Latest Update: April 9, 2026 - Session 33 (CREATE DATABASE Fix, Line Counts Update)
 
-**Line Counts (Updated April 9, 2026 - Session 32):**
+**Line Counts (Updated April 9, 2026 - Session 33):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 83,797 lines | 124% |
-| Tests | 49,847 lines | 14,161 lines | 28% |
-| **Test Status** | - | **87 passing** / **66 failing** (~57%) | Snowflake dialect only |
-| **Total Test Cases** | - | ~153 test outcomes |
+| Source (parser+ast+dialects) | 67,345 lines | 83,865 lines | 124% |
+| Tests | 49,886 lines | 14,161 lines | 28% |
+| **Test Status** | - | **210 subtests passing** / **39 subtests failing** (~84%) | Snowflake dialect only |
+| **Total Test Cases** | - | 249 subtest outcomes (78 test functions) |
+
+### Session 33 Summary:
+
+**Fixed CREATE DATABASE Statement** (5 tests now passing - Major feature!)
+
+Fixed Snowflake CREATE DATABASE parsing to support all options:
+- `CREATE OR REPLACE DATABASE my_db` - now properly handles OR REPLACE modifier
+- `CREATE TRANSIENT DATABASE IF NOT EXISTS my_db` - now properly handles TRANSIENT modifier
+- `CREATE DATABASE my_db CLONE src_db` - now properly serializes CLONE clause
+- `CREATE OR REPLACE DATABASE my_db CLONE src_db DATA_RETENTION_TIME_IN_DAYS = 1` - now parses and serializes DATA_RETENTION_TIME_IN_DAYS option
+
+**Implementation Details:**
+- Updated `parseCreate()` in `parser/create.go` to pass `orReplace` and `transient` parameters to `parseCreateDatabase()`
+- Updated `parseCreateDatabase()` signature to accept `orReplace bool` and `transient bool` parameters
+- Added `OrReplace` and `Transient` fields to the returned `CreateDatabase` AST node
+- Added CLONE clause parsing after database name
+- Added Snowflake-specific options parsing loop for DATA_RETENTION_TIME_IN_DAYS, MAX_DATA_EXTENSION_TIME_IN_DAYS, COMMENT
+- Updated `CreateDatabase.String()` to serialize all new fields including CLONE and Snowflake options
+
+**New Patterns Documented:**
+- **Pattern E134**: CREATE DATABASE with modifiers - Always pass `orReplace` and `transient` parameters from `parseCreate()` to specific create statement parsers
+- **Pattern E135**: Snowflake option parsing - Use a loop to parse Snowflake-specific options like DATA_RETENTION_TIME_IN_DAYS after the main clause parsing
+
+---
 
 ### Session 32 Summary:
 
@@ -115,6 +139,10 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 - **Pattern E132**: ASOF JOIN parsing - Check for ASOF keyword before JOIN, then parse MATCH_CONDITION clause followed by optional ON/USING constraint. ASOF JOIN is Snowflake-specific for time-series matching.
 
 - **Pattern E133**: CREATE TABLE option validation - Check for conflicting keyword combinations (like LOCAL+GLOBAL, TEMP+VOLATILE) after parsing all CREATE TABLE modifiers but before building the AST. Required options (like BASE_LOCATION for ICEBERG) should be validated at the same point.
+
+- **Pattern E134**: CREATE DATABASE with modifiers - Always pass `orReplace` and `transient` parameters from `parseCreate()` to specific create statement parsers. These modifiers are parsed at the top level in `parseCreate()` before dispatching to specific parsers like `parseCreateDatabase()`.
+
+- **Pattern E135**: Snowflake option parsing - Use a loop to parse Snowflake-specific options like `DATA_RETENTION_TIME_IN_DAYS = value` after the main clause parsing. The options can appear in any order and should be stored in the AST with their corresponding fields for proper serialization.
 
 ---
 
@@ -3592,6 +3620,17 @@ default:
 6. **Snowflake COPY INTO** - Complex expressions in PARTITION BY clause
 7. **Snowflake Error Cases** - Conflicting keywords (LOCAL GLOBAL, TEMP VOLATILE)
 
+**Recent Fixes (Session 33)**: ✅ 5 subtests now passing
+- TestSnowflakeCreateDatabase: ✅ All 5 subtests now passing
+  - CREATE OR REPLACE DATABASE my_db
+  - CREATE TRANSIENT DATABASE IF NOT EXISTS my_db
+  - CREATE DATABASE my_db CLONE src_db
+  - CREATE OR REPLACE DATABASE my_db CLONE src_db DATA_RETENTION_TIME_IN_DAYS = 1
+- Fixed `parseCreateDatabase()` to accept `orReplace` and `transient` parameters from `parseCreate()`
+- Added CLONE clause serialization to `CreateDatabase.String()`
+- Added Snowflake-specific options parsing: DATA_RETENTION_TIME_IN_DAYS, MAX_DATA_EXTENSION_TIME_IN_DAYS, COMMENT
+- New patterns documented: E134, E135
+
 **Recent Fixes (Session 28)**: ✅ 4 tests now passing
 - TestPostgresCreateFunction: ✅ Now passing
 - TestPostgresCreateFunctionWithArgs: ✅ Now passing  
@@ -3700,4 +3739,30 @@ default:
 - TestParseCreateTableWithConstraintCharacteristics: ✅ Partial (serialization correct, validation added for duplicates)
 - TestParseNonLatinIdentifiers: ✅ Now passing (BigQuery Unicode identifier support)
 - TestPostgresCreateServer: ✅ Now passing (all 3 subtests - CREATE SERVER with TYPE, VERSION, OPTIONS)
+
+### Error E134: CREATE DATABASE modifiers not passed to parser
+**Cause**: The `parseCreateDatabase()` function doesn't receive `orReplace` and `transient` parameters from `parseCreate()`, causing `CREATE OR REPLACE DATABASE` and `CREATE TRANSIENT DATABASE` to serialize incorrectly.
+
+**Solution**: Update the function signature to accept these parameters and set them in the AST:
+```go
+// In parseCreate():
+case p.PeekKeyword("DATABASE"):
+    return parseCreateDatabase(p, orReplace, transient)
+
+// Updated function signature:
+func parseCreateDatabase(p *Parser, orReplace bool, transient bool) (ast.Statement, error) {
+    // ... parse logic ...
+    return &statement.CreateDatabase{
+        // ... other fields ...
+        OrReplace: orReplace,
+        Transient: transient,
+        // ...
+    }, nil
+}
+```
+
+### Error E135: Missing Snowflake CREATE DATABASE options
+**Cause**: Snowflake-specific options like `DATA_RETENTION_TIME_IN_DAYS = value` are not parsed, causing "Expected: end of statement" errors.
+
+**Solution**: Add a loop to parse Snowflake-specific options after the main clause parsing. See Pattern E135 documentation in Session 33 summary above for full code example.
 
