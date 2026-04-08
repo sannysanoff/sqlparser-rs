@@ -2698,7 +2698,7 @@ func parseNvarchar2Type(p *Parser, spanVal token.Span) (*datatype.Nvarchar2Type,
 	return result, nil
 }
 
-// parseTimeType parses TIME [WITH TIME ZONE]
+// parseTimeType parses TIME [(precision)] [WITH|WITHOUT TIME ZONE]
 func parseTimeType(p *Parser, spanVal token.Span) (*datatype.TimeType, error) {
 	result := &datatype.TimeType{
 		SpanVal: spanVal,
@@ -2720,10 +2720,14 @@ func parseTimeType(p *Parser, spanVal token.Span) (*datatype.TimeType, error) {
 		}
 	}
 
-	// Check for WITH TIME ZONE
+	// Check for WITH TIME ZONE or WITHOUT TIME ZONE
 	if p.ParseKeyword("WITH") {
 		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
 			result.TimezoneInfo = datatype.WithTimeZone
+		}
+	} else if p.ParseKeyword("WITHOUT") {
+		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+			result.TimezoneInfo = datatype.WithoutTimeZone
 		}
 	}
 
@@ -3037,7 +3041,7 @@ func parseRealType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 	return &datatype.RealType{SpanVal: spanVal}, nil
 }
 
-// parseTimestampType parses TIMESTAMP [(precision)]
+// parseTimestampType parses TIMESTAMP [(precision)] [WITH|WITHOUT TIME ZONE]
 func parseTimestampType(p *Parser, spanVal token.Span) (*datatype.TimestampType, error) {
 	result := &datatype.TimestampType{
 		SpanVal: spanVal,
@@ -3058,6 +3062,17 @@ func parseTimestampType(p *Parser, spanVal token.Span) (*datatype.TimestampType,
 			}
 		} else {
 			return nil, fmt.Errorf("expected number in TIMESTAMP precision specification")
+		}
+	}
+
+	// Check for WITH TIME ZONE or WITHOUT TIME ZONE
+	if p.ParseKeyword("WITH") {
+		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+			result.TimezoneInfo = datatype.WithTimeZone
+		}
+	} else if p.ParseKeyword("WITHOUT") {
+		if p.ParseKeyword("TIME") && p.ParseKeyword("ZONE") {
+			result.TimezoneInfo = datatype.WithoutTimeZone
 		}
 	}
 

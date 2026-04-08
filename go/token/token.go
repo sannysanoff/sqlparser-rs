@@ -419,8 +419,8 @@ type TokenEscapedStringLiteral struct{ Value string }
 type TokenUnicodeStringLiteral struct{ Value string }
 type TokenHexStringLiteral struct{ Value string }
 
-func (t TokenEscapedStringLiteral) String() string { return "E'" + t.Value + "'" }
-func (t TokenUnicodeStringLiteral) String() string { return "U&'" + t.Value + "'" }
+func (t TokenEscapedStringLiteral) String() string { return "E'" + escapeEscapedString(t.Value) + "'" }
+func (t TokenUnicodeStringLiteral) String() string { return "U&'" + escapeUnicodeString(t.Value) + "'" }
 func (t TokenHexStringLiteral) String() string     { return "X'" + t.Value + "'" }
 
 func (t TokenEscapedStringLiteral) Equals(other Token) bool {
@@ -1076,4 +1076,56 @@ func NewTokenizerError(msg string, loc Location) error {
 		Message:  msg,
 		Location: loc,
 	}
+}
+
+// escapeEscapedString escapes special characters for E'...' strings.
+// Handles backslash escapes like \, \n, \t, etc.
+// Reference: Rust src/ast/value.rs - EscapeEscapedStringLiteral
+func escapeEscapedString(s string) string {
+	var result strings.Builder
+	for _, c := range s {
+		switch c {
+		case '\'':
+			result.WriteString(`\'`)
+		case '"':
+			result.WriteString(`\"`)
+		case '\\':
+			result.WriteString(`\\`)
+		case '\n':
+			result.WriteString(`\n`)
+		case '\t':
+			result.WriteString(`\t`)
+		case '\r':
+			result.WriteString(`\r`)
+		default:
+			result.WriteRune(c)
+		}
+	}
+	return result.String()
+}
+
+// escapeUnicodeString escapes special characters for U&'...' strings.
+func escapeUnicodeString(s string) string {
+	var result strings.Builder
+	for _, c := range s {
+		switch c {
+		case '\'':
+			result.WriteString(`''`)
+		case '\\':
+			result.WriteString(`\\`)
+		default:
+			if c < 128 {
+				result.WriteRune(c)
+			} else {
+				// Use Unicode escape format
+				codepoint := int(c)
+				if codepoint <= 0xFFFF {
+					result.WriteString(fmt.Sprintf("\\%04X", codepoint))
+				} else {
+					result.WriteString(fmt.Sprintf("\\+%06X", codepoint))
+				}
+			}
+		}
+	}
+	return result.String()
 }

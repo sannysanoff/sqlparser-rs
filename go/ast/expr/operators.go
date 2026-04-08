@@ -60,6 +60,8 @@ type BinaryOp struct {
 	Op      operator.BinaryOperator
 	Right   Expr
 	SpanVal token.Span
+	// PGCustomOperator stores PostgreSQL custom operator name parts (e.g., ["database", "pg_catalog", "~"])
+	PGCustomOperator []string
 }
 
 func (b *BinaryOp) exprNode() {}
@@ -73,6 +75,11 @@ func (b *BinaryOp) Span() token.Span {
 
 // String returns the SQL representation.
 func (b *BinaryOp) String() string {
+	// Handle PostgreSQL custom operators
+	if len(b.PGCustomOperator) > 0 {
+		opName := strings.Join(b.PGCustomOperator, ".")
+		return fmt.Sprintf("%s OPERATOR(%s) %s", b.Left.String(), opName, b.Right.String())
+	}
 	return fmt.Sprintf("%s %s %s", b.Left.String(), b.Op.String(), b.Right.String())
 }
 

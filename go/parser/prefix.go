@@ -335,7 +335,7 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 		return nil, ep.parser.ExpectedRef("an expression", ep.parser.PeekTokenRef())
 
 	case token.TokenEscapedStringLiteral:
-		if dialect.Dialect() == "postgresql" {
+		if dialect.SupportsStringEscapeConstant() {
 			ep.parser.PrevToken()
 			return ep.parseValue()
 		}

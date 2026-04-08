@@ -355,9 +355,26 @@ func EscapeDoubleQuoteString(s string) string {
 
 // EscapeEscapedString escapes special characters for E'...' strings.
 // Handles backslash escapes like \, \n, \t, etc.
+// Reference: Rust src/ast/value.rs - EscapeEscapedStringLiteral
 func EscapeEscapedString(s string) string {
-	// For display purposes, we just double backslashes
-	return strings.ReplaceAll(s, "\\", "\\\\")
+	var result strings.Builder
+	for _, c := range s {
+		switch c {
+		case '\'':
+			result.WriteString(`\'`)
+		case '\\':
+			result.WriteString(`\\`)
+		case '\n':
+			result.WriteString(`\n`)
+		case '\t':
+			result.WriteString(`\t`)
+		case '\r':
+			result.WriteString(`\r`)
+		default:
+			result.WriteRune(c)
+		}
+	}
+	return result.String()
 }
 
 // EscapeUnicodeString escapes special characters for U&'...' strings.

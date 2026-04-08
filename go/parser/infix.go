@@ -1006,14 +1006,12 @@ func (ep *ExpressionParser) parsePgOperator(left expr.Expr, precedence uint8) (e
 		return nil, err
 	}
 
-	// Parse operator name components
-	// TODO: opParts are not currently used since we can't store custom operator names
-	// var opParts []string
+	// Parse operator name components (e.g., database.pg_catalog.~)
+	var opParts []string
 	for {
 		ep.parser.AdvanceToken()
 		tok := ep.parser.GetCurrentToken()
-		// opParts = append(opParts, tok.Token.String())
-		_ = tok // Avoid unused variable error
+		opParts = append(opParts, tok.Token.String())
 
 		if !ep.parser.ConsumeToken(token.TokenPeriod{}) {
 			break
@@ -1030,13 +1028,11 @@ func (ep *ExpressionParser) parsePgOperator(left expr.Expr, precedence uint8) (e
 		return nil, err
 	}
 
-	// TODO: Custom PostgreSQL operators need BinaryOperatorInfo to store the name.
-	// For now, we use BOpPGCustomBinaryOperator but lose the operator name.
-	// opStr := strings.Join(opParts, ".")
 	return &expr.BinaryOp{
-		Left:    left,
-		Op:      operator.BOpPGCustomBinaryOperator,
-		Right:   right,
-		SpanVal: mergeSpans(left.Span(), right.Span()),
+		Left:             left,
+		Op:               operator.BOpPGCustomBinaryOperator,
+		Right:            right,
+		SpanVal:          mergeSpans(left.Span(), right.Span()),
+		PGCustomOperator: opParts,
 	}, nil
 }
