@@ -1987,20 +1987,20 @@ func parsePivotValueSource(p *Parser) (query.PivotValueSource, error) {
 	}
 
 	// Check for subquery
+	// IMPORTANT: Don't consume the opening paren here. parseQuery expects to
+	// start parsing from SELECT, not from '('. The caller (parsePivotTableFactor)
+	// has already consumed the opening paren of the IN clause, and we're looking
+	// at the content inside. If it's a subquery, we just call parseQuery directly.
 	tok := p.PeekToken()
-	if _, ok := tok.Token.(token.TokenLParen); ok {
-		// Could be subquery or expression list - peek ahead
-		nextTok := p.PeekNthToken(1)
-		if word, ok := nextTok.Token.(token.TokenWord); ok {
-			kw := strings.ToUpper(string(word.Word.Keyword))
-			if kw == "SELECT" || kw == "WITH" {
-				// It's a subquery
-				subquery, err := parseQuery(p)
-				if err != nil {
-					return nil, err
-				}
-				return &query.PivotValueSubquery{Query: wrapQueryAsQuery(subquery)}, nil
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		kw := strings.ToUpper(string(word.Word.Keyword))
+		if kw == "SELECT" || kw == "WITH" {
+			// It's a subquery - parse it directly
+			subquery, err := parseQuery(p)
+			if err != nil {
+				return nil, err
 			}
+			return &query.PivotValueSubquery{Query: wrapQueryAsQuery(subquery)}, nil
 		}
 	}
 

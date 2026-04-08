@@ -64,8 +64,10 @@ func parseDrop(p *Parser) (ast.Statement, error) {
 		return parseDropPolicy(p)
 	case p.PeekKeyword("CONNECTOR"):
 		return parseDropConnector(p)
+	case p.PeekKeyword("EXTENSION"):
+		return parseDropExtension(p)
 	default:
-		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE, USER, STREAM, POLICY, or CONNECTOR after DROP", p.PeekTokenRef())
+		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE, USER, STREAM, POLICY, CONNECTOR, or EXTENSION after DROP", p.PeekTokenRef())
 	}
 }
 
@@ -752,5 +754,38 @@ func parseDropConnector(p *Parser) (ast.Statement, error) {
 	return &statement.DropConnector{
 		IfExists: ifExists,
 		Name:     name,
+	}, nil
+}
+
+// parseDropExtension parses DROP EXTENSION statement
+// Reference: src/parser/mod.rs:8053-8069
+func parseDropExtension(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("EXTENSION"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated extension names
+	names, err := parseCommaSeparatedIdents(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		b := expr.DropBehaviorCascade
+		dropBehavior = &b
+	} else if p.ParseKeyword("RESTRICT") {
+		b := expr.DropBehaviorRestrict
+		dropBehavior = &b
+	}
+
+	return &statement.DropExtension{
+		IfExists:     ifExists,
+		Names:        names,
+		DropBehavior: dropBehavior,
 	}, nil
 }

@@ -92,6 +92,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("DOMAIN"):
 		return parseCreateDomain(p)
 	case p.PeekKeyword("EXTENSION"):
+		p.NextToken() // Consume EXTENSION keyword
 		return parseCreateExtension(p)
 	case p.PeekKeyword("TRIGGER"):
 		return parseCreateTrigger(p, orReplace)
@@ -2411,9 +2412,7 @@ func parseCreateDomain(p *Parser) (ast.Statement, error) {
 }
 
 func parseCreateExtension(p *Parser) (ast.Statement, error) {
-	// Check for OR REPLACE
-	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
-
+	// Reference: src/parser/mod.rs:8018-8050
 	// Parse optional IF NOT EXISTS
 	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 
@@ -2431,23 +2430,18 @@ func parseCreateExtension(p *Parser) (ast.Statement, error) {
 	if p.ParseKeyword("WITH") {
 		// Parse optional SCHEMA
 		if p.ParseKeyword("SCHEMA") {
-			schema, _ = p.ParseObjectName()
+			schemaIdent, err := p.ParseIdentifier()
+			if err == nil {
+				schema = ast.NewObjectNameFromIdents(schemaIdent)
+			}
 		}
 
 		// Parse optional VERSION
 		if p.ParseKeyword("VERSION") {
-			verTok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+			verIdent, err := p.ParseIdentifier()
 			if err == nil {
-				if str, ok := verTok.Token.(token.TokenSingleQuotedString); ok {
-					version = &str.Value
-				}
-			} else {
-				// Try identifier
-				verIdent, err := p.ParseIdentifier()
-				if err == nil {
-					v := verIdent.Value
-					version = &v
-				}
+				v := verIdent.Value
+				version = &v
 			}
 		}
 
@@ -2456,7 +2450,6 @@ func parseCreateExtension(p *Parser) (ast.Statement, error) {
 	}
 
 	return &statement.CreateExtension{
-		OrReplace:   orReplace,
 		IfNotExists: ifNotExists,
 		Name:        name,
 		Schema:      schema,

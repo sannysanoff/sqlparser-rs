@@ -1,5 +1,43 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 18 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 50,252 lines | 80,933 lines | 161% |
+| Tests | 49,847 lines | 14,150 lines | 28% |
+| **Test Status** | - | **562 passing** / **260 failing** (~68%) |
+
+**Summary of Session 18:**
+
+1. **Fixed Snowflake PIVOT Clause** (1 test now passing - 4 subtests)
+   - Fixed `PIVOT(...)` serialization - removed extra space before opening paren
+   - Fixed `DEFAULT ON NULL` position - now inside PIVOT parentheses, not after
+   - Fixed subquery parsing in PIVOT IN clause - don't consume opening paren before parseQuery
+   - All 4 PIVOT subtests now passing: static list, subquery with ORDER BY, ANY, ANY with ORDER BY
+   - Reference: src/parser/mod.rs:16590-16644
+
+2. **Fixed PostgreSQL CREATE EXTENSION** (1 test now passing)
+   - Fixed parser to consume EXTENSION keyword before calling parseCreateExtension
+   - Removed incorrect OR REPLACE handling (not supported for EXTENSION)
+   - Fixed Schema type to use *ast.ObjectName instead of *ast.Ident
+   - Reference: src/parser/mod.rs:8018-8050
+
+3. **Fixed PostgreSQL DROP EXTENSION** (1 test now passing - 8 subtests)
+   - Added EXTENSION case to parseDrop switch statement
+   - Implemented parseDropExtension function with IF EXISTS, CASCADE/RESTRICT support
+   - All 8 DROP EXTENSION subtests now passing
+   - Reference: src/parser/mod.rs:8053-8069
+
+**New Patterns Documented:**
+- **Pattern E92**: PIVOT serialization format - Output `PIVOT(aggs FOR col IN (values))` without space after PIVOT keyword.
+- **Pattern E93**: DEFAULT ON NULL position - Must be inside the PIVOT parentheses before the closing `)`, not outside.
+- **Pattern E94**: Subquery parsing in PIVOT - Don't consume opening `(` before calling parseQuery; parseQuery expects to start at SELECT.
+- **Pattern E95**: CREATE EXTENSION keyword consumption - The caller must consume the EXTENSION keyword before calling parseCreateExtension.
+- **Pattern E96**: DROP EXTENSION support - Add case for EXTENSION in parseDrop, implement parseDropExtension with comma-separated names and CASCADE/RESTRICT.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 17 Complete):**
 
 | Component | Rust | Go | Ratio |
