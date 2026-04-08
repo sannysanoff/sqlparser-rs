@@ -138,6 +138,16 @@ func (c *CreateTable) String() string {
 	}
 	f.WriteString(c.Name.String())
 
+	// PostgreSQL PARTITION OF
+	if c.PartitionOf != nil {
+		f.WriteString(" PARTITION OF ")
+		f.WriteString(c.PartitionOf.String())
+		if c.ForValues != nil {
+			f.WriteString(" ")
+			f.WriteString(c.ForValues.String())
+		}
+	}
+
 	if len(c.Columns) > 0 {
 		f.WriteString(" (")
 		for i, col := range c.Columns {

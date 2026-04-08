@@ -262,7 +262,7 @@ type Select struct {
 	Top                 *Top
 	TopBeforeDistinct   bool
 	Projection          []SelectItem
-	Exclude             *ExcludeSelectItem
+	Exclude             ExcludeSelectItem
 	Into                *SelectInto
 	From                []TableWithJoins
 	LateralViews        []LateralView
@@ -499,10 +499,10 @@ func (e *ExprWildcard) String() string {
 // WildcardAdditionalOptions represents options for wildcards
 type WildcardAdditionalOptions struct {
 	OptIlike   *IlikeSelectItem
-	OptExclude *ExcludeSelectItem
+	OptExclude ExcludeSelectItem
 	OptExcept  *ExceptSelectItem
 	OptReplace *ReplaceSelectItem
-	OptRename  *RenameSelectItem
+	OptRename  RenameSelectItem
 	OptAlias   *Ident
 }
 
@@ -545,15 +545,30 @@ func escapeSingleQuote(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
 
-// ExcludeSelectItem represents Snowflake EXCLUDE information
-type ExcludeSelectItem struct {
+// ExcludeSelectItem represents Snowflake EXCLUDE information.
+// This is an interface with two variants: Single and Multiple.
+type ExcludeSelectItem interface {
+	isExcludeSelectItem()
+	String() string
+}
+
+// ExcludeSelectItemSingle represents a single column EXCLUDE (without parens).
+type ExcludeSelectItemSingle struct {
+	Column ObjectName
+}
+
+func (e *ExcludeSelectItemSingle) isExcludeSelectItem() {}
+func (e *ExcludeSelectItemSingle) String() string {
+	return "EXCLUDE " + e.Column.String()
+}
+
+// ExcludeSelectItemMultiple represents multiple columns EXCLUDE (with parens).
+type ExcludeSelectItemMultiple struct {
 	Columns []ObjectName
 }
 
-func (e *ExcludeSelectItem) String() string {
-	if len(e.Columns) == 1 {
-		return "EXCLUDE " + e.Columns[0].String()
-	}
+func (e *ExcludeSelectItemMultiple) isExcludeSelectItem() {}
+func (e *ExcludeSelectItemMultiple) String() string {
 	parts := make([]string, len(e.Columns))
 	for i, col := range e.Columns {
 		parts[i] = col.String()
@@ -605,15 +620,30 @@ func (r *ReplaceSelectElement) String() string {
 	return fmt.Sprintf("%s %s", r.Expr.String(), r.ColumnName.String())
 }
 
-// RenameSelectItem represents Snowflake RENAME information
-type RenameSelectItem struct {
+// RenameSelectItem represents Snowflake RENAME information.
+// This is an interface with two variants: Single and Multiple.
+type RenameSelectItem interface {
+	isRenameSelectItem()
+	String() string
+}
+
+// RenameSelectItemSingle represents a single column RENAME (without parens).
+type RenameSelectItemSingle struct {
+	Column IdentWithAlias
+}
+
+func (r *RenameSelectItemSingle) isRenameSelectItem() {}
+func (r *RenameSelectItemSingle) String() string {
+	return "RENAME " + r.Column.String()
+}
+
+// RenameSelectItemMultiple represents multiple columns RENAME (with parens).
+type RenameSelectItemMultiple struct {
 	Columns []IdentWithAlias
 }
 
-func (r *RenameSelectItem) String() string {
-	if len(r.Columns) == 1 {
-		return "RENAME " + r.Columns[0].String()
-	}
+func (r *RenameSelectItemMultiple) isRenameSelectItem() {}
+func (r *RenameSelectItemMultiple) String() string {
 	parts := make([]string, len(r.Columns))
 	for i, col := range r.Columns {
 		parts[i] = col.String()

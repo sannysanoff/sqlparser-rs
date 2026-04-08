@@ -1,5 +1,61 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 6 - SELECT TOP, PARTITION OF, EXCLUDE/RENAME Implementation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,187 lines | 119% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **521 passing** / **292 failing** (~64%) | +6 tests passing (SELECT TOP, 2 PostgreSQL PARTITION OF, 2 Snowflake EXCLUDE/RENAME, 1 RENAME)
+
+**Today's Major Fixes (Session 6):**
+1. **MSSQL SELECT TOP Support** - Implemented full parsing and serialization for MSSQL SELECT TOP clause:
+   - `SELECT TOP n ...` - basic TOP with constant
+   - `SELECT TOP (n) ...` - TOP with parenthesized expression
+   - `SELECT TOP n PERCENT ...` - TOP with PERCENT
+   - `SELECT TOP n WITH TIES ...` - TOP with WITH TIES
+   - Support for TOP before or after DISTINCT based on dialect
+   - Proper serialization order using TopBeforeDistinct flag
+2. **PostgreSQL PARTITION OF Support** - Implemented full parsing and serialization for PostgreSQL CREATE TABLE PARTITION OF with FOR VALUES clause
+3. **Snowflake EXCLUDE/RENAME Interface-based AST** - Refactored to match Rust enum pattern with Single/Multiple variants
+
+**New Patterns Documented:**
+- **Pattern E57**: TOP clause parsing order - TOP can appear before or after DISTINCT depending on dialect. Use dialect.SupportsTopBeforeDistinct() to determine correct parsing order, and set TopBeforeDistinct flag in AST for correct serialization.
+- **Pattern E58**: Dialect-specific keyword ordering - Some dialects (MSSQL) expect TOP before DISTINCT, others expect it after. Always check both positions when parsing.
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 5 - PostgreSQL PARTITION OF & Snowflake EXCLUDE/RENAME Implementation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,012 lines | 119% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **519 passing** / **294 failing** (~64%) | +4 tests passing (2 PostgreSQL PARTITION OF + 2 Snowflake EXCLUDE/RENAME)
+
+**Today's Major Fixes (Session 5):**
+1. **PostgreSQL PARTITION OF Support** - Implemented full parsing and serialization for PostgreSQL CREATE TABLE PARTITION OF with FOR VALUES clause:
+   - `CREATE TABLE ... PARTITION OF ... FOR VALUES IN (...)`
+   - `CREATE TABLE ... PARTITION OF ... FOR VALUES FROM (...) TO (...)`
+   - `CREATE TABLE ... PARTITION OF ... FOR VALUES WITH (MODULUS n, REMAINDER r)`
+   - `CREATE TABLE ... PARTITION OF ... DEFAULT`
+   - Support for MINVALUE and MAXVALUE in partition bounds
+2. **Snowflake EXCLUDE/RENAME Interface-based AST** - Refactored to match Rust enum pattern with Single/Multiple variants:
+   - `ExcludeSelectItem` interface with `ExcludeSelectItemSingle` and `ExcludeSelectItemMultiple` implementations
+   - `RenameSelectItem` interface with `RenameSelectItemSingle` and `RenameSelectItemMultiple` implementations
+   - Correct serialization: `* EXCLUDE (col_a)` preserves parens, `name.* EXCLUDE col` omits parens for single column
+3. **New AST Types** - Added proper AST types for partition support:
+   - `ForValuesKind` enum (In, From, With, Default)
+   - `ForValues` struct with all partition bound variants
+   - `PartitionBoundValue` struct with IsMinValue, IsMaxValue, and Expr fields
+
+**New Patterns Documented:**
+- **Pattern E54**: PostgreSQL PARTITION OF parsing - Parse PARTITION OF after table name, then require FOR VALUES or DEFAULT clause. For VALUES FROM...TO requires PartitionBoundValue with MINVALUE/MAXVALUE support.
+- **Pattern E55**: Interface-based enums for syntax variants - When SQL syntax has two forms (e.g., `EXCLUDE col` vs `EXCLUDE (col1, col2)`), use Go interfaces with isXxx() marker methods to match Rust's enum pattern.
+- **Pattern E56**: Preserving original syntax - The AST must track whether parentheses were present in the original input to correctly re-serialize. Single variant for no parens, Multiple variant for with parens.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 4 - IDENTITY/AUTOINCREMENT Implementation):**
 
 | Component | Rust | Go | Ratio |

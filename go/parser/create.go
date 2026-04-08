@@ -267,6 +267,16 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		constraints = cons
 	}
 
+	// PostgreSQL PARTITION OF: parse FOR VALUES clause if PARTITION OF was specified
+	var forValues *expr.ForValues
+	if partitionOf != nil {
+		forValues = parsePartitionForValues(p)
+		if forValues == nil && !p.PeekKeyword("FOR") && !p.PeekKeyword("DEFAULT") {
+			// FOR VALUES or DEFAULT is required after PARTITION OF
+			return nil, fmt.Errorf("Expected: FOR VALUES or DEFAULT after PARTITION OF, found: %s", p.PeekToken().Token.String())
+		}
+	}
+
 	// Parse optional MySQL table options (ENGINE, CHARSET, COLLATE, COMMENT, etc.)
 	var tableOptions *expr.CreateTableOptions
 	if len(columns) > 0 || len(constraints) > 0 {
@@ -469,6 +479,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Clone:            clone,
 		OnCluster:        onCluster,
 		PartitionOf:      partitionOf,
+		ForValues:        forValues,
 		WithoutRowid:     withoutRowid,
 		HiveDistribution: hiveDistribution,
 		HiveFormats:      hiveFormats,
@@ -4326,6 +4337,145 @@ func parseDistStyle(p *Parser) *expr.DistStyle {
 		return &expr.DistStyle{Style: "AUTO"}
 	}
 	return nil
+}
+
+// parsePartitionForValues parses FOR VALUES clause for PostgreSQL PARTITION OF.
+// Reference: src/parser/mod.rs:parse_partition_for_values
+//
+// Syntax: FOR VALUES { IN (expr, ...) | FROM (...) TO (...) | WITH (MODULUS n, REMAINDER r) } | DEFAULT
+func parsePartitionForValues(p *Parser) *expr.ForValues {
+	// Check for DEFAULT first
+	if p.ParseKeyword("DEFAULT") {
+		return &expr.ForValues{Kind: expr.ForValuesKindDefault}
+	}
+
+	// Must start with FOR VALUES
+	if !p.ParseKeywords([]string{"FOR", "VALUES"}) {
+		return nil
+	}
+
+	// FOR VALUES IN (expr, ...)
+	if p.ParseKeyword("IN") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil
+		}
+		var values []expr.Expr
+		ep := NewExpressionParser(p)
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			val, err := ep.ParseExpr()
+			if err != nil {
+				break
+			}
+			if val != nil {
+				values = append(values, val)
+			}
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+		return &expr.ForValues{Kind: expr.ForValuesKindIn, Values: values}
+	}
+
+	// FOR VALUES FROM (...) TO (...)
+	if p.ParseKeyword("FROM") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil
+		}
+		var fromValues []expr.PartitionBoundValue
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			boundVal := parsePartitionBoundValue(p)
+			if boundVal != nil {
+				fromValues = append(fromValues, *boundVal)
+			}
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+
+		// Expect TO
+		if !p.ParseKeyword("TO") {
+			return nil
+		}
+
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil
+		}
+		var toValues []expr.PartitionBoundValue
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			boundVal := parsePartitionBoundValue(p)
+			if boundVal != nil {
+				toValues = append(toValues, *boundVal)
+			}
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+		return &expr.ForValues{Kind: expr.ForValuesKindFrom, From: fromValues, To: toValues}
+	}
+
+	// FOR VALUES WITH (MODULUS n, REMAINDER r)
+	if p.ParseKeyword("WITH") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil
+		}
+		// Expect MODULUS
+		if !p.ParseKeyword("MODULUS") {
+			return nil
+		}
+		modulusTok := p.NextToken()
+		var modulus uint64
+		if intTok, ok := modulusTok.Token.(token.TokenNumber); ok {
+			fmt.Sscanf(intTok.Value, "%d", &modulus)
+		}
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			return nil
+		}
+
+		// Expect REMAINDER
+		if !p.ParseKeyword("REMAINDER") {
+			return nil
+		}
+		remainderTok := p.NextToken()
+		var remainder uint64
+		if intTok, ok := remainderTok.Token.(token.TokenNumber); ok {
+			fmt.Sscanf(intTok.Value, "%d", &remainder)
+		}
+
+		p.ExpectToken(token.TokenRParen{})
+		return &expr.ForValues{Kind: expr.ForValuesKindWith, Modulus: modulus, Remainder: remainder}
+	}
+
+	return nil
+}
+
+// parsePartitionBoundValue parses a partition bound value (MINVALUE, MAXVALUE, or expression).
+// Reference: src/parser/mod.rs:parse_partition_bound_value
+func parsePartitionBoundValue(p *Parser) *expr.PartitionBoundValue {
+	if p.ParseKeyword("MINVALUE") {
+		return &expr.PartitionBoundValue{IsMinValue: true}
+	}
+	if p.ParseKeyword("MAXVALUE") {
+		return &expr.PartitionBoundValue{IsMaxValue: true}
+	}
+	ep := NewExpressionParser(p)
+	exprVal, err := ep.ParseExpr()
+	if err != nil || exprVal == nil {
+		return nil
+	}
+	return &expr.PartitionBoundValue{Expr: exprVal}
 }
 
 // parseCreateStage parses a CREATE STAGE statement (Snowflake)

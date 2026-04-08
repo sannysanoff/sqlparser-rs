@@ -917,14 +917,76 @@ func (c *ClusteredBy) exprNode()        {}
 func (c *ClusteredBy) Span() token.Span { return token.Span{} }
 func (c *ClusteredBy) String() string   { return "CLUSTERED BY" }
 
-// ForValues represents FOR VALUES clause.
+// ForValuesKind represents the kind of FOR VALUES clause.
+type ForValuesKind int
+
+const (
+	ForValuesKindIn ForValuesKind = iota
+	ForValuesKindFrom
+	ForValuesKindWith
+	ForValuesKindDefault
+)
+
+// ForValues represents FOR VALUES clause for PostgreSQL PARTITION OF.
 type ForValues struct {
-	Values []Expr
+	Kind      ForValuesKind
+	Values    []Expr                // For IN
+	From      []PartitionBoundValue // For FROM...TO
+	To        []PartitionBoundValue // For FROM...TO
+	Modulus   uint64                // For WITH (MODULUS, REMAINDER)
+	Remainder uint64                // For WITH (MODULUS, REMAINDER)
 }
 
 func (f *ForValues) exprNode()        {}
 func (f *ForValues) Span() token.Span { return token.Span{} }
-func (f *ForValues) String() string   { return "FOR VALUES" }
+func (f *ForValues) String() string {
+	switch f.Kind {
+	case ForValuesKindDefault:
+		return "DEFAULT"
+	case ForValuesKindIn:
+		var parts []string
+		for _, v := range f.Values {
+			parts = append(parts, v.String())
+		}
+		return fmt.Sprintf("FOR VALUES IN (%s)", strings.Join(parts, ", "))
+	case ForValuesKindFrom:
+		var fromParts []string
+		for _, v := range f.From {
+			fromParts = append(fromParts, v.String())
+		}
+		var toParts []string
+		for _, v := range f.To {
+			toParts = append(toParts, v.String())
+		}
+		return fmt.Sprintf("FOR VALUES FROM (%s) TO (%s)", strings.Join(fromParts, ", "), strings.Join(toParts, ", "))
+	case ForValuesKindWith:
+		return fmt.Sprintf("FOR VALUES WITH (MODULUS %d, REMAINDER %d)", f.Modulus, f.Remainder)
+	default:
+		return "FOR VALUES"
+	}
+}
+
+// PartitionBoundValue represents a partition bound value (expression, MINVALUE, or MAXVALUE).
+type PartitionBoundValue struct {
+	IsMinValue bool
+	IsMaxValue bool
+	Expr       Expr
+}
+
+func (p *PartitionBoundValue) exprNode()        {}
+func (p *PartitionBoundValue) Span() token.Span { return token.Span{} }
+func (p *PartitionBoundValue) String() string {
+	if p.IsMinValue {
+		return "MINVALUE"
+	}
+	if p.IsMaxValue {
+		return "MAXVALUE"
+	}
+	if p.Expr != nil {
+		return p.Expr.String()
+	}
+	return ""
+}
 
 // RowAccessPolicy represents row access policy.
 type RowAccessPolicy struct {

@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/user/sqlparser/ast"
@@ -312,6 +313,31 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse TOP clause (MSSQL) - can appear before or after DISTINCT depending on dialect
+	var top *query.Top
+	var topBeforeDistinct bool
+	if p.GetDialect().SupportsTopBeforeDistinct() && p.ParseKeyword("TOP") {
+		top = parseTop(p)
+		topBeforeDistinct = true
+	}
+
+	// Parse DISTINCT / ALL if not already parsed by parseSelectModifiers
+	if distinct == nil {
+		if p.ParseKeyword("DISTINCT") {
+			distinctVal := query.DistinctDistinct
+			distinct = &distinctVal
+		} else if p.ParseKeyword("ALL") {
+			distinctVal := query.DistinctAll
+			distinct = &distinctVal
+		}
+	}
+
+	// Parse TOP after DISTINCT for dialects that don't support TOP before DISTINCT
+	if top == nil && !p.GetDialect().SupportsTopBeforeDistinct() && p.ParseKeyword("TOP") {
+		top = parseTop(p)
+		topBeforeDistinct = false
+	}
+
 	// Parse projection (select list)
 	projection, err := parseProjection(p)
 	if err != nil {
@@ -591,6 +617,8 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		Select: query.Select{
 			SelectModifiers:     selectModifiers,
 			Distinct:            distinct,
+			Top:                 top,
+			TopBeforeDistinct:   topBeforeDistinct,
 			Projection:          projection,
 			From:                from,
 			Selection:           selection,
@@ -777,7 +805,7 @@ func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions,
 				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 					return opts, err
 				}
-				opts.OptExclude = &query.ExcludeSelectItem{Columns: cols}
+				opts.OptExclude = &query.ExcludeSelectItemMultiple{Columns: cols}
 			} else {
 				// Single column without parens
 				col, err := p.ParseObjectName()
@@ -785,7 +813,7 @@ func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions,
 					return opts, err
 				}
 				queryName := astObjectNameToQuery(col)
-				opts.OptExclude = &query.ExcludeSelectItem{Columns: []query.ObjectName{queryName}}
+				opts.OptExclude = &query.ExcludeSelectItemSingle{Column: queryName}
 			}
 		}
 	}
@@ -846,7 +874,7 @@ func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions,
 				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 					return opts, err
 				}
-				opts.OptRename = &query.RenameSelectItem{
+				opts.OptRename = &query.RenameSelectItemMultiple{
 					Columns: idents,
 				}
 			} else {
@@ -862,9 +890,9 @@ func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions,
 				if err != nil {
 					return opts, err
 				}
-				opts.OptRename = &query.RenameSelectItem{
-					Columns: []query.IdentWithAlias{
-						{Ident: astIdentToQuery(oldName), Alias: astIdentToQuery(newName)},
+				opts.OptRename = &query.RenameSelectItemSingle{
+					Column: query.IdentWithAlias{
+						Ident: astIdentToQuery(oldName), Alias: astIdentToQuery(newName),
 					},
 				}
 			}
@@ -4581,5 +4609,38 @@ func maybeParseTableSample(p *Parser) *query.TableSample {
 		Quantity: quantity,
 		Bucket:   bucket,
 		Seed:     seed,
+	}
+}
+
+// parseTop parses a TOP clause (MSSQL equivalent of LIMIT)
+// Reference: src/parser/mod.rs:parse_top
+func parseTop(p *Parser) *query.Top {
+	var quantity *query.TopQuantity
+
+	// Check for parenthesized expression
+	if p.ConsumeToken(token.TokenLParen{}) {
+		ep := NewExpressionParser(p)
+		expr, _ := ep.ParseExpr()
+		p.ExpectToken(token.TokenRParen{})
+		quantity = &query.TopQuantity{Expr: &queryExprWrapper{expr: expr}}
+	} else {
+		// Parse as constant number
+		tok := p.NextToken()
+		if numTok, ok := tok.Token.(token.TokenNumber); ok {
+			val, _ := strconv.ParseUint(numTok.Value, 10, 64)
+			quantity = &query.TopQuantity{Constant: &val}
+		}
+	}
+
+	// Parse optional PERCENT
+	percent := p.ParseKeyword("PERCENT")
+
+	// Parse optional WITH TIES
+	withTies := p.ParseKeywords([]string{"WITH", "TIES"})
+
+	return &query.Top{
+		Quantity: quantity,
+		Percent:  percent,
+		WithTies: withTies,
 	}
 }
