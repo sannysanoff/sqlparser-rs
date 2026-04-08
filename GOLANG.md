@@ -1,6 +1,50 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 56 (CREATE CONNECTOR Fix, PIVOT Serialization, MERGE in CTE, Test Fixes)
+## Latest Update: April 8, 2026 - Session 57 (Quote Preservation, CREATE PROCEDURE, DROP Statement Fixes)
+
+**Line Counts (Updated April 8, 2026 - Session 57):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,160 lines | 85,066 lines | 127% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **127 tests failing** (~84% success rate) |
+| **Total Test Cases** | - | 813 test outcomes |
+| **Tests Passing** | - | **686 tests** (up from 675) |
+
+### Session 57 Summary: Quote Preservation and Massive Code Port Fixes
+
+**Fixed 11 Key Issues (+11 tests now passing):**
+
+1. **ObjectName Quote Preservation in Table Version Parsing** (TestSnowflakeChangesClause now passing - 5 subtests)
+   - **Root Cause**: When converting between `ast.ObjectName` and `query.ObjectName`, the `QuoteStyle` was being lost
+   - **Fix**: Updated `astIdentToQuery()`, `queryObjectNameToAst()`, and `astObjectNameToQuery()` to preserve quote style when converting between AST and query representations
+   - **Files Modified**: `parser/query.go`
+
+2. **CREATE PROCEDURE Body Serialization** (TestParseCreateProcedureWithLanguage now passing - 1 test)
+   - **Root Cause**: Procedure body (AS BEGIN ... END) was being parsed but not stored, so serialization didn't include it
+   - **Fix**: Added `BodyStr` field to `CreateProcedure` struct to capture body text for round-trip serialization; updated parser to collect tokens until END
+   - **Files Modified**: `ast/statement/ddl.go`, `parser/create.go`
+
+3. **INOUT Parameter Mode Parsing** (TestParseCreateProcedureWithParameterModes now passing - 2 subtests)
+   - **Root Cause**: Parser checked for `IN` then `OUT` separately, but `INOUT` is a single keyword token
+   - **Fix**: Changed `parseProcedureParam()` to check for `INOUT` as a single keyword before checking for `IN` or `OUT`
+   - **Files Modified**: `parser/create.go`
+
+4. **DROP TABLE/VIEW/SCHEMA/INDEX Test Updates** (4 tests now passing)
+   - **Root Cause**: Rust uses generic `Drop` struct for all DROP statements, but Go uses specific structs (`DropTable`, `DropView`, `DropSchema`, `DropIndex`)
+   - **Fix**: Updated tests to use correct Go AST types instead of generic `Drop` type
+   - **Files Modified**: `tests/ddl/drop_test.go`
+
+**New Patterns Documented:**
+- **Pattern E213**: Quote style preservation in ObjectName conversion - When converting between `ast.ObjectName` and `query.ObjectName`, always preserve `QuoteStyle` through proper pointer conversion between `*rune` (ast) and `*byte` (query)
+- **Pattern E214**: Procedure body round-trip serialization - Store raw body text in AST field (`BodyStr`) to preserve original formatting including semicolon placement
+- **Pattern E215**: Multi-word keyword handling - Keywords like `INOUT` that are tokenized as single tokens must be checked as complete units, not as separate words
+- **Pattern E216**: AST design differences between Rust and Go - Rust uses generic `Drop` struct with `ObjectType` field; Go uses separate structs (`DropTable`, `DropView`, etc.). Tests must match the implementation's approach
+
+---
+
+## Previous Update: April 8, 2026 - Session 56 (CREATE CONNECTOR Fix, PIVOT Serialization, MERGE in CTE, Test Fixes)
 
 **Line Counts (Updated April 8, 2026 - Session 56 Final):**
 
@@ -2208,6 +2252,105 @@ if selStmt, ok := innerQuery.(*SelectStatement); ok {
 ```
 
 **Solution**: Add MERGE handling in `parseQuery()` to recognize it as a valid query body statement. In `parseCTE()`, add handling for generic statements using `StatementSetExpr` wrapper.
+
+### E213: Quote Style Loss in ObjectName Conversion
+**Error**: Double-quoted identifiers like `"schema"."table"` lose quotes during round-trip serialization through table version parsing.
+
+**Example**:
+```go
+// WRONG - quote style not preserved
+func astIdentToQuery(ident *ast.Ident) query.Ident {
+    return query.Ident{Value: ident.Value}  // QuoteStyle lost!
+}
+
+// CORRECT - preserve quote style
+func astIdentToQuery(ident *ast.Ident) query.Ident {
+    q := query.Ident{Value: ident.Value}
+    if ident.QuoteStyle != nil {
+        quoteByte := byte(*ident.QuoteStyle)
+        q.QuoteStyle = &quoteByte  // Convert *rune to *byte
+    }
+    return q
+}
+```
+
+**Solution**: When converting between `ast.Ident` (uses `*rune` for QuoteStyle) and `query.Ident` (uses `*byte`), always convert and preserve the quote style pointer.
+
+### E214: Procedure Body Not Serialized
+**Error**: `CREATE PROCEDURE p AS BEGIN SELECT 1; END` serializes as just `CREATE PROCEDURE p` - the body is lost.
+
+**Example**:
+```go
+// In AST struct - add body storage
+type CreateProcedure struct {
+    // ... other fields ...
+    BodyStr string  // Store raw body text
+}
+
+// In parser - capture body tokens
+bodyParts := []string{"AS"}
+for {
+    if p.PeekKeyword("END") {
+        bodyParts = append(bodyParts, "END")
+        p.NextToken()
+        break
+    }
+    tok := p.NextToken()
+    // Handle semicolon specially - append to previous part
+    if tok.Token.String() == ";" && len(bodyParts) > 0 {
+        bodyParts[len(bodyParts)-1] = bodyParts[len(bodyParts)-1] + ";"
+    } else {
+        bodyParts = append(bodyParts, tok.Token.String())
+    }
+}
+bodyStr := strings.Join(bodyParts, " ")
+```
+
+**Solution**: Store raw body text in AST field during parsing. Handle semicolons specially to avoid extra spaces before them.
+
+### E215: Multi-Word Keyword Tokenization Mismatch
+**Error**: `INOUT` parameter mode not recognized - parser checks for `IN` then `OUT` but `INOUT` is a single token.
+
+**Example**:
+```go
+// WRONG - INOUT not matched
+if p.PeekKeyword("IN") {
+    p.NextToken()
+    if p.PeekKeyword("OUT") {  // Never true for INOUT token
+        mode = ArgModeInOut
+    }
+}
+
+// CORRECT - check INOUT first
+if p.PeekKeyword("INOUT") {
+    p.NextToken()
+    mode = ArgModeInOut
+} else if p.PeekKeyword("IN") {
+    // ...
+}
+```
+
+**Solution**: Check for multi-word keywords as complete units before checking individual components. Tokenizer may produce single tokens for keywords like `INOUT`, `UNIQUE KEY`, etc.
+
+### E216: AST Design Differences - Generic vs Specific Structs
+**Error**: Tests expecting `*statement.Drop` but getting `*statement.DropTable` due to different AST design approaches.
+
+**Example**:
+```rust
+// Rust - generic approach
+pub struct Drop {
+    pub object_type: ObjectType,  // TABLE, VIEW, INDEX, etc.
+    pub names: Vec<ObjectName>,
+    // ...
+}
+
+// Go - specific approach
+type DropTable struct { Names []*ast.ObjectName; ... }
+type DropView struct { Names []*ast.ObjectName; ... }
+type Drop struct { ObjectType ObjectType; Names []*ast.ObjectName; ... }  // For USER, ROLE, etc.
+```
+
+**Solution**: Update tests to use correct Go AST types. Don't assume Rust's generic approach - check what Go actually produces for each statement type.
 
 ---
 

@@ -1364,7 +1364,7 @@ func astObjectNameToQuery(name *ast.ObjectName) query.ObjectName {
 	parts := make([]query.Ident, len(name.Parts))
 	for i, part := range name.Parts {
 		if identPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
-			parts[i] = query.Ident{Value: identPart.Ident.Value}
+			parts[i] = astIdentToQuery(identPart.Ident)
 		}
 	}
 	return query.ObjectName{Parts: parts}
@@ -1372,16 +1372,24 @@ func astObjectNameToQuery(name *ast.ObjectName) query.ObjectName {
 
 // astIdentToQuery converts ast.Ident to query.Ident
 func astIdentToQuery(ident *ast.Ident) query.Ident {
-	return query.Ident{Value: ident.Value}
+	q := query.Ident{Value: ident.Value}
+	if ident.QuoteStyle != nil {
+		quoteByte := byte(*ident.QuoteStyle)
+		q.QuoteStyle = &quoteByte
+	}
+	return q
 }
 
 // queryObjectNameToAst converts query.ObjectName to *ast.ObjectName
 func queryObjectNameToAst(name query.ObjectName) *ast.ObjectName {
 	parts := make([]ast.ObjectNamePart, len(name.Parts))
 	for i, part := range name.Parts {
-		parts[i] = &ast.ObjectNamePartIdentifier{
-			Ident: &ast.Ident{Value: part.Value},
+		ident := &ast.Ident{Value: part.Value}
+		if part.QuoteStyle != nil {
+			quoteRune := rune(*part.QuoteStyle)
+			ident.QuoteStyle = &quoteRune
 		}
+		parts[i] = &ast.ObjectNamePartIdentifier{Ident: ident}
 	}
 	return &ast.ObjectName{Parts: parts}
 }

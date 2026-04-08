@@ -1595,6 +1595,7 @@ type CreateProcedure struct {
 	Params   []*expr.ProcedureParam
 	Language *ast.Ident
 	Body     *expr.ConditionalStatements
+	BodyStr  string // Raw body text for round-trip serialization
 }
 
 func (c *CreateProcedure) statementNode() {}
@@ -1622,6 +1623,11 @@ func (c *CreateProcedure) String() string {
 	if c.Language != nil {
 		f.WriteString(" LANGUAGE ")
 		f.WriteString(c.Language.String())
+	}
+
+	if c.BodyStr != "" {
+		f.WriteString(" ")
+		f.WriteString(c.BodyStr)
 	}
 
 	return f.String()

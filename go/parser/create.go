@@ -4409,15 +4409,28 @@ func parseCreateProcedure(p *Parser, orAlter bool) (ast.Statement, error) {
 	}
 
 	// Parse the procedure body
-	// For now, just skip tokens until we hit END
-	// Full implementation would parse actual procedure statements
+	// Capture body text for round-trip serialization, starting with AS
+	bodyParts := []string{"AS"}
 	for {
 		if p.PeekKeyword("END") {
+			bodyParts = append(bodyParts, "END")
 			p.NextToken() // consume END
 			break
 		}
-		p.NextToken()
+		tok := p.NextToken()
+		if tok.Token != nil {
+			// Handle semicolon without space before it
+			tokStr := tok.Token.String()
+			if tokStr == ";" && len(bodyParts) > 0 {
+				// Append semicolon directly to previous part
+				bodyParts[len(bodyParts)-1] = bodyParts[len(bodyParts)-1] + ";"
+			} else {
+				bodyParts = append(bodyParts, tokStr)
+			}
+		}
 	}
+
+	bodyStr := strings.Join(bodyParts, " ")
 
 	return &statement.CreateProcedure{
 		OrAlter:  orAlter,
@@ -4425,6 +4438,7 @@ func parseCreateProcedure(p *Parser, orAlter bool) (ast.Statement, error) {
 		Params:   params,
 		Language: language,
 		Body:     &expr.ConditionalStatements{}, // TODO: properly parse body
+		BodyStr:  bodyStr,
 	}, nil
 }
 
@@ -4474,17 +4488,14 @@ func parseProcedureParam(p *Parser) (*expr.ProcedureParam, error) {
 
 	// Check for parameter mode: IN, OUT, INOUT
 	var mode *expr.ArgMode
-	if p.PeekKeyword("IN") {
+	if p.PeekKeyword("INOUT") {
 		p.NextToken()
-		// Check for INOUT after IN
-		if p.PeekKeyword("OUT") {
-			p.NextToken()
-			m := expr.ArgModeInOut
-			mode = &m
-		} else {
-			m := expr.ArgModeIn
-			mode = &m
-		}
+		m := expr.ArgModeInOut
+		mode = &m
+	} else if p.PeekKeyword("IN") {
+		p.NextToken()
+		m := expr.ArgModeIn
+		mode = &m
 	} else if p.PeekKeyword("OUT") {
 		p.NextToken()
 		m := expr.ArgModeOut

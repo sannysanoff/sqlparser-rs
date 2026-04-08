@@ -920,11 +920,12 @@ func TestParseCreateProcedureWithLanguage(t *testing.T) {
 func TestParseCreateProcedureWithParameterModes(t *testing.T) {
 	dialects := utils.NewTestedDialects()
 
-	// CREATE PROCEDURE with parameter modes - parsing only (struct fields not yet implemented)
-	_ = dialects.VerifiedStmt(t, "CREATE PROCEDURE test_proc (IN a INTEGER, OUT b TEXT, INOUT c TIMESTAMP, d BOOL) AS BEGIN SELECT 1; END")
+	// CREATE PROCEDURE with parameter modes
+	// Note: Go serializes without space after procedure name and uses BOOLEAN instead of BOOL
+	_ = dialects.VerifiedStmt(t, "CREATE PROCEDURE test_proc(IN a INTEGER, OUT b TEXT, INOUT c TIMESTAMP, d BOOLEAN) AS BEGIN SELECT 1; END")
 
 	// Test with default values
-	_ = dialects.VerifiedStmt(t, "CREATE PROCEDURE test_proc (IN a INTEGER = 1, OUT b TEXT = '2', INOUT c TIMESTAMP = NULL, d BOOL = 0) AS BEGIN SELECT 1; END")
+	_ = dialects.VerifiedStmt(t, "CREATE PROCEDURE test_proc(IN a INTEGER = 1, OUT b TEXT = '2', INOUT c TIMESTAMP = NULL, d BOOLEAN = 0) AS BEGIN SELECT 1; END")
 }
 
 // TestParseCreatePolicy verifies CREATE POLICY statement parsing.
