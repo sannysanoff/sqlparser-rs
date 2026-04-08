@@ -41,7 +41,8 @@ type ColumnDef struct {
 }
 
 func (c *ColumnDef) exprNode() {}
-
+func (c *ColumnDef) expr()   {}
+func (c *ColumnDef) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *ColumnDef) Span() token.Span {
 	return c.SpanVal
@@ -76,7 +77,8 @@ type TableConstraint struct {
 }
 
 func (t *TableConstraint) exprNode() {}
-
+func (t *TableConstraint) expr()   {}
+func (t *TableConstraint) IsExpr() {}
 // Span returns the source span for this expression.
 func (t *TableConstraint) Span() token.Span {
 	return t.SpanVal
@@ -488,7 +490,8 @@ const (
 )
 
 func (h *HiveDistributionStyle) exprNode() {}
-
+func (h *HiveDistributionStyle) expr()   {}
+func (h *HiveDistributionStyle) IsExpr() {}
 // Span returns the source span for this expression.
 func (h *HiveDistributionStyle) Span() token.Span {
 	return token.Span{}
@@ -531,7 +534,8 @@ type HiveIOFormat struct {
 }
 
 func (h *HiveFormat) exprNode() {}
-
+func (h *HiveFormat) expr()   {}
+func (h *HiveFormat) IsExpr() {}
 // Span returns the source span for this expression.
 func (h *HiveFormat) Span() token.Span {
 	return token.Span{}
@@ -564,7 +568,8 @@ const (
 )
 
 func (c *CreateTableOptions) exprNode() {}
-
+func (c *CreateTableOptions) expr()   {}
+func (c *CreateTableOptions) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CreateTableOptions) Span() token.Span {
 	return token.Span{}
@@ -623,7 +628,8 @@ const (
 )
 
 func (c *CreateTableLikeKind) exprNode() {}
-
+func (c *CreateTableLikeKind) expr()   {}
+func (c *CreateTableLikeKind) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CreateTableLikeKind) Span() token.Span {
 	return token.Span{}
@@ -658,7 +664,8 @@ const (
 )
 
 func (t *TableVersion) exprNode() {}
-
+func (t *TableVersion) expr()   {}
+func (t *TableVersion) IsExpr() {}
 // Span returns the source span for this expression.
 func (t *TableVersion) Span() token.Span {
 	return token.Span{}
@@ -699,7 +706,8 @@ const (
 )
 
 func (c *CommentDef) exprNode() {}
-
+func (c *CommentDef) expr()   {}
+func (c *CommentDef) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CommentDef) Span() token.Span {
 	return token.Span{}
@@ -747,6 +755,8 @@ type ColumnOptionReferences struct {
 }
 
 func (c *ColumnOptionReferences) exprNode()        {}
+func (c *ColumnOptionReferences) expr()   {}
+func (c *ColumnOptionReferences) IsExpr() {}
 func (c *ColumnOptionReferences) Span() token.Span { return token.Span{} }
 func (c *ColumnOptionReferences) String() string {
 	var sb strings.Builder
@@ -872,6 +882,8 @@ type GeneratedColumnOption struct {
 }
 
 func (g *GeneratedColumnOption) exprNode()        {}
+func (g *GeneratedColumnOption) expr()   {}
+func (g *GeneratedColumnOption) IsExpr() {}
 func (g *GeneratedColumnOption) Span() token.Span { return token.Span{} }
 func (g *GeneratedColumnOption) String() string {
 	var sb strings.Builder
@@ -896,6 +908,8 @@ type OneOrManyWithParens struct {
 }
 
 func (o *OneOrManyWithParens) exprNode()        {}
+func (o *OneOrManyWithParens) expr()   {}
+func (o *OneOrManyWithParens) IsExpr() {}
 func (o *OneOrManyWithParens) Span() token.Span { return token.Span{} }
 func (o *OneOrManyWithParens) String() string   { return "(...)" }
 
@@ -905,6 +919,8 @@ type WrappedCollection struct {
 }
 
 func (w *WrappedCollection) exprNode()        {}
+func (w *WrappedCollection) expr()   {}
+func (w *WrappedCollection) IsExpr() {}
 func (w *WrappedCollection) Span() token.Span { return token.Span{} }
 func (w *WrappedCollection) String() string   { return "(...)" }
 
@@ -914,6 +930,8 @@ type ClusteredBy struct {
 }
 
 func (c *ClusteredBy) exprNode()        {}
+func (c *ClusteredBy) expr()   {}
+func (c *ClusteredBy) IsExpr() {}
 func (c *ClusteredBy) Span() token.Span { return token.Span{} }
 func (c *ClusteredBy) String() string   { return "CLUSTERED BY" }
 
@@ -938,6 +956,8 @@ type ForValues struct {
 }
 
 func (f *ForValues) exprNode()        {}
+func (f *ForValues) expr()   {}
+func (f *ForValues) IsExpr() {}
 func (f *ForValues) Span() token.Span { return token.Span{} }
 func (f *ForValues) String() string {
 	switch f.Kind {
@@ -974,6 +994,8 @@ type PartitionBoundValue struct {
 }
 
 func (p *PartitionBoundValue) exprNode()        {}
+func (p *PartitionBoundValue) expr()   {}
+func (p *PartitionBoundValue) IsExpr() {}
 func (p *PartitionBoundValue) Span() token.Span { return token.Span{} }
 func (p *PartitionBoundValue) String() string {
 	if p.IsMinValue {
@@ -994,6 +1016,8 @@ type RowAccessPolicy struct {
 }
 
 func (r *RowAccessPolicy) exprNode()        {}
+func (r *RowAccessPolicy) expr()   {}
+func (r *RowAccessPolicy) IsExpr() {}
 func (r *RowAccessPolicy) Span() token.Span { return token.Span{} }
 func (r *RowAccessPolicy) String() string   { return "ROW ACCESS POLICY" }
 
@@ -1003,6 +1027,8 @@ type StorageLifecyclePolicy struct {
 }
 
 func (s *StorageLifecyclePolicy) exprNode()        {}
+func (s *StorageLifecyclePolicy) expr()   {}
+func (s *StorageLifecyclePolicy) IsExpr() {}
 func (s *StorageLifecyclePolicy) Span() token.Span { return token.Span{} }
 func (s *StorageLifecyclePolicy) String() string   { return "STORAGE LIFECYCLE POLICY" }
 
@@ -1013,6 +1039,8 @@ type Tag struct {
 }
 
 func (t *Tag) exprNode()        {}
+func (t *Tag) expr()   {}
+func (t *Tag) IsExpr() {}
 func (t *Tag) Span() token.Span { return token.Span{} }
 func (t *Tag) String() string   { return fmt.Sprintf("%s=%s", t.Name, t.Value) }
 
@@ -1058,6 +1086,8 @@ func (i InitializeKind) String() string {
 type ViewEnvelope struct{}
 
 func (v *ViewEnvelope) exprNode()        {}
+func (v *ViewEnvelope) expr()   {}
+func (v *ViewEnvelope) IsExpr() {}
 func (v *ViewEnvelope) Span() token.Span { return token.Span{} }
 func (v *ViewEnvelope) String() string   { return "" }
 
@@ -1070,6 +1100,8 @@ type IndexColumn struct {
 }
 
 func (i *IndexColumn) exprNode()        {}
+func (i *IndexColumn) expr()   {}
+func (i *IndexColumn) IsExpr() {}
 func (i *IndexColumn) Span() token.Span { return token.Span{} }
 func (i *IndexColumn) String() string {
 	var parts []string
@@ -1129,6 +1161,8 @@ type OperateFunctionArg struct {
 }
 
 func (o *OperateFunctionArg) exprNode()        {}
+func (o *OperateFunctionArg) expr()   {}
+func (o *OperateFunctionArg) IsExpr() {}
 func (o *OperateFunctionArg) Span() token.Span { return token.Span{} }
 func (o *OperateFunctionArg) String() string {
 	var f strings.Builder
@@ -1173,6 +1207,8 @@ type FunctionReturnType struct {
 }
 
 func (f *FunctionReturnType) exprNode()        {}
+func (f *FunctionReturnType) expr()   {}
+func (f *FunctionReturnType) IsExpr() {}
 func (f *FunctionReturnType) Span() token.Span { return token.Span{} }
 func (f *FunctionReturnType) String() string {
 	if f.DataType == nil {
@@ -1308,6 +1344,8 @@ type CreateFunctionBody struct {
 }
 
 func (c *CreateFunctionBody) exprNode()        {}
+func (c *CreateFunctionBody) expr()   {}
+func (c *CreateFunctionBody) IsExpr() {}
 func (c *CreateFunctionBody) Span() token.Span { return token.Span{} }
 func (c *CreateFunctionBody) String() string {
 	if c.ReturnExpr != nil {
@@ -1327,6 +1365,8 @@ type FunctionDefinitionSetParam struct {
 }
 
 func (f *FunctionDefinitionSetParam) exprNode()        {}
+func (f *FunctionDefinitionSetParam) expr()   {}
+func (f *FunctionDefinitionSetParam) IsExpr() {}
 func (f *FunctionDefinitionSetParam) Span() token.Span { return token.Span{} }
 func (f *FunctionDefinitionSetParam) String() string {
 	var b strings.Builder
@@ -1354,6 +1394,8 @@ func (s SqlSecurity) String() string { return "" }
 type RemoteProperty struct{}
 
 func (r *RemoteProperty) exprNode()        {}
+func (r *RemoteProperty) expr()   {}
+func (r *RemoteProperty) IsExpr() {}
 func (r *RemoteProperty) Span() token.Span { return token.Span{} }
 func (r *RemoteProperty) String() string   { return "" }
 
@@ -1367,6 +1409,8 @@ type ProcedureParam struct {
 }
 
 func (p *ProcedureParam) exprNode()        {}
+func (p *ProcedureParam) expr()   {}
+func (p *ProcedureParam) IsExpr() {}
 func (p *ProcedureParam) Span() token.Span { return p.SpanVal }
 func (p *ProcedureParam) String() string {
 	var sb strings.Builder
@@ -1401,6 +1445,8 @@ func (e ExecuteAs) String() string { return "" }
 type RoleOption struct{}
 
 func (r *RoleOption) exprNode()        {}
+func (r *RoleOption) expr()   {}
+func (r *RoleOption) IsExpr() {}
 func (r *RoleOption) Span() token.Span { return token.Span{} }
 func (r *RoleOption) String() string   { return "" }
 
@@ -1587,6 +1633,8 @@ const (
 )
 
 func (a *AlterTableOperation) exprNode()        {}
+func (a *AlterTableOperation) expr()   {}
+func (a *AlterTableOperation) IsExpr() {}
 func (a *AlterTableOperation) Span() token.Span { return a.SpanVal }
 func (a *AlterTableOperation) String() string {
 	switch a.Op {
@@ -1962,6 +2010,8 @@ func (m *MySQLColumnPosition) String() string {
 type HiveSetLocation struct{}
 
 func (h *HiveSetLocation) exprNode()        {}
+func (h *HiveSetLocation) expr()   {}
+func (h *HiveSetLocation) IsExpr() {}
 func (h *HiveSetLocation) Span() token.Span { return token.Span{} }
 func (h *HiveSetLocation) String() string   { return "" }
 
@@ -1969,6 +2019,8 @@ func (h *HiveSetLocation) String() string   { return "" }
 type AlterIndexOperation struct{}
 
 func (a *AlterIndexOperation) exprNode()        {}
+func (a *AlterIndexOperation) expr()   {}
+func (a *AlterIndexOperation) IsExpr() {}
 func (a *AlterIndexOperation) Span() token.Span { return token.Span{} }
 func (a *AlterIndexOperation) String() string   { return "" }
 
@@ -1976,6 +2028,8 @@ func (a *AlterIndexOperation) String() string   { return "" }
 type AlterSchemaOperation struct{}
 
 func (a *AlterSchemaOperation) exprNode()        {}
+func (a *AlterSchemaOperation) expr()   {}
+func (a *AlterSchemaOperation) IsExpr() {}
 func (a *AlterSchemaOperation) Span() token.Span { return token.Span{} }
 func (a *AlterSchemaOperation) String() string   { return "" }
 
@@ -1983,6 +2037,8 @@ func (a *AlterSchemaOperation) String() string   { return "" }
 type AlterTypeOperation struct{}
 
 func (a *AlterTypeOperation) exprNode()        {}
+func (a *AlterTypeOperation) expr()   {}
+func (a *AlterTypeOperation) IsExpr() {}
 func (a *AlterTypeOperation) Span() token.Span { return token.Span{} }
 func (a *AlterTypeOperation) String() string   { return "" }
 
@@ -1990,6 +2046,8 @@ func (a *AlterTypeOperation) String() string   { return "" }
 type AlterRoleOperation struct{}
 
 func (a *AlterRoleOperation) exprNode()        {}
+func (a *AlterRoleOperation) expr()   {}
+func (a *AlterRoleOperation) IsExpr() {}
 func (a *AlterRoleOperation) Span() token.Span { return token.Span{} }
 func (a *AlterRoleOperation) String() string   { return "" }
 
@@ -2056,6 +2114,8 @@ type SchemaName struct {
 }
 
 func (s *SchemaName) exprNode()        {}
+func (s *SchemaName) expr()   {}
+func (s *SchemaName) IsExpr() {}
 func (s *SchemaName) Span() token.Span { return token.Span{} }
 
 func (s *SchemaName) String() string {
@@ -2087,6 +2147,8 @@ func (c CatalogSyncNamespaceMode) String() string { return "" }
 type ContactEntry struct{}
 
 func (c *ContactEntry) exprNode()        {}
+func (c *ContactEntry) expr()   {}
+func (c *ContactEntry) IsExpr() {}
 func (c *ContactEntry) Span() token.Span { return token.Span{} }
 func (c *ContactEntry) String() string   { return "" }
 
@@ -2117,6 +2179,8 @@ type SequenceOptions struct {
 }
 
 func (s *SequenceOptions) exprNode()        {}
+func (s *SequenceOptions) expr()   {}
+func (s *SequenceOptions) IsExpr() {}
 func (s *SequenceOptions) Span() token.Span { return s.SpanVal }
 func (s *SequenceOptions) String() string {
 	switch s.Type {
@@ -2173,6 +2237,8 @@ const (
 )
 
 func (d *DomainConstraint) exprNode()        {}
+func (d *DomainConstraint) expr()   {}
+func (d *DomainConstraint) IsExpr() {}
 func (d *DomainConstraint) Span() token.Span { return d.SpanVal }
 func (d *DomainConstraint) String() string {
 	var sb strings.Builder
@@ -2241,6 +2307,8 @@ type IdentityParameters struct {
 }
 
 func (i *IdentityParameters) exprNode()        {}
+func (i *IdentityParameters) expr()   {}
+func (i *IdentityParameters) IsExpr() {}
 func (i *IdentityParameters) Span() token.Span { return i.SpanVal }
 func (i *IdentityParameters) String() string {
 	return fmt.Sprintf("%s, %s", i.Seed.String(), i.Increment.String())
@@ -2274,6 +2342,8 @@ type IdentityProperty struct {
 }
 
 func (i *IdentityProperty) exprNode()        {}
+func (i *IdentityProperty) expr()   {}
+func (i *IdentityProperty) IsExpr() {}
 func (i *IdentityProperty) Span() token.Span { return i.SpanVal }
 func (i *IdentityProperty) String() string {
 	var sb strings.Builder
@@ -2302,6 +2372,8 @@ type ColumnIdentity struct {
 }
 
 func (c *ColumnIdentity) exprNode()        {}
+func (c *ColumnIdentity) expr()   {}
+func (c *ColumnIdentity) IsExpr() {}
 func (c *ColumnIdentity) Span() token.Span { return c.SpanVal }
 func (c *ColumnIdentity) String() string {
 	var sb strings.Builder
@@ -2347,6 +2419,8 @@ type GeneratedIdentity struct {
 }
 
 func (g *GeneratedIdentity) exprNode()        {}
+func (g *GeneratedIdentity) expr()   {}
+func (g *GeneratedIdentity) IsExpr() {}
 func (g *GeneratedIdentity) Span() token.Span { return g.SpanVal }
 func (g *GeneratedIdentity) String() string {
 	var sb strings.Builder
@@ -2383,6 +2457,8 @@ type UserDefinedTypeEnum struct {
 }
 
 func (u *UserDefinedTypeEnum) exprNode()                        {}
+func (u *UserDefinedTypeEnum) expr()   {}
+func (u *UserDefinedTypeEnum) IsExpr() {}
 func (u *UserDefinedTypeEnum) Span() token.Span                 { return u.SpanVal }
 func (u *UserDefinedTypeEnum) isUserDefinedTypeRepresentation() {}
 func (u *UserDefinedTypeEnum) String() string {
@@ -2407,6 +2483,8 @@ type UserDefinedTypeCompositeAttributeDef struct {
 }
 
 func (u *UserDefinedTypeCompositeAttributeDef) exprNode()        {}
+func (u *UserDefinedTypeCompositeAttributeDef) expr()   {}
+func (u *UserDefinedTypeCompositeAttributeDef) IsExpr() {}
 func (u *UserDefinedTypeCompositeAttributeDef) Span() token.Span { return u.SpanVal }
 func (u *UserDefinedTypeCompositeAttributeDef) String() string {
 	var sb strings.Builder
@@ -2431,6 +2509,8 @@ type UserDefinedTypeComposite struct {
 }
 
 func (u *UserDefinedTypeComposite) exprNode()                        {}
+func (u *UserDefinedTypeComposite) expr()   {}
+func (u *UserDefinedTypeComposite) IsExpr() {}
 func (u *UserDefinedTypeComposite) Span() token.Span                 { return u.SpanVal }
 func (u *UserDefinedTypeComposite) isUserDefinedTypeRepresentation() {}
 func (u *UserDefinedTypeComposite) String() string {
@@ -2454,6 +2534,8 @@ type UserDefinedTypeRange struct {
 }
 
 func (u *UserDefinedTypeRange) exprNode()                        {}
+func (u *UserDefinedTypeRange) expr()   {}
+func (u *UserDefinedTypeRange) IsExpr() {}
 func (u *UserDefinedTypeRange) Span() token.Span                 { return u.SpanVal }
 func (u *UserDefinedTypeRange) isUserDefinedTypeRepresentation() {}
 func (u *UserDefinedTypeRange) String() string {
@@ -2477,6 +2559,8 @@ type UserDefinedTypeSqlDefinition struct {
 }
 
 func (u *UserDefinedTypeSqlDefinition) exprNode()                        {}
+func (u *UserDefinedTypeSqlDefinition) expr()   {}
+func (u *UserDefinedTypeSqlDefinition) IsExpr() {}
 func (u *UserDefinedTypeSqlDefinition) Span() token.Span                 { return u.SpanVal }
 func (u *UserDefinedTypeSqlDefinition) isUserDefinedTypeRepresentation() {}
 func (u *UserDefinedTypeSqlDefinition) String() string {
@@ -2578,6 +2662,8 @@ type TriggerReferencing struct {
 }
 
 func (t *TriggerReferencing) exprNode()        {}
+func (t *TriggerReferencing) expr()   {}
+func (t *TriggerReferencing) IsExpr() {}
 func (t *TriggerReferencing) Span() token.Span { return token.Span{} }
 func (t *TriggerReferencing) String() string {
 	var sb strings.Builder
@@ -2664,6 +2750,8 @@ type FunctionDesc struct {
 }
 
 func (f *FunctionDesc) exprNode()        {}
+func (f *FunctionDesc) expr()   {}
+func (f *FunctionDesc) IsExpr() {}
 func (f *FunctionDesc) Span() token.Span { return token.Span{} }
 func (f *FunctionDesc) String() string {
 	var sb strings.Builder
@@ -2689,6 +2777,8 @@ type TriggerExecBody struct {
 }
 
 func (t *TriggerExecBody) exprNode()        {}
+func (t *TriggerExecBody) expr()   {}
+func (t *TriggerExecBody) IsExpr() {}
 func (t *TriggerExecBody) Span() token.Span { return token.Span{} }
 func (t *TriggerExecBody) String() string {
 	var sb strings.Builder
@@ -2702,6 +2792,8 @@ func (t *TriggerExecBody) String() string {
 type ConditionalStatements struct{}
 
 func (c *ConditionalStatements) exprNode()        {}
+func (c *ConditionalStatements) expr()   {}
+func (c *ConditionalStatements) IsExpr() {}
 func (c *ConditionalStatements) Span() token.Span { return token.Span{} }
 func (c *ConditionalStatements) String() string   { return "" }
 
@@ -2709,6 +2801,8 @@ func (c *ConditionalStatements) String() string   { return "" }
 type MacroArg struct{}
 
 func (m *MacroArg) exprNode()        {}
+func (m *MacroArg) expr()   {}
+func (m *MacroArg) IsExpr() {}
 func (m *MacroArg) Span() token.Span { return token.Span{} }
 func (m *MacroArg) String() string   { return "" }
 
@@ -2716,6 +2810,8 @@ func (m *MacroArg) String() string   { return "" }
 type MacroDefinition struct{}
 
 func (m *MacroDefinition) exprNode()        {}
+func (m *MacroDefinition) expr()   {}
+func (m *MacroDefinition) IsExpr() {}
 func (m *MacroDefinition) Span() token.Span { return token.Span{} }
 func (m *MacroDefinition) String() string   { return "" }
 
@@ -2729,6 +2825,8 @@ type StageParamsObject struct {
 }
 
 func (s *StageParamsObject) exprNode()        {}
+func (s *StageParamsObject) expr()   {}
+func (s *StageParamsObject) IsExpr() {}
 func (s *StageParamsObject) Span() token.Span { return token.Span{} }
 func (s *StageParamsObject) String() string {
 	var parts []string
@@ -2802,6 +2900,8 @@ type KeyValueOptions struct {
 }
 
 func (k *KeyValueOptions) exprNode()        {}
+func (k *KeyValueOptions) expr()   {}
+func (k *KeyValueOptions) IsExpr() {}
 func (k *KeyValueOptions) Span() token.Span { return token.Span{} }
 func (k *KeyValueOptions) String() string {
 	var parts []string
@@ -2823,6 +2923,8 @@ func escapeSingleQuote(s string) string {
 type SecretOption struct{}
 
 func (s *SecretOption) exprNode()        {}
+func (s *SecretOption) expr()   {}
+func (s *SecretOption) IsExpr() {}
 func (s *SecretOption) Span() token.Span { return token.Span{} }
 func (s *SecretOption) String() string   { return "" }
 
@@ -2881,6 +2983,8 @@ type RoleName struct {
 }
 
 func (r *RoleName) exprNode()        {}
+func (r *RoleName) expr()   {}
+func (r *RoleName) IsExpr() {}
 func (r *RoleName) Span() token.Span { return token.Span{} }
 func (r *RoleName) String() string   { return r.Name }
 
@@ -2901,6 +3005,8 @@ type Owner struct {
 }
 
 func (o *Owner) exprNode()        {}
+func (o *Owner) expr()   {}
+func (o *Owner) IsExpr() {}
 func (o *Owner) Span() token.Span { return token.Span{} }
 
 func (o *Owner) String() string {
@@ -2963,6 +3069,8 @@ type OperatorOption struct {
 }
 
 func (o *OperatorOption) exprNode()        {}
+func (o *OperatorOption) expr()   {}
+func (o *OperatorOption) IsExpr() {}
 func (o *OperatorOption) Span() token.Span { return token.Span{} }
 func (o *OperatorOption) String() string {
 	switch o.Kind {
@@ -3002,6 +3110,8 @@ type OperatorArgTypes struct {
 }
 
 func (o *OperatorArgTypes) exprNode()        {}
+func (o *OperatorArgTypes) expr()   {}
+func (o *OperatorArgTypes) IsExpr() {}
 func (o *OperatorArgTypes) Span() token.Span { return token.Span{} }
 func (o *OperatorArgTypes) String() string {
 	return fmt.Sprintf("%v, %v", o.Left, o.Right)
@@ -3024,6 +3134,8 @@ type OperatorClassItem struct {
 }
 
 func (o *OperatorClassItem) exprNode()        {}
+func (o *OperatorClassItem) expr()   {}
+func (o *OperatorClassItem) IsExpr() {}
 func (o *OperatorClassItem) Span() token.Span { return token.Span{} }
 func (o *OperatorClassItem) String() string {
 	if o.IsOperator {
@@ -3075,6 +3187,8 @@ func (o *OperatorClassItem) String() string {
 type AlterPolicyOperation struct{}
 
 func (a *AlterPolicyOperation) exprNode()        {}
+func (a *AlterPolicyOperation) expr()   {}
+func (a *AlterPolicyOperation) IsExpr() {}
 func (a *AlterPolicyOperation) Span() token.Span { return token.Span{} }
 func (a *AlterPolicyOperation) String() string   { return "" }
 
@@ -3082,6 +3196,8 @@ func (a *AlterPolicyOperation) String() string   { return "" }
 type AlterConnectorOwner struct{}
 
 func (a *AlterConnectorOwner) exprNode()        {}
+func (a *AlterConnectorOwner) expr()   {}
+func (a *AlterConnectorOwner) IsExpr() {}
 func (a *AlterConnectorOwner) Span() token.Span { return token.Span{} }
 func (a *AlterConnectorOwner) String() string   { return "" }
 
@@ -3089,6 +3205,8 @@ func (a *AlterConnectorOwner) String() string   { return "" }
 type AttachDuckDBDatabaseOption struct{}
 
 func (a *AttachDuckDBDatabaseOption) exprNode()        {}
+func (a *AttachDuckDBDatabaseOption) expr()   {}
+func (a *AttachDuckDBDatabaseOption) IsExpr() {}
 func (a *AttachDuckDBDatabaseOption) Span() token.Span { return token.Span{} }
 func (a *AttachDuckDBDatabaseOption) String() string   { return "" }
 
@@ -3099,6 +3217,8 @@ type DropOperatorSignature struct {
 }
 
 func (d *DropOperatorSignature) exprNode()        {}
+func (d *DropOperatorSignature) expr()   {}
+func (d *DropOperatorSignature) IsExpr() {}
 func (d *DropOperatorSignature) Span() token.Span { return token.Span{} }
 func (d *DropOperatorSignature) String() string {
 	var f strings.Builder
@@ -3118,6 +3238,8 @@ func (d *DropOperatorSignature) String() string {
 type OperatorSignature struct{}
 
 func (o *OperatorSignature) exprNode()        {}
+func (o *OperatorSignature) expr()   {}
+func (o *OperatorSignature) IsExpr() {}
 func (o *OperatorSignature) Span() token.Span { return token.Span{} }
 func (o *OperatorSignature) String() string   { return "" }
 
@@ -3125,6 +3247,8 @@ func (o *OperatorSignature) String() string   { return "" }
 type AlterOperatorOperation struct{}
 
 func (a *AlterOperatorOperation) exprNode()        {}
+func (a *AlterOperatorOperation) expr()   {}
+func (a *AlterOperatorOperation) IsExpr() {}
 func (a *AlterOperatorOperation) Span() token.Span { return token.Span{} }
 func (a *AlterOperatorOperation) String() string   { return "" }
 
@@ -3132,6 +3256,8 @@ func (a *AlterOperatorOperation) String() string   { return "" }
 type OperatorFamilyOperation struct{}
 
 func (o *OperatorFamilyOperation) exprNode()        {}
+func (o *OperatorFamilyOperation) expr()   {}
+func (o *OperatorFamilyOperation) IsExpr() {}
 func (o *OperatorFamilyOperation) Span() token.Span { return token.Span{} }
 func (o *OperatorFamilyOperation) String() string   { return "" }
 
@@ -3139,6 +3265,8 @@ func (o *OperatorFamilyOperation) String() string   { return "" }
 type OperatorClassOperation struct{}
 
 func (o *OperatorClassOperation) exprNode()        {}
+func (o *OperatorClassOperation) expr()   {}
+func (o *OperatorClassOperation) IsExpr() {}
 func (o *OperatorClassOperation) Span() token.Span { return token.Span{} }
 func (o *OperatorClassOperation) String() string   { return "" }
 
@@ -3146,6 +3274,8 @@ func (o *OperatorClassOperation) String() string   { return "" }
 type OptimizerHint struct{}
 
 func (o *OptimizerHint) exprNode()        {}
+func (o *OptimizerHint) expr()   {}
+func (o *OptimizerHint) IsExpr() {}
 func (o *OptimizerHint) Span() token.Span { return token.Span{} }
 func (o *OptimizerHint) String() string   { return "" }
 
@@ -3185,6 +3315,8 @@ type Assignment struct {
 }
 
 func (a *Assignment) exprNode()        {}
+func (a *Assignment) expr()   {}
+func (a *Assignment) IsExpr() {}
 func (a *Assignment) Span() token.Span { return token.Span{} }
 func (a *Assignment) String() string {
 	if a.Column != nil && a.Value != nil {
@@ -3201,6 +3333,8 @@ type OnInsert struct {
 }
 
 func (o *OnInsert) exprNode()        {}
+func (o *OnInsert) expr()   {}
+func (o *OnInsert) IsExpr() {}
 func (o *OnInsert) Span() token.Span { return token.Span{} }
 func (o *OnInsert) String() string {
 	if o.OnConflict != nil {
@@ -3302,6 +3436,8 @@ type OutputClause struct {
 }
 
 func (o *OutputClause) exprNode()        {}
+func (o *OutputClause) expr()   {}
+func (o *OutputClause) IsExpr() {}
 func (o *OutputClause) Span() token.Span { return token.Span{} }
 func (o *OutputClause) String() string {
 	var f strings.Builder
@@ -3352,6 +3488,8 @@ type InsertAliases struct {
 }
 
 func (i *InsertAliases) exprNode()        {}
+func (i *InsertAliases) expr()   {}
+func (i *InsertAliases) IsExpr() {}
 func (i *InsertAliases) Span() token.Span { return token.Span{} }
 func (i *InsertAliases) String() string {
 	if i.RowAlias == nil {
@@ -3377,6 +3515,8 @@ type Setting struct {
 }
 
 func (s *Setting) exprNode()        {}
+func (s *Setting) expr()   {}
+func (s *Setting) IsExpr() {}
 func (s *Setting) Span() token.Span { return token.Span{} }
 func (s *Setting) String() string {
 	return fmt.Sprintf("%s = %s", s.Name, s.Value.String())
@@ -3386,6 +3526,8 @@ func (s *Setting) String() string {
 type InputFormatClause struct{}
 
 func (i *InputFormatClause) exprNode()        {}
+func (i *InputFormatClause) expr()   {}
+func (i *InputFormatClause) IsExpr() {}
 func (i *InputFormatClause) Span() token.Span { return token.Span{} }
 func (i *InputFormatClause) String() string   { return "" }
 
@@ -3415,7 +3557,8 @@ type MultiTableInsertValues struct {
 }
 
 func (m *MultiTableInsertValues) exprNode() {}
-
+func (m *MultiTableInsertValues) expr()   {}
+func (m *MultiTableInsertValues) IsExpr() {}
 func (m *MultiTableInsertValues) Span() token.Span { return token.Span{} }
 
 func (m *MultiTableInsertValues) String() string {
@@ -3433,7 +3576,8 @@ type MultiTableInsertValue struct {
 }
 
 func (m *MultiTableInsertValue) exprNode() {}
-
+func (m *MultiTableInsertValue) expr()   {}
+func (m *MultiTableInsertValue) IsExpr() {}
 func (m *MultiTableInsertValue) Span() token.Span { return token.Span{} }
 
 func (m *MultiTableInsertValue) String() string {
@@ -3454,7 +3598,8 @@ type MultiTableInsertIntoClause struct {
 }
 
 func (m *MultiTableInsertIntoClause) exprNode() {}
-
+func (m *MultiTableInsertIntoClause) expr()   {}
+func (m *MultiTableInsertIntoClause) IsExpr() {}
 func (m *MultiTableInsertIntoClause) Span() token.Span { return token.Span{} }
 
 func (m *MultiTableInsertIntoClause) String() string {
@@ -3488,7 +3633,8 @@ type MultiTableInsertWhenClause struct {
 }
 
 func (m *MultiTableInsertWhenClause) exprNode() {}
-
+func (m *MultiTableInsertWhenClause) expr()   {}
+func (m *MultiTableInsertWhenClause) IsExpr() {}
 func (m *MultiTableInsertWhenClause) Span() token.Span { return token.Span{} }
 
 func (m *MultiTableInsertWhenClause) String() string {
@@ -3515,6 +3661,8 @@ type MergeClause struct {
 }
 
 func (m *MergeClause) exprNode()        {}
+func (m *MergeClause) expr()   {}
+func (m *MergeClause) IsExpr() {}
 func (m *MergeClause) Span() token.Span { return token.Span{} }
 func (m *MergeClause) String() string {
 	var f strings.Builder
@@ -3542,6 +3690,8 @@ func (s SetScope) String() string { return "" }
 type CaseStatementWhen struct{}
 
 func (c *CaseStatementWhen) exprNode()        {}
+func (c *CaseStatementWhen) expr()   {}
+func (c *CaseStatementWhen) IsExpr() {}
 func (c *CaseStatementWhen) Span() token.Span { return token.Span{} }
 func (c *CaseStatementWhen) String() string   { return "" }
 
@@ -3549,6 +3699,8 @@ func (c *CaseStatementWhen) String() string   { return "" }
 type CaseStatementElse struct{}
 
 func (c *CaseStatementElse) exprNode()        {}
+func (c *CaseStatementElse) expr()   {}
+func (c *CaseStatementElse) IsExpr() {}
 func (c *CaseStatementElse) Span() token.Span { return token.Span{} }
 func (c *CaseStatementElse) String() string   { return "" }
 
@@ -3560,7 +3712,8 @@ type IfStatementCondition struct {
 }
 
 func (i *IfStatementCondition) exprNode() {}
-
+func (i *IfStatementCondition) expr()   {}
+func (i *IfStatementCondition) IsExpr() {}
 func (i *IfStatementCondition) Span() token.Span { return token.Span{} }
 
 func (i *IfStatementCondition) String() string {
@@ -3585,6 +3738,8 @@ type IfStatementElse struct {
 }
 
 func (i *IfStatementElse) exprNode()        {}
+func (i *IfStatementElse) expr()   {}
+func (i *IfStatementElse) IsExpr() {}
 func (i *IfStatementElse) Span() token.Span { return token.Span{} }
 
 func (i *IfStatementElse) String() string {
@@ -3612,6 +3767,8 @@ func (r RaiseLevel) String() string { return "" }
 type RaiseUsing struct{}
 
 func (r *RaiseUsing) exprNode()        {}
+func (r *RaiseUsing) expr()   {}
+func (r *RaiseUsing) IsExpr() {}
 func (r *RaiseUsing) Span() token.Span { return token.Span{} }
 func (r *RaiseUsing) String() string   { return "" }
 
@@ -3624,7 +3781,8 @@ type CopySource struct {
 }
 
 func (c *CopySource) exprNode() {}
-
+func (c *CopySource) expr()   {}
+func (c *CopySource) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CopySource) Span() token.Span { return c.SpanVal }
 
@@ -3659,7 +3817,8 @@ type CopyTarget struct {
 }
 
 func (c *CopyTarget) exprNode() {}
-
+func (c *CopyTarget) expr()   {}
+func (c *CopyTarget) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CopyTarget) Span() token.Span { return c.SpanVal }
 
@@ -3702,7 +3861,8 @@ const (
 )
 
 func (c *CopyOption) exprNode() {}
-
+func (c *CopyOption) expr()   {}
+func (c *CopyOption) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CopyOption) Span() token.Span { return token.Span{} }
 
@@ -3824,7 +3984,8 @@ type CopyLegacyOption struct {
 }
 
 func (c *CopyLegacyOption) exprNode() {}
-
+func (c *CopyLegacyOption) expr()   {}
+func (c *CopyLegacyOption) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CopyLegacyOption) Span() token.Span { return token.Span{} }
 
@@ -4014,6 +4175,8 @@ type StageLoadSelectItem struct {
 }
 
 func (s *StageLoadSelectItem) exprNode()        {}
+func (s *StageLoadSelectItem) expr()   {}
+func (s *StageLoadSelectItem) IsExpr() {}
 func (s *StageLoadSelectItem) Span() token.Span { return token.Span{} }
 func (s *StageLoadSelectItem) String() string {
 	var parts []string
@@ -4048,6 +4211,8 @@ type StageLoadSelectItemWrapper struct {
 }
 
 func (s *StageLoadSelectItemWrapper) exprNode()        {}
+func (s *StageLoadSelectItemWrapper) expr()   {}
+func (s *StageLoadSelectItemWrapper) IsExpr() {}
 func (s *StageLoadSelectItemWrapper) Span() token.Span { return token.Span{} }
 func (s *StageLoadSelectItemWrapper) String() string {
 	if s.Item != nil {
@@ -4075,7 +4240,8 @@ type CloseCursor struct {
 }
 
 func (c *CloseCursor) exprNode() {}
-
+func (c *CloseCursor) expr()   {}
+func (c *CloseCursor) IsExpr() {}
 // Span returns the source span for this expression.
 func (c *CloseCursor) Span() token.Span {
 	if c.Name != nil {
@@ -4182,7 +4348,8 @@ type Declare struct {
 }
 
 func (d *Declare) exprNode() {}
-
+func (d *Declare) expr()   {}
+func (d *Declare) IsExpr() {}
 // Span returns the source span for this expression.
 func (d *Declare) Span() token.Span {
 	return d.SpanVal
@@ -4486,6 +4653,8 @@ type ShowStatementIn struct {
 }
 
 func (s *ShowStatementIn) exprNode()        {}
+func (s *ShowStatementIn) expr()   {}
+func (s *ShowStatementIn) IsExpr() {}
 func (s *ShowStatementIn) Span() token.Span { return token.Span{} }
 func (s *ShowStatementIn) String() string {
 	clause := "IN"
@@ -4528,6 +4697,8 @@ type ShowStatementFilter struct {
 }
 
 func (s *ShowStatementFilter) exprNode()        {}
+func (s *ShowStatementFilter) expr()   {}
+func (s *ShowStatementFilter) IsExpr() {}
 func (s *ShowStatementFilter) Span() token.Span { return token.Span{} }
 func (s *ShowStatementFilter) String() string {
 	if s.Like != nil {
@@ -4586,6 +4757,8 @@ type ShowStatementOptions struct {
 }
 
 func (s *ShowStatementOptions) exprNode()        {}
+func (s *ShowStatementOptions) expr()   {}
+func (s *ShowStatementOptions) IsExpr() {}
 func (s *ShowStatementOptions) Span() token.Span { return s.SpanVal }
 func (s *ShowStatementOptions) String() string {
 	var parts []string
@@ -4716,6 +4889,8 @@ func (t TransactionModifier) String() string {
 type ExceptionWhen struct{}
 
 func (e *ExceptionWhen) exprNode()        {}
+func (e *ExceptionWhen) expr()   {}
+func (e *ExceptionWhen) IsExpr() {}
 func (e *ExceptionWhen) Span() token.Span { return token.Span{} }
 func (e *ExceptionWhen) String() string   { return "" }
 
@@ -4785,6 +4960,8 @@ type ExprWithAlias struct {
 }
 
 func (e *ExprWithAlias) exprNode()        {}
+func (e *ExprWithAlias) expr()   {}
+func (e *ExprWithAlias) IsExpr() {}
 func (e *ExprWithAlias) Span() token.Span { return token.Span{} }
 func (e *ExprWithAlias) String() string {
 	if e.Alias != nil {
@@ -4875,6 +5052,8 @@ func (a AnalyzeFormatKind) String() string { return "" }
 type UtilityOption struct{}
 
 func (u *UtilityOption) exprNode()        {}
+func (u *UtilityOption) expr()   {}
+func (u *UtilityOption) IsExpr() {}
 func (u *UtilityOption) Span() token.Span { return token.Span{} }
 func (u *UtilityOption) String() string   { return "" }
 
@@ -4884,6 +5063,8 @@ type ValueWithSpan struct {
 }
 
 func (v *ValueWithSpan) exprNode()        {}
+func (v *ValueWithSpan) expr()   {}
+func (v *ValueWithSpan) IsExpr() {}
 func (v *ValueWithSpan) Span() token.Span { return token.Span{} }
 func (v *ValueWithSpan) String() string   { return v.Value }
 
@@ -4920,6 +5101,8 @@ func (l LockTableType) String() string {
 }
 
 func (l *LockTable) exprNode()        {}
+func (l *LockTable) expr()   {}
+func (l *LockTable) IsExpr() {}
 func (l *LockTable) Span() token.Span { return token.Span{} }
 func (l *LockTable) String() string {
 	return fmt.Sprintf("%s", l.Table.String())
@@ -4961,12 +5144,16 @@ func (i IamRoleKind) String() string {
 }
 
 func (i IamRoleKind) exprNode()        {}
+func (i IamRoleKind) expr()   {}
+func (i IamRoleKind) IsExpr() {}
 func (i IamRoleKind) Span() token.Span { return token.Span{} }
 
 // Partition represents partition.
 type Partition struct{}
 
 func (p *Partition) exprNode()        {}
+func (p *Partition) expr()   {}
+func (p *Partition) IsExpr() {}
 func (p *Partition) Span() token.Span { return token.Span{} }
 func (p *Partition) String() string   { return "" }
 
@@ -4974,6 +5161,8 @@ func (p *Partition) String() string   { return "" }
 type Deduplicate struct{}
 
 func (d *Deduplicate) exprNode()        {}
+func (d *Deduplicate) expr()   {}
+func (d *Deduplicate) IsExpr() {}
 func (d *Deduplicate) Span() token.Span { return token.Span{} }
 func (d *Deduplicate) String() string   { return "" }
 
@@ -4981,6 +5170,8 @@ func (d *Deduplicate) String() string   { return "" }
 type HiveLoadDataFormat struct{}
 
 func (h *HiveLoadDataFormat) exprNode()        {}
+func (h *HiveLoadDataFormat) expr()   {}
+func (h *HiveLoadDataFormat) IsExpr() {}
 func (h *HiveLoadDataFormat) Span() token.Span { return token.Span{} }
 func (h *HiveLoadDataFormat) String() string   { return "" }
 
@@ -4988,6 +5179,8 @@ func (h *HiveLoadDataFormat) String() string   { return "" }
 type FileStagingCommand struct{}
 
 func (f *FileStagingCommand) exprNode()        {}
+func (f *FileStagingCommand) expr()   {}
+func (f *FileStagingCommand) IsExpr() {}
 func (f *FileStagingCommand) Span() token.Span { return token.Span{} }
 func (f *FileStagingCommand) String() string   { return "" }
 
@@ -4997,6 +5190,8 @@ type PrintStatement struct {
 }
 
 func (p *PrintStatement) exprNode()        {}
+func (p *PrintStatement) expr()   {}
+func (p *PrintStatement) IsExpr() {}
 func (p *PrintStatement) Span() token.Span { return token.Span{} }
 func (p *PrintStatement) String() string   { return p.Message }
 
@@ -5030,6 +5225,8 @@ type RenameTable struct {
 }
 
 func (r *RenameTable) exprNode()        {}
+func (r *RenameTable) expr()   {}
+func (r *RenameTable) IsExpr() {}
 func (r *RenameTable) Span() token.Span { return token.Span{} }
 func (r *RenameTable) String() string {
 	if r.OldName != nil && r.NewName != nil {
@@ -5044,6 +5241,8 @@ type ResetStatement struct {
 }
 
 func (r *ResetStatement) exprNode()        {}
+func (r *ResetStatement) expr()   {}
+func (r *ResetStatement) IsExpr() {}
 func (r *ResetStatement) Span() token.Span { return token.Span{} }
 func (r *ResetStatement) String() string   { return r.ConfigName }
 
@@ -5053,6 +5252,8 @@ type ReturnStatement struct {
 }
 
 func (r *ReturnStatement) exprNode()        {}
+func (r *ReturnStatement) expr()   {}
+func (r *ReturnStatement) IsExpr() {}
 func (r *ReturnStatement) Span() token.Span { return token.Span{} }
 func (r *ReturnStatement) String() string {
 	if r.Value != nil {
@@ -5069,6 +5270,8 @@ type ThrowStatement struct {
 }
 
 func (t *ThrowStatement) exprNode()        {}
+func (t *ThrowStatement) expr()   {}
+func (t *ThrowStatement) IsExpr() {}
 func (t *ThrowStatement) Span() token.Span { return token.Span{} }
 func (t *ThrowStatement) String() string {
 	return fmt.Sprintf("%d, '%s', %d", t.ErrorNumber, t.Message, t.State)
@@ -5080,6 +5283,8 @@ type VacuumStatement struct {
 }
 
 func (v *VacuumStatement) exprNode()        {}
+func (v *VacuumStatement) expr()   {}
+func (v *VacuumStatement) IsExpr() {}
 func (v *VacuumStatement) Span() token.Span { return token.Span{} }
 func (v *VacuumStatement) String() string {
 	if v.TableName != nil {
@@ -5096,6 +5301,8 @@ type WaitForStatement struct {
 }
 
 func (w *WaitForStatement) exprNode()        {}
+func (w *WaitForStatement) expr()   {}
+func (w *WaitForStatement) IsExpr() {}
 func (w *WaitForStatement) Span() token.Span { return token.Span{} }
 func (w *WaitForStatement) String() string   { return "WAITFOR" }
 
@@ -5134,6 +5341,8 @@ type AssignmentTarget struct {
 }
 
 func (a *AssignmentTarget) exprNode()        {}
+func (a *AssignmentTarget) expr()   {}
+func (a *AssignmentTarget) IsExpr() {}
 func (a *AssignmentTarget) Span() token.Span { return token.Span{} }
 func (a *AssignmentTarget) String() string {
 	if a.Column != nil {
@@ -5174,6 +5383,8 @@ type MergeInsertExpr struct {
 }
 
 func (m *MergeInsertExpr) exprNode()        {}
+func (m *MergeInsertExpr) expr()   {}
+func (m *MergeInsertExpr) IsExpr() {}
 func (m *MergeInsertExpr) Span() token.Span { return token.Span{} }
 func (m *MergeInsertExpr) String() string {
 	var f strings.Builder
@@ -5213,6 +5424,8 @@ type MergeUpdateExpr struct {
 }
 
 func (m *MergeUpdateExpr) exprNode()        {}
+func (m *MergeUpdateExpr) expr()   {}
+func (m *MergeUpdateExpr) IsExpr() {}
 func (m *MergeUpdateExpr) Span() token.Span { return token.Span{} }
 func (m *MergeUpdateExpr) String() string {
 	var f strings.Builder
@@ -5241,6 +5454,8 @@ type MergeAction struct {
 }
 
 func (m *MergeAction) exprNode()        {}
+func (m *MergeAction) expr()   {}
+func (m *MergeAction) IsExpr() {}
 func (m *MergeAction) Span() token.Span { return token.Span{} }
 func (m *MergeAction) String() string {
 	if m.Insert != nil {
@@ -5307,6 +5522,8 @@ type Privilege struct {
 }
 
 func (p *Privilege) exprNode()        {}
+func (p *Privilege) expr()   {}
+func (p *Privilege) IsExpr() {}
 func (p *Privilege) Span() token.Span { return token.Span{} }
 func (p *Privilege) String() string   { return p.Name }
 
@@ -5320,6 +5537,8 @@ type CreateTableOnCommit struct {
 }
 
 func (c *CreateTableOnCommit) exprNode()        {}
+func (c *CreateTableOnCommit) expr()   {}
+func (c *CreateTableOnCommit) IsExpr() {}
 func (c *CreateTableOnCommit) Span() token.Span { return token.Span{} }
 func (c *CreateTableOnCommit) String() string {
 	if c.Action != "" {
@@ -5334,6 +5553,8 @@ type DistStyle struct {
 }
 
 func (d *DistStyle) exprNode()        {}
+func (d *DistStyle) expr()   {}
+func (d *DistStyle) IsExpr() {}
 func (d *DistStyle) Span() token.Span { return token.Span{} }
 func (d *DistStyle) String() string {
 	return "DISTSTYLE " + d.Style

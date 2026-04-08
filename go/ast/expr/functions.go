@@ -415,6 +415,8 @@ type OrderByExpr struct {
 }
 
 func (o *OrderByExpr) exprNode() {}
+func (o *OrderByExpr) expr()   {}
+func (o *OrderByExpr) IsExpr() {}
 
 // Span returns the source span.
 func (o *OrderByExpr) Span() token.Span { return token.Span{} }
@@ -514,6 +516,8 @@ type FunctionExpr struct {
 }
 
 func (f *FunctionExpr) exprNode() {}
+func (f *FunctionExpr) expr()   {}
+func (f *FunctionExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (f *FunctionExpr) Span() token.Span {

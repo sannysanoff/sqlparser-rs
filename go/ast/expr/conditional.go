@@ -44,6 +44,8 @@ type CaseExpr struct {
 }
 
 func (c *CaseExpr) exprNode() {}
+func (c *CaseExpr) expr()   {}
+func (c *CaseExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (c *CaseExpr) Span() token.Span {
@@ -83,6 +85,8 @@ type IfExpr struct {
 }
 
 func (i *IfExpr) exprNode() {}
+func (i *IfExpr) expr()   {}
+func (i *IfExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (i *IfExpr) Span() token.Span {
@@ -102,6 +106,8 @@ type CoalesceExpr struct {
 }
 
 func (c *CoalesceExpr) exprNode() {}
+func (c *CoalesceExpr) expr()   {}
+func (c *CoalesceExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (c *CoalesceExpr) Span() token.Span {
@@ -125,6 +131,8 @@ type NullIfExpr struct {
 }
 
 func (n *NullIfExpr) exprNode() {}
+func (n *NullIfExpr) expr()   {}
+func (n *NullIfExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (n *NullIfExpr) Span() token.Span {
@@ -144,6 +152,8 @@ type IfNullExpr struct {
 }
 
 func (i *IfNullExpr) exprNode() {}
+func (i *IfNullExpr) expr()   {}
+func (i *IfNullExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (i *IfNullExpr) Span() token.Span {
@@ -162,6 +172,8 @@ type GreatestExpr struct {
 }
 
 func (g *GreatestExpr) exprNode() {}
+func (g *GreatestExpr) expr()   {}
+func (g *GreatestExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (g *GreatestExpr) Span() token.Span {
@@ -184,6 +196,8 @@ type LeastExpr struct {
 }
 
 func (l *LeastExpr) exprNode() {}
+func (l *LeastExpr) expr()   {}
+func (l *LeastExpr) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (l *LeastExpr) Span() token.Span {

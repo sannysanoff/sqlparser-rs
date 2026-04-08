@@ -32,6 +32,8 @@ type Identifier struct {
 }
 
 func (i *Identifier) exprNode() {}
+func (i *Identifier) expr()     {}
+func (i *Identifier) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *Identifier) Span() token.Span {
@@ -53,6 +55,8 @@ type CompoundIdentifier struct {
 }
 
 func (c *CompoundIdentifier) exprNode() {}
+func (c *CompoundIdentifier) expr()     {}
+func (c *CompoundIdentifier) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *CompoundIdentifier) Span() token.Span {
@@ -76,6 +80,8 @@ type SystemVariable struct {
 }
 
 func (s *SystemVariable) exprNode() {}
+func (s *SystemVariable) expr()     {}
+func (s *SystemVariable) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (s *SystemVariable) Span() token.Span {
@@ -97,6 +103,8 @@ type ValueExpr struct {
 }
 
 func (v *ValueExpr) exprNode() {}
+func (v *ValueExpr) expr()     {}
+func (v *ValueExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (v *ValueExpr) Span() token.Span {
@@ -128,6 +136,8 @@ type QualifiedWildcard struct {
 }
 
 func (q *QualifiedWildcard) exprNode() {}
+func (q *QualifiedWildcard) expr()     {}
+func (q *QualifiedWildcard) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (q *QualifiedWildcard) Span() token.Span {
@@ -149,6 +159,8 @@ type Wildcard struct {
 }
 
 func (w *Wildcard) exprNode() {}
+func (w *Wildcard) expr()     {}
+func (w *Wildcard) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (w *Wildcard) Span() token.Span {
@@ -170,6 +182,8 @@ type Nested struct {
 }
 
 func (n *Nested) exprNode() {}
+func (n *Nested) expr()     {}
+func (n *Nested) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (n *Nested) Span() token.Span {
@@ -189,6 +203,8 @@ type Prefixed struct {
 }
 
 func (p *Prefixed) exprNode() {}
+func (p *Prefixed) expr()     {}
+func (p *Prefixed) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (p *Prefixed) Span() token.Span {
@@ -209,6 +225,8 @@ type TypedString struct {
 }
 
 func (t *TypedString) exprNode() {}
+func (t *TypedString) expr()     {}
+func (t *TypedString) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (t *TypedString) Span() token.Span {
@@ -258,6 +276,8 @@ func (i *Ident) String() string {
 
 // exprNode is a marker method that identifies this type as an expression node.
 func (i *Ident) exprNode() {}
+func (i *Ident) expr()     {}
+func (i *Ident) IsExpr()   {}
 
 type ObjectNamePart struct {
 	SpanVal token.Span

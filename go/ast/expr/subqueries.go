@@ -32,6 +32,8 @@ type Exists struct {
 }
 
 func (e *Exists) exprNode() {}
+func (e *Exists) expr()   {}
+func (e *Exists) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (e *Exists) Span() token.Span {
@@ -53,6 +55,8 @@ type Subquery struct {
 }
 
 func (s *Subquery) exprNode() {}
+func (s *Subquery) expr()   {}
+func (s *Subquery) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (s *Subquery) Span() token.Span {
@@ -95,6 +99,8 @@ type GroupingSets struct {
 }
 
 func (g *GroupingSets) exprNode() {}
+func (g *GroupingSets) expr()   {}
+func (g *GroupingSets) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (g *GroupingSets) Span() token.Span {
@@ -127,6 +133,8 @@ type Cube struct {
 }
 
 func (c *Cube) exprNode() {}
+func (c *Cube) expr()   {}
+func (c *Cube) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (c *Cube) Span() token.Span {
@@ -163,6 +171,8 @@ type Rollup struct {
 }
 
 func (r *Rollup) exprNode() {}
+func (r *Rollup) expr()   {}
+func (r *Rollup) IsExpr() {}
 
 // Span returns the source span for this expression.
 func (r *Rollup) Span() token.Span {

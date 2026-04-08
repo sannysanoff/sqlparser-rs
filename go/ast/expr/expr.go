@@ -26,6 +26,8 @@ import (
 type Expr interface {
 	token.Spanned
 	exprNode()
+	expr()   // Marker method to satisfy ast.Expr interface
+	IsExpr() // Marker method to satisfy ast.Expr interface
 	String() string
 }
 
