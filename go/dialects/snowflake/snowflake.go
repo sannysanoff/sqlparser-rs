@@ -1622,17 +1622,94 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 			tok := parser.NextToken()
 			switch t := tok.Token.(type) {
 			case token.TokenWord:
+				// Check if followed by period + word for file extensions
+				// e.g., "file" in "file.parquet" should include the extension
+				nextTok := parser.PeekToken()
+				if _, ok := nextTok.Token.(token.TokenPeriod); ok {
+					afterPeriod := parser.PeekNthToken(1) // 1 token after the period = 2 tokens ahead
+					if word, ok := afterPeriod.Token.(token.TokenWord); ok {
+						// It's word + period + word = file extension
+						// Write this word, then consume the period and next word
+						stageName.WriteString(t.Word.Value)
+						parser.NextToken() // consume period
+						parser.NextToken() // consume word
+						stageName.WriteRune('.')
+						stageName.WriteString(word.Word.Value)
+						// After consuming a file extension, the next word is likely a table alias
+						// So check if next token is a word, and if so, stop here
+						nextAfterExt := parser.PeekToken()
+						if _, isWord := nextAfterExt.Token.(token.TokenWord); isWord {
+							// Next token is a word - it's likely a table alias, stop here
+							parts = append(parts, &ast.ObjectNamePartIdentifier{
+								Ident: &ast.Ident{Value: stageName.String()},
+							})
+							return &ast.ObjectName{Parts: parts}, nil
+						}
+						continue // Continue parsing
+					}
+				}
+
+				// Check if this word is followed by whitespace (i.e., it's a table alias)
+				// If so, don't consume it as part of the stage name
+				if _, isWhitespace := nextTok.Token.(token.TokenWhitespace); isWhitespace {
+					// This word is followed by whitespace - it's likely a table alias
+					// End the stage name here without consuming this word
+					parts = append(parts, &ast.ObjectNamePartIdentifier{
+						Ident: &ast.Ident{Value: stageName.String()},
+					})
+					return &ast.ObjectName{Parts: parts}, nil
+				}
+
+				// Regular word - add it and continue
 				stageName.WriteString(t.Word.Value)
-				continue // Continue to next token
+			// Continue to next token
 			case token.TokenPeriod:
 				stageName.WriteRune('.')
 				continue
 			case token.TokenNumber:
-				// Handle numbers with trailing periods (e.g., "23." in "23.parquet")
-				// The tokenizer treats "23." as a single number token, but in stage paths
-				// the period is part of the path separator, so we include it
+				// Handle numbers - check if followed by period + word for file extensions
+				// e.g., "23" in "23.parquet" should include the extension
 				stageName.WriteString(t.Value)
-				continue // Continue to next token
+
+				// Check if next tokens are period + word (file extension pattern)
+				// We need to look ahead: period followed by word = file extension
+				nextTok := parser.PeekToken()
+				if _, ok := nextTok.Token.(token.TokenPeriod); ok {
+					afterPeriod := parser.PeekNthToken(1) // 1 token after the period = 2 tokens ahead
+					if word, ok := afterPeriod.Token.(token.TokenWord); ok {
+						// It's number + period + word = file extension
+						// Consume the period and word
+						parser.NextToken() // consume period
+						parser.NextToken() // consume word
+						stageName.WriteRune('.')
+						stageName.WriteString(word.Word.Value)
+						// After consuming a file extension, the next word is likely a table alias
+						// So check if next token is a word, and if so, stop here
+						nextAfterExt := parser.PeekToken()
+						if _, isWord := nextAfterExt.Token.(token.TokenWord); isWord {
+							// Next token is a word - it's likely a table alias, stop here
+							parts = append(parts, &ast.ObjectNamePartIdentifier{
+								Ident: &ast.Ident{Value: stageName.String()},
+							})
+							return &ast.ObjectName{Parts: parts}, nil
+						}
+						continue // Continue parsing
+					}
+				}
+
+				// Check if this number is followed by whitespace (i.e., it's a table alias)
+				// If so, don't consume it as part of the stage name
+				if _, isWhitespace := nextTok.Token.(token.TokenWhitespace); isWhitespace {
+					// This number is followed by whitespace - it's likely a table alias
+					// End the stage name here without consuming this number
+					parts = append(parts, &ast.ObjectNamePartIdentifier{
+						Ident: &ast.Ident{Value: stageName.String()},
+					})
+					return &ast.ObjectName{Parts: parts}, nil
+				}
+
+				// Not a file extension and not a table alias - continue parsing
+				continue
 			case token.TokenChar:
 				if t.Char == '/' || t.Char == '%' || t.Char == '~' {
 					stageName.WriteRune(t.Char)
@@ -1670,6 +1747,12 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				continue
 			case token.TokenWhitespace:
 				// Whitespace ends the stage name but doesn't need to be put back
+				parts = append(parts, &ast.ObjectNamePartIdentifier{
+					Ident: &ast.Ident{Value: stageName.String()},
+				})
+				return &ast.ObjectName{Parts: parts}, nil
+			case token.EOF:
+				// EOF ends the stage name - no need to put back
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
 					Ident: &ast.Ident{Value: stageName.String()},
 				})

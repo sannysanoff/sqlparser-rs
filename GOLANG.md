@@ -1,17 +1,48 @@
 ---
 
-## Latest Update: April 9, 2026 - Session 30
+## Latest Update: April 9, 2026 - Session 31 (Snowflake Stage Names Fixed)
 
-**Line Counts (Updated April 9, 2026 - Session 30 Complete):**
+**Line Counts (Updated April 9, 2026 - Session 31):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 97,768 lines | 145% |
-| Tests | 49,886 lines | 14,330 lines | 29% |
-| **Test Status** | - | **860 passing** / **339 failing** (~72%) |
-| **Total Test Cases** | - | ~1,199 test outcomes |
+| Source (parser+ast+dialects) | 59,133 lines | 82,955 lines | 140% |
+| Tests | 49,847 lines | 14,161 lines | 28% |
+| **Test Status** | - | **74 passing** / **23 failing** (~76%) | Snowflake dialect only |
+| **Total Test Cases** | - | ~97 test outcomes |
 
-**Summary of Session 30:**
+### Session 31 Summary:
+
+**Fixed Snowflake Stage Name Parsing with File Extensions** (4 tests now passing - Major fix!)
+
+Fixed parsing of Snowflake stage names containing file extensions and special characters:
+- `@stage/day=18/23.parquet` - paths with `=` partitioning and numeric file extensions
+- `@stage/0:18:23/23.parquet` - paths with time notation and file extensions
+- `COPY INTO ... FROM @stage/day=18/file.parquet` - COPY with stage paths
+
+**Root Causes Fixed:**
+1. **File Extension Pattern Recognition**: Added logic to detect `word.period.word` and `number.period.word` patterns as file extensions, not separate tokens
+2. **EOF Handling**: Added explicit `token.EOF` case to prevent `PrevToken()` from putting parser in wrong position after file extension consumption
+3. **Number Token Continuation**: Fixed `TokenNumber` case to continue parsing instead of returning when not followed by file extension
+4. **Table Alias Detection**: Added check to stop stage name parsing when next word after file extension is likely a table alias
+
+**Implementation Details** (in `go/dialects/snowflake/snowflake.go`):
+- Modified `ParseSnowflakeStageName()` to handle `TokenWord` followed by `TokenPeriod` + `TokenWord` as file extensions
+- Used `PeekToken()` and `PeekNthToken(1)` for lookahead without consuming tokens
+- After consuming extension, check if next token is `TokenWord` (table alias) to decide whether to stop or continue
+- Similar logic for `TokenNumber` followed by file extension (e.g., `23.parquet`)
+
+**New Patterns Documented:**
+- **Pattern E130**: Snowflake stage file extension parsing - Use `PeekToken()` and `PeekNthToken(1)` to lookahead for `word.period.word` pattern, consume period and word manually with `NextToken()`
+- **Pattern E131**: EOF handling in token loops - When loop encounters EOF, add explicit case to return without calling `PrevToken()`, which would put back wrong token position
+
+**Tests Fixed**: TestSnowflakeStageNameWithSpecialChars (all 4 subtests)
+
+---
+
+## Previous Session Summaries
+
+### Session 30 Summary:
 
 1. **Fixed Wildcard AS Alias Support** (1 test now passing)
    - Fixed `SELECT * AS all_cols` and `SELECT t.* AS t_cols` parsing
@@ -3435,6 +3466,53 @@ if p.PeekKeyword("DEFAULT") {
     p.NextToken()
     defaultOp = "="  // Normalize DEFAULT to = for canonical form
     // ... parse value
+}
+```
+
+### Error E130: Snowflake stage file extension pattern not recognized
+**Cause**: Stage paths like `@stage/file.parquet` are parsed as `@stage/file` + `.` + `parquet` separately instead of as a single path.
+
+**Symptom**: Parser stops at period and fails with "Expected: end of statement, found: parquet".
+
+**Solution**: Use lookahead to detect file extension pattern:
+```go
+// In TokenWord or TokenNumber case:
+nextTok := parser.PeekToken()
+if _, ok := nextTok.Token.(token.TokenPeriod); ok {
+    afterPeriod := parser.PeekNthToken(1) // Word after period
+    if word, ok := afterPeriod.Token.(token.TokenWord); ok {
+        // File extension detected: write word, consume period and extension
+        stageName.WriteString(currentWord)
+        parser.NextToken() // consume period
+        parser.NextToken() // consume extension word
+        stageName.WriteRune('.')
+        stageName.WriteString(extensionWord)
+        // Check if next token is word (table alias) and stop if so
+        nextAfterExt := parser.PeekToken()
+        if _, isWord := nextAfterExt.Token.(token.TokenWord); isWord {
+            return stageName // Next word is table alias
+        }
+        continue // Continue parsing stage path
+    }
+}
+```
+
+### Error E131: EOF in token loop causes wrong position with PrevToken()
+**Cause**: When a parsing loop encounters EOF and calls `PrevToken()` in the default case, it puts the parser in the wrong position.
+
+**Symptom**: After parsing completes, the next token seen by caller is not EOF but the previous token.
+
+**Solution**: Add explicit EOF case that returns without calling `PrevToken()`:
+```go
+switch tok.Token.(type) {
+case token.EOF:
+    // EOF ends parsing - no need to put back
+    return result
+// ... other cases ...
+default:
+    // For non-EOF tokens, put back and return
+    parser.PrevToken()
+    return result
 }
 ```
 
