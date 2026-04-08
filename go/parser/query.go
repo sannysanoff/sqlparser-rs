@@ -1346,7 +1346,7 @@ func isJoinKeyword(tok token.TokenWithSpan) bool {
 		return kw == "JOIN" || kw == "CROSS" || kw == "INNER" ||
 			kw == "LEFT" || kw == "RIGHT" || kw == "FULL" ||
 			kw == "NATURAL" || kw == "ANTI" || kw == "SEMI" ||
-			kw == "GLOBAL"
+			kw == "GLOBAL" || kw == "ASOF"
 	}
 	return false
 }
@@ -1380,6 +1380,11 @@ func parseJoin(p *Parser) (query.Join, error) {
 	// Parse join type modifiers
 	natural := p.ParseKeyword("NATURAL")
 	global := p.ParseKeyword("GLOBAL")
+
+	// Check for ASOF JOIN (Snowflake-specific)
+	if p.ParseKeyword("ASOF") {
+		return parseAsofJoin(p, global)
+	}
 
 	// Determine join type string
 	// Default is just "JOIN" (not "INNER JOIN" - we preserve the original syntax)
@@ -1484,6 +1489,89 @@ func parseJoin(p *Parser) (query.Join, error) {
 		JoinOperator: &query.StandardJoinOp{
 			Type:       joinTypeStr,
 			Constraint: constraint,
+		},
+	}, nil
+}
+
+// parseAsofJoin parses an ASOF JOIN clause (Snowflake-specific)
+// Syntax: ASOF JOIN <table> MATCH_CONDITION (<expr>) [ON <expr> | USING (<cols>)]
+func parseAsofJoin(p *Parser, global bool) (query.Join, error) {
+	// Expect JOIN after ASOF
+	if !p.ParseKeyword("JOIN") {
+		return query.Join{}, p.Expected("JOIN", p.PeekToken())
+	}
+
+	// Parse table
+	table, err := parseTableFactor(p)
+	if err != nil {
+		return query.Join{}, err
+	}
+
+	// Expect MATCH_CONDITION
+	if !p.ParseKeyword("MATCH_CONDITION") {
+		return query.Join{}, p.Expected("MATCH_CONDITION", p.PeekToken())
+	}
+
+	// Expect ( <expr> )
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return query.Join{}, err
+	}
+
+	ep := NewExpressionParser(p)
+	matchCond, err := ep.ParseExpr()
+	if err != nil {
+		return query.Join{}, err
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return query.Join{}, err
+	}
+
+	// Parse optional additional constraint (ON or USING)
+	var constraint query.JoinConstraint
+	if p.ParseKeyword("ON") {
+		ep := NewExpressionParser(p)
+		cond, err := ep.ParseExpr()
+		if err != nil {
+			return query.Join{}, err
+		}
+		constraint = &query.OnJoinConstraint{
+			Expr: &queryExprWrapper{expr: cond},
+		}
+	} else if p.ParseKeyword("USING") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return query.Join{}, err
+		}
+		objNames, err := parseCommaSeparatedObjectNames(p)
+		if err != nil {
+			return query.Join{}, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return query.Join{}, err
+		}
+		attrs := make([]query.ObjectName, len(objNames))
+		for i, objName := range objNames {
+			queryParts := make([]query.Ident, len(objName.Parts))
+			for j, part := range objName.Parts {
+				if identPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+					queryParts[j] = query.Ident{Value: identPart.Ident.Value}
+				}
+			}
+			attrs[i] = query.ObjectName{Parts: queryParts}
+		}
+		constraint = &query.UsingJoinConstraint{
+			Attrs: attrs,
+		}
+	} else {
+		constraint = &query.NoneJoinConstraint{}
+	}
+
+	return query.Join{
+		Relation: table,
+		Global:   global,
+		JoinOperator: &query.AsOfJoinOperator{
+			MatchCondition: &queryExprWrapper{expr: matchCond},
+			Constraint:     constraint,
 		},
 	}, nil
 }

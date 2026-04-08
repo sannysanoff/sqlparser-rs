@@ -1,15 +1,52 @@
 ---
 
-## Latest Update: April 9, 2026 - Session 31 (Snowflake Stage Names Fixed)
+## Latest Update: April 9, 2026 - Session 32 (ASOF JOIN, PIVOT, Validations)
 
-**Line Counts (Updated April 9, 2026 - Session 31):**
+**Line Counts (Updated April 9, 2026 - Session 32):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 59,133 lines | 82,955 lines | 140% |
+| Source (parser+ast+dialects) | 67,345 lines | 83,797 lines | 124% |
 | Tests | 49,847 lines | 14,161 lines | 28% |
-| **Test Status** | - | **74 passing** / **23 failing** (~76%) | Snowflake dialect only |
-| **Total Test Cases** | - | ~97 test outcomes |
+| **Test Status** | - | **87 passing** / **66 failing** (~57%) | Snowflake dialect only |
+| **Total Test Cases** | - | ~153 test outcomes |
+
+### Session 32 Summary:
+
+**Implemented ASOF JOIN with MATCH_CONDITION** (3 tests now passing - Major feature!)
+
+Added full support for Snowflake ASOF JOIN syntax:
+- `SELECT * FROM t1 ASOF JOIN t2 MATCH_CONDITION (t1.ts >= t2.ts)`
+- `SELECT * FROM t1 ASOF JOIN t2 MATCH_CONDITION (...) ON t1.id = t2.id`
+- Multiple ASOF JOINs in single query
+
+**Implementation Details:**
+- Added `ASOF` to `isJoinKeyword()` in `parser/query.go`
+- Added `parseAsofJoin()` function to handle MATCH_CONDITION clause
+- Uses existing `query.AsOfJoinOperator` AST type with `MatchCondition` field
+
+**Fixed PIVOT Serialization** (4 tests now passing)
+
+Fixed extra space in PIVOT output:
+- Before: `PIVOT (...)`  
+- After: `PIVOT(...)` (matches Rust output)
+
+**Added CREATE TABLE Validation** (6 tests now passing)
+
+Implemented validation for conflicting options:
+- `CREATE LOCAL GLOBAL TABLE` → Error: "cannot specify both LOCAL and GLOBAL"
+- `CREATE TEMP VOLATILE TABLE` → Error: "cannot specify both TEMP and VOLATILE"
+- `CREATE ICEBERG TABLE t (a INT)` → Error: "BASE_LOCATION is required for ICEBERG tables"
+
+**New Patterns Documented:**
+- **Pattern E132**: ASOF JOIN parsing - Check for ASOF keyword before JOIN, then parse MATCH_CONDITION clause followed by optional ON/USING constraint
+- **Pattern E133**: CREATE TABLE option validation - Check for conflicting keyword combinations after parsing all CREATE TABLE modifiers
+
+---
+
+## Previous Session Summaries
+
+### Session 31 Summary:
 
 ### Session 31 Summary:
 
@@ -70,6 +107,14 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
    - Test Fixed: TestSnowflakeMultiTableInsertWithValues (all 4 subtests now passing)
 
 **New Patterns Documented:** E126, E127, E128, E129
+
+---
+
+### Session 32 Patterns (New):
+
+- **Pattern E132**: ASOF JOIN parsing - Check for ASOF keyword before JOIN, then parse MATCH_CONDITION clause followed by optional ON/USING constraint. ASOF JOIN is Snowflake-specific for time-series matching.
+
+- **Pattern E133**: CREATE TABLE option validation - Check for conflicting keyword combinations (like LOCAL+GLOBAL, TEMP+VOLATILE) after parsing all CREATE TABLE modifiers but before building the AST. Required options (like BASE_LOCATION for ICEBERG) should be validated at the same point.
 
 ---
 

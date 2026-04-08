@@ -18,6 +18,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -36,9 +37,13 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	orReplace := p.ParseKeywords([]string{"OR", "REPLACE"})
 	_ = p.ParseKeywords([]string{"OR", "ALTER"}) // orAlter not used yet
 
-	// Check for LOCAL/GLOBAL
+	// Check for LOCAL/GLOBAL (only one allowed)
 	local := p.ParseKeyword("LOCAL")
 	global := p.ParseKeyword("GLOBAL")
+	// If both LOCAL and GLOBAL are present, that's an error
+	if local && global {
+		return nil, errors.New("cannot specify both LOCAL and GLOBAL")
+	}
 	var globalOpt *bool
 	if global {
 		globalOpt = &[]bool{true}[0]
@@ -50,10 +55,16 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	transient := p.ParseKeyword("TRANSIENT")
 
 	// Check for TEMPORARY/TEMP
-	temporary := p.ParseKeyword("TEMPORARY") || p.ParseKeyword("TEMP")
+	tempKeyword := p.ParseKeyword("TEMPORARY") || p.ParseKeyword("TEMP")
 
 	// Check for VOLATILE (Snowflake)
 	volatile := p.ParseKeyword("VOLATILE")
+
+	// TEMP and VOLATILE are mutually exclusive
+	temporary := tempKeyword
+	if tempKeyword && volatile {
+		return nil, errors.New("cannot specify both TEMP and VOLATILE")
+	}
 
 	// Check for PERSISTENT (DuckDB)
 	// Note: Persistent is not stored separately, it's just a modifier
@@ -495,6 +506,14 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 			return nil, err
 		}
 		asQuery = extractQueryFromStatement(innerQuery)
+	}
+
+	// Snowflake-specific validation
+	if p.GetDialect().Dialect() == "snowflake" {
+		// ICEBERG tables require BASE_LOCATION
+		if iceberg && baseLocation == nil {
+			return nil, errors.New("BASE_LOCATION is required for ICEBERG tables")
+		}
 	}
 
 	return &statement.CreateTable{
