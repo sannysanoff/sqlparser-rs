@@ -745,17 +745,23 @@ func parseSet(p *Parser) (ast.Statement, error) {
 	}
 
 	if p.ParseKeyword("ROLE") {
-		setRole := &statement.SetRole{Session: session, Local: local}
-		if p.ParseKeyword("NONE") {
-			setRole.None = true
+		// Check if ROLE is being used as a variable name (followed by = or TO)
+		if _, ok := p.PeekToken().Token.(token.TokenEq); ok || p.PeekKeyword("TO") {
+			// ROLE is a variable, not the SET ROLE statement
+			p.PrevToken() // Put back ROLE
 		} else {
-			role, err := p.ParseIdentifier()
-			if err != nil {
-				return nil, fmt.Errorf("expected role name or NONE after ROLE: %w", err)
+			setRole := &statement.SetRole{Session: session, Local: local}
+			if p.ParseKeyword("NONE") {
+				setRole.None = true
+			} else {
+				role, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected role name or NONE after ROLE: %w", err)
+				}
+				setRole.Role = role
 			}
-			setRole.Role = role
+			return setRole, nil
 		}
-		return setRole, nil
 	}
 
 	if p.GetDialect().SupportsParenthesizedSetVariables() {
@@ -2219,7 +2225,37 @@ func parseCache(p *Parser) (ast.Statement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &statement.Cache{TableFlag: tableFlag, TableName: tableName}, nil
+	// Parse OPTIONS clause if present
+	if p.ParseKeyword("OPTIONS") {
+		p.ExpectToken(token.TokenLParen{})
+		for {
+			key, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			p.ExpectToken(token.TokenEq{})
+			val, err := NewExpressionParser(p).ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			options = append(options, &expr.SqlOption{Name: exprFromAstIdent(key), Value: val})
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		p.ExpectToken(token.TokenRParen{})
+	}
+	// Parse AS SELECT or just SELECT if present
+	hasAs := p.ParseKeyword("AS")
+	// Check if there's a SELECT (or subquery with WITH) after AS or directly
+	if hasAs || p.PeekKeyword("SELECT") || p.PeekKeyword("WITH") {
+		stmt, err := p.parseQuery()
+		if err != nil {
+			return nil, err
+		}
+		q = extractQueryFromStatement(stmt)
+	}
+	return &statement.Cache{TableFlag: tableFlag, TableName: tableName, HasAs: hasAs, Options: options, Query: q}, nil
 }
 
 func parseUncache(p *Parser) (ast.Statement, error) {

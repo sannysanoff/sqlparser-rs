@@ -1,6 +1,54 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 45 (TRUNCATE Options, ALTER COLUMN ADD GENERATED, OWNER TO, ~612 Tests Passing)
+## Latest Update: April 8, 2026 - Session 46 (PIVOT Serialization, CACHE TABLE, SET ROLE, Window Clause, 245 Tests Passing)
+
+**Line Counts (Updated April 8, 2026 - Session 46):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 99,044 lines | 147% |
+| Tests | 49,886 lines | 13,947 lines | 28% |
+| **Test Status** | - | **245 tests passing** / **28 tests failing** (~89.7%) |
+| **Total Test Cases** | - | 273 test functions |
+
+### Session 46 Summary:
+
+**Fixed 5 Key Parser Issues:**
+
+1. **PIVOT/UNPIVOT Serialization** (2 tests now passing)
+   - Fixed `PIVOT (...)` vs `PIVOT(...)` format - added space after PIVOT keyword
+   - **Files Modified**: `ast/query/table.go`
+   - **Pattern**: PIVOT serialization should match Rust format with space: `PIVOT (...)`
+
+2. **CACHE TABLE with OPTIONS and AS SELECT** (1 test now passing)
+   - Fixed `CACHE flag TABLE 'name' OPTIONS(...)` parsing
+   - Fixed table flag serialization in Cache statement
+   - Fixed AS SELECT parsing (with and without AS keyword)
+   - **Files Modified**: `parser/misc.go`, `ast/statement/misc.go`
+   - **Lines Added**: ~40 lines
+
+3. **SET ROLE as Variable** (1 test now passing)
+   - Fixed `SET role = 'foobar'` to parse as variable assignment, not SET ROLE statement
+   - **Implementation**: Check if ROLE is followed by `=` or `TO` - if so, treat as variable
+   - **Files Modified**: `parser/misc.go`
+
+4. **Window Clause Named Window Reference** (1 test now passing)
+   - Fixed `SELECT * FROM t WINDOW window1 AS window2` to only test dialects that support it
+   - **Files Modified**: `tests/window_test.go`
+
+5. **SET AUTHORIZATION Error Test** (1 test now passing)
+   - Fixed test to expect error for `SET AUTHORIZATION TIME TIME` (matches Rust behavior)
+   - **Files Modified**: `tests/transaction_test.go`
+
+**New Patterns Documented:**
+- **Pattern E171**: PIVOT serialization format - Output `PIVOT (...)` with space after keyword
+- **Pattern E172**: CACHE TABLE parsing - Parse table flag, then TABLE, then table name, then OPTIONS, then optional AS SELECT
+- **Pattern E173**: SET ROLE as variable detection - Check if ROLE is followed by `=` or `TO` to distinguish SET ROLE statement from variable assignment
+- **Pattern E174**: Window clause dialect filtering - Use `NewTestedDialectsWithFilter()` with `SupportsWindowClauseNamedWindowReference()` for window reference tests
+
+---
+
+## Previous Update: April 8, 2026 - Session 45 (TRUNCATE Options, ALTER COLUMN ADD GENERATED, OWNER TO, ~612 Tests Passing)
 
 **Line Counts (Updated April 8, 2026 - Session 45):**
 
@@ -1099,6 +1147,69 @@ func (p *Parser) NewExpressionParser() ExpressionParser { ... }
 ```
 
 **Solution**: Always add new public methods to both the struct and the interface in `parseriface/`.
+
+### E171: PIVOT Serialization Format
+**Error**: PIVOT serialization missing space after keyword, producing `PIVOT(...)` instead of `PIVOT (...)`.
+
+**Example**:
+```go
+// WRONG - no space after PIVOT
+result := fmt.Sprintf("%s PIVOT(%s FOR %s IN (%s)", ...)
+
+// CORRECT - space after PIVOT matching Rust output
+result := fmt.Sprintf("%s PIVOT (%s FOR %s IN (%s)", ...)
+```
+
+**Solution**: The Rust parser outputs `PIVOT (...)` with a space after the PIVOT keyword. Ensure Go serialization matches this format.
+
+### E172: CACHE TABLE Statement Parsing
+**Error**: CACHE TABLE with table flag and OPTIONS not properly parsed or serialized.
+
+**Example**:
+```go
+// Parsing must handle: CACHE flag TABLE 'name' OPTIONS(...) [AS] SELECT ...
+// Serialization must include: CACHE <flag> TABLE <name> OPTIONS(...) [AS] <query>
+```
+
+**Solution**: 
+- Parse table flag before TABLE keyword when present
+- Parse OPTIONS clause after table name
+- Check for both AS SELECT and just SELECT (without AS)
+- In String() method, conditionally include table flag, OPTIONS, and AS based on parsed flags
+
+### E173: SET ROLE vs Variable Assignment Ambiguity
+**Error**: `SET role = 'value'` is incorrectly parsed as SET ROLE statement instead of variable assignment.
+
+**Example**:
+```go
+// Check if ROLE is followed by = or TO - if so, it's a variable
+if p.ParseKeyword("ROLE") {
+    if _, ok := p.PeekToken().Token.(token.TokenEq); ok || p.PeekKeyword("TO") {
+        // ROLE is a variable, not SET ROLE statement
+        p.PrevToken() // Put back ROLE
+    } else {
+        // Parse as SET ROLE statement
+    }
+}
+```
+
+**Solution**: When parsing keywords that could be either SQL commands or variable names, check the following token to disambiguate. If followed by `=` or `TO`, treat as variable assignment.
+
+### E174: Window Clause Named Window Reference Dialect Filtering
+**Error**: Testing `WINDOW w1 AS w2` with all dialects when only some support named window references.
+
+**Example**:
+```go
+// WRONG - tests all dialects including those that don't support the feature
+dialects := utils.NewTestedDialects()
+
+// CORRECT - only test dialects that support named window references
+dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+    return d.SupportsWindowClauseNamedWindowReference()
+})
+```
+
+**Solution**: Use `NewTestedDialectsWithFilter()` with appropriate capability predicates for dialect-specific syntax tests. This matches Rust's `all_dialects_where()` behavior.
 
 ---
 

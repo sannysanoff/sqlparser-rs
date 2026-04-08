@@ -1557,10 +1557,28 @@ func (c *Cache) statementNode() {}
 
 func (c *Cache) String() string {
 	var f strings.Builder
-	f.WriteString("CACHE TABLE ")
+	f.WriteString("CACHE ")
+	if c.TableFlag != nil {
+		f.WriteString(c.TableFlag.String())
+		f.WriteString(" ")
+	}
+	f.WriteString("TABLE ")
 	f.WriteString(c.TableName.String())
+	if len(c.Options) > 0 {
+		f.WriteString(" OPTIONS(")
+		for i, opt := range c.Options {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
+	}
 	if c.Query != nil {
-		f.WriteString(" AS ")
+		f.WriteString(" ")
+		if c.HasAs {
+			f.WriteString("AS ")
+		}
 		f.WriteString(c.Query.String())
 	}
 	return f.String()

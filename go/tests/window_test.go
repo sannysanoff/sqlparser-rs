@@ -122,7 +122,9 @@ func TestParseWindowAndQualifyClause(t *testing.T) {
 // TestParseWindowClauseNamedWindow verifies WINDOW clause with named window reference.
 // Reference: tests/sqlparser_common.rs:6024
 func TestParseWindowClauseNamedWindow(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return d.SupportsWindowClauseNamedWindowReference()
+	})
 
 	sql := "SELECT * FROM mytable WINDOW window1 AS window2"
 	stmts := dialects.ParseSQL(t, sql)

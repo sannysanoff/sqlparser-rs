@@ -585,10 +585,9 @@ func TestSetAuthorizationWithoutScopeErrors(t *testing.T) {
 	dialects := utils.NewTestedDialects()
 
 	// This should return an error, not panic
-	stmts := dialects.ParseSQL(t, "SET AUTHORIZATION TIME TIME")
-	// We expect parsing to either succeed with an error or the statement to be parsed differently
-	// The test verifies that it doesn't panic
-	require.NotNil(t, stmts)
+	_, err := parser.ParseSQL(dialects.Dialects[0], "SET AUTHORIZATION TIME TIME")
+	// We expect parsing to return an error (not panic)
+	require.Error(t, err, "SET AUTHORIZATION without a scope modifier (e.g. SESSION) should error")
 }
 
 // TestParseResetStatement verifies RESET statement parsing.
