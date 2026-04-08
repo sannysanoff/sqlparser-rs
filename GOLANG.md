@@ -1,5 +1,36 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 19 In Progress):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 50,252 lines | 81,500 lines | 162% |
+| Tests | 49,847 lines | 14,150 lines | 28% |
+| **Test Status** | - | **562 passing** / **260 failing** (~68%) |
+
+**Session 19 Focus: Major Missing Chunks Implementation**
+
+Based on analysis of 260 failing tests, the following major chunks provide highest impact:
+
+1. **ALTER USER SET/UNSET Options** (5 tests failing)
+   - Missing: Full ALTER USER implementation with SET/UNSET property support
+   - Reference: src/parser/alter.rs:151-333
+
+2. **Snowflake Stage Names with File Extensions** (5 tests failing)
+   - Root cause: File extensions (.parquet) in stage paths parsed as aliases
+   - Tests: `@stage/day=18/23.parquet` - "23." tokenized as NUMBER with trailing period
+   - Reference: src/dialect/snowflake.rs:1256-1305
+
+3. **Snowflake Multi-Table INSERT** (8 tests failing)
+   - Missing: Placeholder support in VALUES clauses
+   - Reference: src/dialect/snowflake.rs:370-395
+
+4. **Snowflake FETCH Clause Extensions** (5 tests failing)
+   - Missing: Snowflake-specific FETCH variations
+   - Reference: src/dialect/snowflake.rs:4717
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 18 Complete):**
 
 | Component | Rust | Go | Ratio |

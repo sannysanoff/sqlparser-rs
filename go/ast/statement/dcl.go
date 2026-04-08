@@ -254,28 +254,262 @@ func (c *CreateUser) String() string {
 // ALTER USER
 // ============================================================================
 
+// UserPolicyKind represents the type of user policy
+type UserPolicyKind int
+
+const (
+	UserPolicyKindAuthentication UserPolicyKind = iota
+	UserPolicyKindPassword
+	UserPolicyKindSession
+)
+
+func (u UserPolicyKind) String() string {
+	switch u {
+	case UserPolicyKindAuthentication:
+		return "AUTHENTICATION"
+	case UserPolicyKindPassword:
+		return "PASSWORD"
+	case UserPolicyKindSession:
+		return "SESSION"
+	}
+	return ""
+}
+
+// MfaMethodKind represents MFA method types
+type MfaMethodKind int
+
+const (
+	MfaMethodKindPassKey MfaMethodKind = iota
+	MfaMethodKindTotp
+	MfaMethodKindDuo
+)
+
+func (m MfaMethodKind) String() string {
+	switch m {
+	case MfaMethodKindPassKey:
+		return "PASSKEY"
+	case MfaMethodKindTotp:
+		return "TOTP"
+	case MfaMethodKindDuo:
+		return "DUO"
+	}
+	return ""
+}
+
+// AlterUserSetPolicy represents SET {AUTHENTICATION|PASSWORD|SESSION} POLICY
+type AlterUserSetPolicy struct {
+	PolicyKind UserPolicyKind
+	Policy     *ast.Ident
+}
+
+// AlterUserAddRoleDelegation represents ADD DELEGATED AUTHORIZATION OF ROLE
+type AlterUserAddRoleDelegation struct {
+	Role        *ast.Ident
+	Integration *ast.Ident
+}
+
+// AlterUserRemoveRoleDelegation represents REMOVE DELEGATED AUTHORIZATION
+type AlterUserRemoveRoleDelegation struct {
+	Role        *ast.Ident // nil for AUTHORIZATIONS (plural)
+	Integration *ast.Ident
+}
+
+// AlterUserModifyMfaMethod represents MODIFY MFA METHOD ... SET COMMENT
+type AlterUserModifyMfaMethod struct {
+	Method  MfaMethodKind
+	Comment string
+}
+
+// AlterUserAddMfaMethodOtp represents ADD MFA METHOD OTP [COUNT = n]
+type AlterUserAddMfaMethodOtp struct {
+	Count *expr.ValueExpr
+}
+
+// AlterUserPassword represents PASSWORD { 'password' | NULL } with optional ENCRYPTED
+type AlterUserPassword struct {
+	Encrypted bool
+	Password  string // empty for NULL
+	IsNull    bool
+}
+
 // AlterUser represents an ALTER USER statement
+// Reference: src/ast/mod.rs:11401
 type AlterUser struct {
 	BaseStatement
-	IfExists       bool
-	Name           *ast.Ident
-	RenameTo       *ast.Ident
-	ResetPassword  bool
-	RequireProfile *ast.Ident
-	Profile        *ast.Ident
-	Options        []*expr.SqlOption
+	IfExists               bool
+	Name                   *ast.Ident
+	RenameTo               *ast.Ident
+	ResetPassword          bool
+	AbortAllQueries        bool
+	AddRoleDelegation      *AlterUserAddRoleDelegation
+	RemoveRoleDelegation   *AlterUserRemoveRoleDelegation
+	EnrollMfa              bool
+	SetDefaultMfaMethod    MfaMethodKind
+	HasSetDefaultMfaMethod bool
+	RemoveMfaMethod        MfaMethodKind
+	HasRemoveMfaMethod     bool
+	ModifyMfaMethod        *AlterUserModifyMfaMethod
+	AddMfaMethodOtp        *AlterUserAddMfaMethodOtp
+	SetPolicy              *AlterUserSetPolicy
+	UnsetPolicy            *UserPolicyKind
+	SetTag                 []*expr.SqlOption
+	UnsetTag               []string
+	SetProperties          []*expr.SqlOption // Generic SET property=value
+	UnsetProperties        []string
+	Password               *AlterUserPassword
 }
 
 func (a *AlterUser) statementNode() {}
 
 func (a *AlterUser) String() string {
 	var f strings.Builder
-	f.WriteString("ALTER USER ")
+	f.WriteString("ALTER USER")
 	if a.IfExists {
-		f.WriteString("IF EXISTS ")
+		f.WriteString(" IF EXISTS")
 	}
+	f.WriteString(" ")
 	f.WriteString(a.Name.String())
+
+	if a.RenameTo != nil {
+		f.WriteString(" RENAME TO ")
+		f.WriteString(a.RenameTo.String())
+	}
+
+	if a.ResetPassword {
+		f.WriteString(" RESET PASSWORD")
+	}
+
+	if a.AbortAllQueries {
+		f.WriteString(" ABORT ALL QUERIES")
+	}
+
+	if a.AddRoleDelegation != nil {
+		f.WriteString(" ADD DELEGATED AUTHORIZATION OF ROLE ")
+		f.WriteString(a.AddRoleDelegation.Role.String())
+		f.WriteString(" TO SECURITY INTEGRATION ")
+		f.WriteString(a.AddRoleDelegation.Integration.String())
+	}
+
+	if a.RemoveRoleDelegation != nil {
+		f.WriteString(" REMOVE DELEGATED")
+		if a.RemoveRoleDelegation.Role != nil {
+			f.WriteString(" AUTHORIZATION OF ROLE ")
+			f.WriteString(a.RemoveRoleDelegation.Role.String())
+		} else {
+			f.WriteString(" AUTHORIZATIONS")
+		}
+		f.WriteString(" FROM SECURITY INTEGRATION ")
+		f.WriteString(a.RemoveRoleDelegation.Integration.String())
+	}
+
+	if a.EnrollMfa {
+		f.WriteString(" ENROLL MFA")
+	}
+
+	if a.HasSetDefaultMfaMethod {
+		f.WriteString(" SET DEFAULT_MFA_METHOD ")
+		f.WriteString(a.SetDefaultMfaMethod.String())
+	}
+
+	if a.HasRemoveMfaMethod {
+		f.WriteString(" REMOVE MFA METHOD ")
+		f.WriteString(a.RemoveMfaMethod.String())
+	}
+
+	if a.ModifyMfaMethod != nil {
+		f.WriteString(" MODIFY MFA METHOD ")
+		f.WriteString(a.ModifyMfaMethod.Method.String())
+		f.WriteString(" SET COMMENT '")
+		f.WriteString(escapeSingleQuote(a.ModifyMfaMethod.Comment))
+		f.WriteString("'")
+	}
+
+	if a.AddMfaMethodOtp != nil {
+		f.WriteString(" ADD MFA METHOD OTP")
+		if a.AddMfaMethodOtp.Count != nil {
+			f.WriteString(" COUNT = ")
+			f.WriteString(a.AddMfaMethodOtp.Count.String())
+		}
+	}
+
+	if a.SetPolicy != nil {
+		f.WriteString(" SET ")
+		f.WriteString(a.SetPolicy.PolicyKind.String())
+		f.WriteString(" POLICY ")
+		f.WriteString(a.SetPolicy.Policy.String())
+	}
+
+	if a.UnsetPolicy != nil {
+		f.WriteString(" UNSET ")
+		f.WriteString(a.UnsetPolicy.String())
+		f.WriteString(" POLICY")
+	}
+
+	if len(a.SetTag) > 0 {
+		f.WriteString(" SET TAG")
+		for i, opt := range a.SetTag {
+			if i > 0 {
+				f.WriteString(",")
+			}
+			f.WriteString(" ")
+			f.WriteString(opt.Name.String())
+			f.WriteString("=")
+			f.WriteString(opt.Value.String())
+		}
+	}
+
+	if len(a.UnsetTag) > 0 {
+		f.WriteString(" UNSET TAG ")
+		for i, tag := range a.UnsetTag {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(tag)
+		}
+	}
+
+	if len(a.SetProperties) > 0 {
+		f.WriteString(" SET")
+		for i, opt := range a.SetProperties {
+			if i > 0 {
+				f.WriteString(",")
+			}
+			f.WriteString(" ")
+			f.WriteString(opt.Name.String())
+			f.WriteString("=")
+			f.WriteString(opt.Value.String())
+		}
+	}
+
+	if len(a.UnsetProperties) > 0 {
+		f.WriteString(" UNSET ")
+		for i, prop := range a.UnsetProperties {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(prop)
+		}
+	}
+
+	if a.Password != nil {
+		if a.Password.Encrypted {
+			f.WriteString(" ENCRYPTED")
+		}
+		f.WriteString(" PASSWORD")
+		if a.Password.IsNull {
+			f.WriteString(" NULL")
+		} else {
+			f.WriteString(" '")
+			f.WriteString(escapeSingleQuote(a.Password.Password))
+			f.WriteString("'")
+		}
+	}
+
 	return f.String()
+}
+
+func escapeSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // ============================================================================

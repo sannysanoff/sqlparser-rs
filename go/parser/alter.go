@@ -1053,7 +1053,7 @@ func parseAlterRole(p *Parser) (ast.Statement, error) {
 }
 
 // parseAlterUser parses ALTER USER statements
-// Reference: src/parser/alter.rs:151
+// Reference: src/parser/alter.rs:151-333
 func parseAlterUser(p *Parser) (ast.Statement, error) {
 	// Check for IF EXISTS
 	ifNotExists := p.ParseKeywords([]string{"IF", "EXISTS"})
@@ -1064,44 +1064,712 @@ func parseAlterUser(p *Parser) (ast.Statement, error) {
 		return nil, fmt.Errorf("expected user name after ALTER USER: %w", err)
 	}
 
-	// Skip WITH if present
+	// Skip optional WITH keyword
 	p.ParseKeyword("WITH")
 
-	var renameTo *ast.Ident
-	var resetPassword bool
+	alterUser := &statement.AlterUser{
+		IfExists: ifNotExists,
+		Name:     name,
+	}
 
-	// Check for RENAME TO
-	if p.ParseKeywords([]string{"RENAME", "TO"}) {
-		newName, err := p.ParseIdentifier()
-		if err != nil {
-			return nil, fmt.Errorf("expected new user name: %w", err)
+	// Parse various ALTER USER options in a loop
+	for {
+		// Check for RENAME TO
+		if p.ParseKeywords([]string{"RENAME", "TO"}) {
+			newName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected new user name: %w", err)
+			}
+			alterUser.RenameTo = newName
+			continue
 		}
-		renameTo = newName
+
+		// Check for RESET PASSWORD
+		if p.ParseKeywords([]string{"RESET", "PASSWORD"}) {
+			alterUser.ResetPassword = true
+			continue
+		}
+
+		// Check for ABORT ALL QUERIES
+		if p.ParseKeywords([]string{"ABORT", "ALL", "QUERIES"}) {
+			alterUser.AbortAllQueries = true
+			continue
+		}
+
+		// Check for ADD DELEGATED AUTHORIZATION OF ROLE ... TO SECURITY INTEGRATION
+		if p.ParseKeywords([]string{"ADD", "DELEGATED", "AUTHORIZATION", "OF", "ROLE"}) {
+			role, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected role name: %w", err)
+			}
+			if err := p.ExpectKeywords([]string{"TO", "SECURITY", "INTEGRATION"}); err != nil {
+				return nil, err
+			}
+			integration, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected integration name: %w", err)
+			}
+			alterUser.AddRoleDelegation = &statement.AlterUserAddRoleDelegation{
+				Role:        role,
+				Integration: integration,
+			}
+			continue
+		}
+
+		// Check for REMOVE DELEGATED AUTHORIZATION...
+		if p.ParseKeywords([]string{"REMOVE", "DELEGATED"}) {
+			var role *ast.Ident
+			if p.ParseKeywords([]string{"AUTHORIZATION", "OF", "ROLE"}) {
+				r, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected role name: %w", err)
+				}
+				role = r
+			} else if !p.ParseKeyword("AUTHORIZATIONS") {
+				return nil, fmt.Errorf("expected AUTHORIZATION OF ROLE or AUTHORIZATIONS after REMOVE DELEGATED")
+			}
+			if err := p.ExpectKeywords([]string{"FROM", "SECURITY", "INTEGRATION"}); err != nil {
+				return nil, err
+			}
+			integration, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected integration name: %w", err)
+			}
+			alterUser.RemoveRoleDelegation = &statement.AlterUserRemoveRoleDelegation{
+				Role:        role,
+				Integration: integration,
+			}
+			continue
+		}
+
+		// Check for ENROLL MFA
+		if p.ParseKeywords([]string{"ENROLL", "MFA"}) {
+			alterUser.EnrollMfa = true
+			continue
+		}
+
+		// Check for SET DEFAULT_MFA_METHOD - this handles SET DEFAULT_MFA_METHOD=value
+		if p.PeekKeyword("SET") {
+			// Look ahead to see if next is DEFAULT_MFA_METHOD
+			savedPos := p.GetCurrentToken().Span
+			p.ParseKeyword("SET") // consume SET
+			if p.ParseKeyword("DEFAULT_MFA_METHOD") {
+				// MFA method can be a keyword (PASSKEY, TOTP, DUO) or a string literal ('PASSKEY')
+				if p.ParseKeyword("PASSKEY") {
+					alterUser.SetDefaultMfaMethod = statement.MfaMethodKindPassKey
+				} else if p.ParseKeyword("TOTP") {
+					alterUser.SetDefaultMfaMethod = statement.MfaMethodKindTotp
+				} else if p.ParseKeyword("DUO") {
+					alterUser.SetDefaultMfaMethod = statement.MfaMethodKindDuo
+				} else {
+					// Try parsing as string literal like 'PASSKEY'
+					methodStr, err := p.ParseStringLiteral()
+					if err == nil {
+						switch methodStr {
+						case "PASSKEY":
+							alterUser.SetDefaultMfaMethod = statement.MfaMethodKindPassKey
+						case "TOTP":
+							alterUser.SetDefaultMfaMethod = statement.MfaMethodKindTotp
+						case "DUO":
+							alterUser.SetDefaultMfaMethod = statement.MfaMethodKindDuo
+						default:
+							return nil, fmt.Errorf("unknown MFA method: %s", methodStr)
+						}
+					} else {
+						return nil, fmt.Errorf("expected PASSKEY, TOTP, DUO, or string literal")
+					}
+				}
+				alterUser.HasSetDefaultMfaMethod = true
+				continue
+			}
+			// Not DEFAULT_MFA_METHOD, restore position and try other SET variants
+			p.SetPosition(savedPos)
+		}
+
+		// Check for REMOVE MFA METHOD
+		if p.ParseKeywords([]string{"REMOVE", "MFA", "METHOD"}) {
+			method, err := parseMfaMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			alterUser.RemoveMfaMethod = method
+			alterUser.HasRemoveMfaMethod = true
+			continue
+		}
+
+		// Check for MODIFY MFA METHOD
+		if p.ParseKeywords([]string{"MODIFY", "MFA", "METHOD"}) {
+			method, err := parseMfaMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.ExpectKeywords([]string{"SET", "COMMENT"}); err != nil {
+				return nil, err
+			}
+			comment, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, fmt.Errorf("expected comment string: %w", err)
+			}
+			alterUser.ModifyMfaMethod = &statement.AlterUserModifyMfaMethod{
+				Method:  method,
+				Comment: comment,
+			}
+			continue
+		}
+
+		// Check for ADD MFA METHOD OTP
+		if p.ParseKeywords([]string{"ADD", "MFA", "METHOD", "OTP"}) {
+			addOtp := &statement.AlterUserAddMfaMethodOtp{}
+			if p.ParseKeyword("COUNT") {
+				if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+					return nil, err
+				}
+				tok := p.NextToken()
+				if num, ok := tok.Token.(token.TokenNumber); ok {
+					addOtp.Count = &expr.ValueExpr{Value: num.Value}
+				} else {
+					return nil, fmt.Errorf("expected number after COUNT=")
+				}
+			}
+			alterUser.AddMfaMethodOtp = addOtp
+			continue
+		}
+
+		// Check for SET {AUTHENTICATION|PASSWORD|SESSION} POLICY
+		if p.ParseKeyword("SET") {
+			// First check for specific SET operations that don't use = syntax
+			// Check for policy types: SET AUTHENTICATION POLICY name
+			if p.ParseKeywords([]string{"AUTHENTICATION", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindAuthentication,
+					Policy:     policy,
+				}
+				continue
+			}
+			if p.ParseKeywords([]string{"PASSWORD", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindPassword,
+					Policy:     policy,
+				}
+				continue
+			}
+			if p.ParseKeywords([]string{"SESSION", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindSession,
+					Policy:     policy,
+				}
+				continue
+			}
+
+			// Check for SET TAG key=value...
+			if p.ParseKeyword("TAG") {
+				tagOpts, err := parseAlterUserKeyValueOptions(p, false)
+				if err != nil {
+					return nil, fmt.Errorf("expected tag options: %w", err)
+				}
+				alterUser.SetTag = tagOpts
+				continue
+			}
+
+			// Generic SET property=value parsing (handles PASSWORD='secret', DEFAULT_MFA_METHOD='PASSKEY', etc.)
+			opts, err := parseAlterUserKeyValueOptions(p, false)
+			if err != nil {
+				return nil, fmt.Errorf("expected property=value after SET: %w", err)
+			}
+			alterUser.SetProperties = opts
+			continue
+		}
+
+		// Check for UNSET {AUTHENTICATION|PASSWORD|SESSION} POLICY
+		if p.ParseKeyword("UNSET") {
+			if p.ParseKeywords([]string{"AUTHENTICATION", "POLICY"}) {
+				kind := statement.UserPolicyKindAuthentication
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+			if p.ParseKeywords([]string{"PASSWORD", "POLICY"}) {
+				kind := statement.UserPolicyKindPassword
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+			if p.ParseKeywords([]string{"SESSION", "POLICY"}) {
+				kind := statement.UserPolicyKindSession
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+
+			// Check for UNSET TAG
+			if p.ParseKeyword("TAG") {
+				tags, err := parseCommaSeparatedIdentNames(p)
+				if err != nil {
+					return nil, fmt.Errorf("expected tag names: %w", err)
+				}
+				alterUser.UnsetTag = tags
+				continue
+			}
+
+			// Generic UNSET property1, property2, ...
+			props, err := parseCommaSeparatedIdentNames(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected property names: %w", err)
+			}
+			alterUser.UnsetProperties = props
+			continue
+		}
+
+		// Check for ENCRYPTED PASSWORD or PASSWORD
+		if p.ParseKeyword("ENCRYPTED") {
+			if !p.ParseKeyword("PASSWORD") {
+				return nil, fmt.Errorf("expected PASSWORD after ENCRYPTED")
+			}
+			alterUser.Password = &statement.AlterUserPassword{
+				Encrypted: true,
+			}
+			if p.ParseKeyword("NULL") {
+				alterUser.Password.IsNull = true
+			} else {
+				password, err := p.ParseStringLiteral()
+				if err != nil {
+					return nil, fmt.Errorf("expected password string or NULL: %w", err)
+				}
+				alterUser.Password.Password = password
+			}
+			continue
+		}
+
+		if p.ParseKeyword("PASSWORD") {
+			alterUser.Password = &statement.AlterUserPassword{}
+			if p.ParseKeyword("NULL") {
+				alterUser.Password.IsNull = true
+			} else {
+				password, err := p.ParseStringLiteral()
+				if err != nil {
+					return nil, fmt.Errorf("expected password string or NULL: %w", err)
+				}
+				alterUser.Password.Password = password
+			}
+			continue
+		}
+
+		// If none matched, we're done parsing options
+		break
 	}
 
-	// Check for RESET PASSWORD
-	if p.ParseKeywords([]string{"RESET", "PASSWORD"}) {
-		resetPassword = true
+	return alterUser, nil
+}
+
+	// Skip optional WITH keyword
+	p.ParseKeyword("WITH")
+
+	alterUser := &statement.AlterUser{
+		IfExists: ifNotExists,
+		Name:     name,
 	}
 
-	// Check for PASSWORD
-	if p.ParseKeyword("PASSWORD") {
-		// Parse password value or NULL
-		if !p.ParseKeyword("NULL") {
-			// Parse password string
-			tok := p.NextToken()
-			if _, ok := tok.Token.(token.TokenSingleQuotedString); !ok {
-				p.PrevToken()
+	// Parse various ALTER USER options in a loop
+	for {
+		// Check for RENAME TO
+		if p.ParseKeywords([]string{"RENAME", "TO"}) {
+			newName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected new user name: %w", err)
+			}
+			alterUser.RenameTo = newName
+			continue
+		}
+
+		// Check for RESET PASSWORD
+		if p.ParseKeywords([]string{"RESET", "PASSWORD"}) {
+			alterUser.ResetPassword = true
+			continue
+		}
+
+		// Check for ABORT ALL QUERIES
+		if p.ParseKeywords([]string{"ABORT", "ALL", "QUERIES"}) {
+			alterUser.AbortAllQueries = true
+			continue
+		}
+
+		// Check for ADD DELEGATED AUTHORIZATION OF ROLE ... TO SECURITY INTEGRATION
+		if p.ParseKeywords([]string{"ADD", "DELEGATED", "AUTHORIZATION", "OF", "ROLE"}) {
+			role, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected role name: %w", err)
+			}
+			if err := p.ExpectKeywords([]string{"TO", "SECURITY", "INTEGRATION"}); err != nil {
+				return nil, err
+			}
+			integration, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected integration name: %w", err)
+			}
+			alterUser.AddRoleDelegation = &statement.AlterUserAddRoleDelegation{
+				Role:        role,
+				Integration: integration,
+			}
+			continue
+		}
+
+		// Check for REMOVE DELEGATED AUTHORIZATION...
+		if p.ParseKeywords([]string{"REMOVE", "DELEGATED"}) {
+			var role *ast.Ident
+			if p.ParseKeywords([]string{"AUTHORIZATION", "OF", "ROLE"}) {
+				r, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected role name: %w", err)
+				}
+				role = r
+			} else if !p.ParseKeyword("AUTHORIZATIONS") {
+				return nil, fmt.Errorf("expected AUTHORIZATION OF ROLE or AUTHORIZATIONS after REMOVE DELEGATED")
+			}
+			if err := p.ExpectKeywords([]string{"FROM", "SECURITY", "INTEGRATION"}); err != nil {
+				return nil, err
+			}
+			integration, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected integration name: %w", err)
+			}
+			alterUser.RemoveRoleDelegation = &statement.AlterUserRemoveRoleDelegation{
+				Role:        role,
+				Integration: integration,
+			}
+			continue
+		}
+
+		// Check for ENROLL MFA
+		if p.ParseKeywords([]string{"ENROLL", "MFA"}) {
+			alterUser.EnrollMfa = true
+			continue
+		}
+
+		// Check for SET DEFAULT_MFA_METHOD
+		if p.ParseKeyword("SET") && p.ParseKeyword("DEFAULT_MFA_METHOD") {
+			// MFA method can be a keyword (PASSKEY, TOTP, DUO) or a string literal ('PASSKEY')
+			if p.ParseKeyword("PASSKEY") {
+				alterUser.SetDefaultMfaMethod = statement.MfaMethodKindPassKey
+			} else if p.ParseKeyword("TOTP") {
+				alterUser.SetDefaultMfaMethod = statement.MfaMethodKindTotp
+			} else if p.ParseKeyword("DUO") {
+				alterUser.SetDefaultMfaMethod = statement.MfaMethodKindDuo
+			} else {
+				// Try parsing as string literal like 'PASSKEY'
+				methodStr, err := p.ParseStringLiteral()
+				if err == nil {
+					switch methodStr {
+					case "PASSKEY":
+						alterUser.SetDefaultMfaMethod = statement.MfaMethodKindPassKey
+					case "TOTP":
+						alterUser.SetDefaultMfaMethod = statement.MfaMethodKindTotp
+					case "DUO":
+						alterUser.SetDefaultMfaMethod = statement.MfaMethodKindDuo
+					default:
+						return nil, fmt.Errorf("unknown MFA method: %s", methodStr)
+					}
+				} else {
+					return nil, fmt.Errorf("expected PASSKEY, TOTP, DUO, or string literal")
+				}
+			}
+			alterUser.HasSetDefaultMfaMethod = true
+			continue
+		}
+
+		// Check for REMOVE MFA METHOD
+		if p.ParseKeywords([]string{"REMOVE", "MFA", "METHOD"}) {
+			method, err := parseMfaMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			alterUser.RemoveMfaMethod = method
+			alterUser.HasRemoveMfaMethod = true
+			continue
+		}
+
+		// Check for MODIFY MFA METHOD
+		if p.ParseKeywords([]string{"MODIFY", "MFA", "METHOD"}) {
+			method, err := parseMfaMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			if err := p.ExpectKeywords([]string{"SET", "COMMENT"}); err != nil {
+				return nil, err
+			}
+			comment, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, fmt.Errorf("expected comment string: %w", err)
+			}
+			alterUser.ModifyMfaMethod = &statement.AlterUserModifyMfaMethod{
+				Method:  method,
+				Comment: comment,
+			}
+			continue
+		}
+
+		// Check for ADD MFA METHOD OTP
+		if p.ParseKeywords([]string{"ADD", "MFA", "METHOD", "OTP"}) {
+			addOtp := &statement.AlterUserAddMfaMethodOtp{}
+			if p.ParseKeyword("COUNT") {
+				if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+					return nil, err
+				}
+				tok := p.NextToken()
+				if num, ok := tok.Token.(token.TokenNumber); ok {
+					addOtp.Count = &expr.ValueExpr{Value: num.Value}
+				} else {
+					return nil, fmt.Errorf("expected number after COUNT=")
+				}
+			}
+			alterUser.AddMfaMethodOtp = addOtp
+			continue
+		}
+
+		// Check for SET - handles both specific SET operations and generic property=value
+		if p.ParseKeyword("SET") {
+			// First check for specific SET operations that don't use = syntax
+			// Check for policy types: SET AUTHENTICATION POLICY name
+			if p.ParseKeywords([]string{"AUTHENTICATION", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindAuthentication,
+					Policy:     policy,
+				}
+				continue
+			}
+			if p.ParseKeywords([]string{"PASSWORD", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindPassword,
+					Policy:     policy,
+				}
+				continue
+			}
+			if p.ParseKeywords([]string{"SESSION", "POLICY"}) {
+				policy, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected policy name: %w", err)
+				}
+				alterUser.SetPolicy = &statement.AlterUserSetPolicy{
+					PolicyKind: statement.UserPolicyKindSession,
+					Policy:     policy,
+				}
+				continue
+			}
+
+			// Check for SET TAG key=value...
+			if p.ParseKeyword("TAG") {
+				tagOpts, err := parseAlterUserKeyValueOptions(p, false)
+				if err != nil {
+					return nil, fmt.Errorf("expected tag options: %w", err)
+				}
+				alterUser.SetTag = tagOpts
+				continue
+			}
+
+			// Generic SET property=value parsing (handles PASSWORD='secret', DEFAULT_MFA_METHOD='PASSKEY', etc.)
+			opts, err := parseAlterUserKeyValueOptions(p, false)
+			if err != nil {
+				return nil, fmt.Errorf("expected property=value after SET: %w", err)
+			}
+			alterUser.SetProperties = opts
+			continue
+		}
+
+		// Check for UNSET {AUTHENTICATION|PASSWORD|SESSION} POLICY
+		if p.ParseKeyword("UNSET") {
+			if p.ParseKeywords([]string{"AUTHENTICATION", "POLICY"}) {
+				kind := statement.UserPolicyKindAuthentication
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+			if p.ParseKeywords([]string{"PASSWORD", "POLICY"}) {
+				kind := statement.UserPolicyKindPassword
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+			if p.ParseKeywords([]string{"SESSION", "POLICY"}) {
+				kind := statement.UserPolicyKindSession
+				alterUser.UnsetPolicy = &kind
+				continue
+			}
+
+			// Check for UNSET TAG
+			if p.ParseKeyword("TAG") {
+				tags, err := parseCommaSeparatedIdentNames(p)
+				if err != nil {
+					return nil, fmt.Errorf("expected tag names: %w", err)
+				}
+				alterUser.UnsetTag = tags
+				continue
+			}
+
+			// Generic UNSET property1, property2, ...
+			props, err := parseCommaSeparatedIdentNames(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected property names: %w", err)
+			}
+			alterUser.UnsetProperties = props
+			continue
+		}
+
+		// Check for ENCRYPTED PASSWORD or PASSWORD
+		if p.ParseKeyword("ENCRYPTED") {
+			if !p.ParseKeyword("PASSWORD") {
+				return nil, fmt.Errorf("expected PASSWORD after ENCRYPTED")
+			}
+			alterUser.Password = &statement.AlterUserPassword{
+				Encrypted: true,
+			}
+			if p.ParseKeyword("NULL") {
+				alterUser.Password.IsNull = true
+			} else {
+				password, err := p.ParseStringLiteral()
+				if err != nil {
+					return nil, fmt.Errorf("expected password string or NULL: %w", err)
+				}
+				alterUser.Password.Password = password
+			}
+			continue
+		}
+
+		if p.ParseKeyword("PASSWORD") {
+			alterUser.Password = &statement.AlterUserPassword{}
+			if p.ParseKeyword("NULL") {
+				alterUser.Password.IsNull = true
+			} else {
+				password, err := p.ParseStringLiteral()
+				if err != nil {
+					return nil, fmt.Errorf("expected password string or NULL: %w", err)
+				}
+				alterUser.Password.Password = password
+			}
+			continue
+		}
+
+		// If none matched, we're done parsing options
+		break
+	}
+
+	return alterUser, nil
+}
+
+// parseMfaMethod parses an MFA method (PASSKEY, TOTP, DUO)
+func parseMfaMethod(p *Parser) (statement.MfaMethodKind, error) {
+	if p.ParseKeyword("PASSKEY") {
+		return statement.MfaMethodKindPassKey, nil
+	}
+	if p.ParseKeyword("TOTP") {
+		return statement.MfaMethodKindTotp, nil
+	}
+	if p.ParseKeyword("DUO") {
+		return statement.MfaMethodKindDuo, nil
+	}
+	return statement.MfaMethodKindPassKey, fmt.Errorf("expected PASSKEY, TOTP, or DUO")
+}
+
+// parseCommaSeparatedIdentNames parses comma-separated identifiers and returns their string values
+func parseCommaSeparatedIdentNames(p *Parser) ([]string, error) {
+	var names []string
+	for {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, ident.Value)
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return names, nil
+}
+
+// parseAlterUserKeyValueOptions parses key=value options for ALTER USER (space or comma separated)
+func parseAlterUserKeyValueOptions(p *Parser, commaSeparated bool) ([]*expr.SqlOption, error) {
+	var options []*expr.SqlOption
+
+	for {
+		// Parse key (identifier)
+		keyTok := p.PeekToken()
+		if _, isWord := keyTok.Token.(token.TokenWord); !isWord {
+			break
+		}
+		key, err := p.ParseIdentifier()
+		if err != nil {
+			break
+		}
+
+		// Expect =
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+
+		// Parse value
+		valTok := p.NextToken()
+		var val expr.Expr
+		switch v := valTok.Token.(type) {
+		case token.TokenSingleQuotedString:
+			val = &expr.ValueExpr{Value: v.Value}
+		case token.TokenDoubleQuotedString:
+			val = &expr.ValueExpr{Value: v.Value}
+		case token.TokenNumber:
+			val = &expr.ValueExpr{Value: v.Value}
+		case token.TokenWord:
+			if v.Value == "TRUE" || v.Value == "true" {
+				val = &expr.ValueExpr{Value: true}
+			} else if v.Value == "FALSE" || v.Value == "false" {
+				val = &expr.ValueExpr{Value: false}
+			} else {
+				val = &expr.ValueExpr{Value: v.Value}
+			}
+		case token.TokenLParen:
+			// Parenthesized value like ('ALL') - parse as expression
+			p.PrevToken() // put back (
+			exprParser := NewExpressionParser(p)
+			parsedExpr, err := exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			val = parsedExpr
+		default:
+			return nil, fmt.Errorf("expected value after =")
+		}
+
+		options = append(options, &expr.SqlOption{
+			Name:  &expr.Ident{Value: key.Value},
+			Value: val,
+		})
+
+		// Check for comma or space separator
+		if commaSeparated {
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		} else {
+			// For space-separated, peek if next token looks like a key
+			nextTok := p.PeekToken()
+			if _, isWord := nextTok.Token.(token.TokenWord); !isWord {
+				break
 			}
 		}
 	}
 
-	return &statement.AlterUser{
-		IfExists:      ifNotExists,
-		Name:          name,
-		RenameTo:      renameTo,
-		ResetPassword: resetPassword,
-	}, nil
+	return options, nil
 }
 
 // parseAlterSchema parses ALTER SCHEMA statements
