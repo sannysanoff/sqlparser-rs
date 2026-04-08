@@ -1754,6 +1754,9 @@ type AlterTableOperation struct {
 	// Fields for ClusterBy (Snowflake)
 	ClusterBy []Expr
 
+	// Fields for Refresh (Snowflake - ALTER EXTERNAL TABLE)
+	RefreshSubpath *string
+
 	// Span
 	SpanVal token.Span
 }
@@ -1799,6 +1802,10 @@ const (
 	AlterTableOpSwapWith
 	// Snowflake-specific CLUSTER BY operation
 	AlterTableOpClusterBy
+	// Snowflake-specific dynamic/external table operations
+	AlterTableOpRefresh
+	AlterTableOpSuspend
+	AlterTableOpResume
 )
 
 // AlterTableType represents the type of table for ALTER TABLE (e.g., ICEBERG, DYNAMIC, EXTERNAL)
@@ -2194,6 +2201,20 @@ func (a *AlterTableOperation) String() string {
 		}
 		buf.WriteString(")")
 		return buf.String()
+	// Snowflake-specific dynamic/external table operations
+	case AlterTableOpRefresh:
+		var buf strings.Builder
+		buf.WriteString("REFRESH")
+		if a.RefreshSubpath != nil {
+			buf.WriteString(" '")
+			buf.WriteString(*a.RefreshSubpath)
+			buf.WriteString("'")
+		}
+		return buf.String()
+	case AlterTableOpSuspend:
+		return "SUSPEND"
+	case AlterTableOpResume:
+		return "RESUME"
 	default:
 		return ""
 	}

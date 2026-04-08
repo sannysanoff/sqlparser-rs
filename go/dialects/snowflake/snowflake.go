@@ -1638,7 +1638,8 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 					stageName.WriteRune(t.Char)
 					continue
 				} else {
-					// Not part of stage name - just return without putting back
+					// Not part of stage name - put back the token and return
+					parser.PrevToken()
 					parts = append(parts, &ast.ObjectNamePartIdentifier{
 						Ident: &ast.Ident{Value: stageName.String()},
 					})
@@ -1667,9 +1668,15 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				stageName.WriteString(t.Value)
 				stageName.WriteString("'")
 				continue
+			case token.TokenWhitespace:
+				// Whitespace ends the stage name but doesn't need to be put back
+				parts = append(parts, &ast.ObjectNamePartIdentifier{
+					Ident: &ast.Ident{Value: stageName.String()},
+				})
+				return &ast.ObjectName{Parts: parts}, nil
 			default:
-				// End of stage name - just return without putting back the token
-				// The caller will handle whatever token caused us to stop
+				// End of stage name - put back the token so caller can handle it
+				parser.PrevToken()
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
 					Ident: &ast.Ident{Value: stageName.String()},
 				})

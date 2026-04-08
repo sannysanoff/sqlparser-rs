@@ -1,5 +1,154 @@
 ---
 
+## Typical Errors in Code Editing and How to Avoid Them
+
+This section documents common errors discovered during the porting process and provides solutions to avoid them in future work.
+
+### E100: Token Already Consumed in Prefix Parser
+**Error**: Calling `ExpectToken()` or `ExpectKeyword()` for a token that was already consumed by `AdvanceToken()` in the prefix parser.
+
+**Example**:
+```go
+// WRONG - '{' already consumed by AdvanceToken()
+ep.parser.AdvanceToken()
+if _, err := ep.parser.ExpectToken(token.TokenLBrace{}); err != nil {
+    return nil, err
+}
+
+// CORRECT - just use the current token
+ep.parser.AdvanceToken()
+// Current token is now '{', use it directly
+```
+
+**Solution**: Remember that `AdvanceToken()` moves to the next token and makes it the current token. Don't try to consume it again.
+
+### E101: String Value vs Token String
+**Error**: Using `token.String()` which includes quotes instead of accessing the raw value.
+
+**Example**:
+```go
+// WRONG - includes quotes
+str := tok.String()  // Returns "'hello'" not "hello"
+
+// CORRECT - access value field directly
+if s, ok := tok.(token.TokenSingleQuotedString); ok {
+    str := s.Value  // Returns "hello"
+}
+```
+
+**Solution**: Always type-assert to the specific token type and access the `Value` field directly.
+
+### E102: AST Interface Mismatches
+**Error**: Types implementing `ast.Expr` don't automatically implement `expr.Expr` due to different method sets.
+
+**Example**:
+```go
+// This type assertion fails even if all methods are present
+var astExpr ast.Expr = &ast.EIdent{...}
+exprVal := astExpr.(expr.Expr)  // PANIC: interface conversion failed
+```
+
+**Solution**: 
+- Add `exprNode()` marker method to all expression types
+- Use `interface{}` for fields that need to accept both types
+- Or convert via string representation: `&expr.ValueExpr{Value: astExpr.String()}`
+
+### E103: Dialect Capability Adapter Delegation
+**Error**: The `dialectAdapter` in the parser hardcodes return values instead of delegating to the underlying dialect.
+
+**Example**:
+```go
+// WRONG - breaks dialect-specific features
+func (a *dialectAdapter) SupportsDollarQuotedString() bool {
+    return false
+}
+
+// CORRECT - delegate to underlying dialect
+func (a *dialectAdapter) SupportsDollarQuotedString() bool {
+    return a.dialect.SupportsDollarQuotedString()
+}
+```
+
+**Solution**: All capability methods in the adapter must explicitly delegate to the underlying dialect.
+
+### E104: Reserved Keywords for Aliases
+**Error**: SQL keywords like USE, IGNORE, FORCE are consumed as table aliases instead of starting new clauses.
+
+**Example**:
+```sql
+SELECT * FROM t1 USE INDEX (i1)  -- "USE" consumed as alias!
+```
+
+**Solution**: Add keywords to `isReservedForTableAlias()` in `parser/query.go` when they should start new clauses.
+
+### E105: Double-Parsing in Expression Parsing
+**Error**: Calling a parse function that internally calls `ParseExpr()`, which recursively calls the same function.
+
+**Example**:
+```go
+// WRONG - causes infinite recursion
+func parseInterval() {
+    expr := ParseExpr()  // ParseExpr sees INTERVAL, calls parseInterval()
+    // ...
+}
+
+// CORRECT - manually parse components
+func parseInterval() {
+    // Manually consume INTERVAL keyword and parse components
+    p.AdvanceToken()  // consume INTERVAL
+    value := parseStringLiteral()
+    unit := parseTemporalUnit()
+}
+```
+
+**Solution**: When the current token is a keyword that triggers special parsing, manually consume it and parse components.
+
+### E106: Span Mismatches vs True Parsing Failures
+**Error**: Tests fail on column position differences (span mismatches) rather than actual parsing errors.
+
+**Span Mismatch** (parsing is correct):
+```
+--- Expected
++++ Actual
+@@ -3,3 +3,3 @@
+-       Column: (uint64) 57
++       Column: (uint64) 56
+```
+
+**True Parsing Failure**:
+```
+Error: sql ParserError at Line: 1, Column: 85: Expected: string literal, found: $$
+```
+
+**Solution**: Distinguish between span mismatches (metadata differences) and true parsing failures. Only fix the latter.
+
+### E107: Tokenizer vs Parser Fixes
+**Error**: Trying to fix tokenization issues in the parser instead of the tokenizer.
+
+**Example**:
+```sql
+-- Stage paths like @stage/day=18/23.parquet
+-- The NUMBER token "23." includes the trailing period
+-- Parser can't easily split this
+```
+
+**Solution**: Some issues require tokenizer-level changes (e.g., `tokenizeNumberOrPeriod()` in `token/tokenizer.go`).
+
+### E108: Interface Method Not Exported
+**Error**: Adding a method to `Parser` struct but not adding it to `Parser` interface in `parseriface/parser.go`.
+
+**Example**:
+```go
+// Parser struct has this method
+func (p *Parser) NewExpressionParser() ExpressionParser { ... }
+
+// But Parser interface doesn't - causes compilation errors in dialects
+```
+
+**Solution**: Always add new public methods to both the struct and the interface in `parseriface/`.
+
+---
+
 **Line Counts (Updated April 9, 2026 - Session 29 Complete):**
 
 | Component | Rust | Go | Ratio |

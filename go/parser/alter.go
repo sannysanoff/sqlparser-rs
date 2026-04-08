@@ -65,6 +65,14 @@ func parseAlter(p *Parser) (ast.Statement, error) {
 		}
 		return nil, fmt.Errorf("expected TABLE after ALTER ICEBERG")
 	}
+	// Check for DYNAMIC TABLE (Snowflake)
+	if p.ParseKeywords([]string{"DYNAMIC", "TABLE"}) {
+		return parseAlterDynamicTable(p)
+	}
+	// Check for EXTERNAL TABLE (Snowflake)
+	if p.ParseKeywords([]string{"EXTERNAL", "TABLE"}) {
+		return parseAlterExternalTable(p)
+	}
 	if p.ParseKeyword("OPERATOR") {
 		if p.ParseKeyword("FAMILY") {
 			return parseAlterOperatorFamily(p)
@@ -1850,4 +1858,73 @@ func parseCommaSeparatedIdentNames(p *Parser) ([]string, error) {
 		}
 	}
 	return names, nil
+}
+
+// parseAlterDynamicTable parses ALTER DYNAMIC TABLE statements (Snowflake)
+// Reference: src/dialect/snowflake.rs:721
+func parseAlterDynamicTable(p *Parser) (ast.Statement, error) {
+	alterTable := &statement.AlterTable{
+		TableType: expr.AlterTableTypeDynamic,
+	}
+
+	// Parse table name
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected table name after ALTER DYNAMIC TABLE: %w", err)
+	}
+	alterTable.Name = tableName
+
+	// Parse the operation (REFRESH, SUSPEND, or RESUME)
+	op := &expr.AlterTableOperation{}
+	if p.ParseKeyword("REFRESH") {
+		op.Op = expr.AlterTableOpRefresh
+	} else if p.ParseKeyword("SUSPEND") {
+		op.Op = expr.AlterTableOpSuspend
+	} else if p.ParseKeyword("RESUME") {
+		op.Op = expr.AlterTableOpResume
+	} else {
+		return nil, fmt.Errorf("expected REFRESH, SUSPEND, or RESUME after ALTER DYNAMIC TABLE")
+	}
+
+	alterTable.Operations = []*expr.AlterTableOperation{op}
+	return alterTable, nil
+}
+
+// parseAlterExternalTable parses ALTER EXTERNAL TABLE statements (Snowflake)
+// Reference: src/dialect/snowflake.rs:759
+func parseAlterExternalTable(p *Parser) (ast.Statement, error) {
+	alterTable := &statement.AlterTable{
+		TableType: expr.AlterTableTypeExternal,
+	}
+
+	// Parse optional IF EXISTS
+	alterTable.IfExists = p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse table name
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected table name after ALTER EXTERNAL TABLE: %w", err)
+	}
+	alterTable.Name = tableName
+
+	// Parse the operation (REFRESH for now)
+	op := &expr.AlterTableOperation{}
+	if p.ParseKeyword("REFRESH") {
+		// Optional subpath for refreshing specific partitions
+		subpath := ""
+		nextTok := p.PeekTokenRef()
+		if str, ok := nextTok.Token.(token.TokenSingleQuotedString); ok {
+			p.AdvanceToken()
+			subpath = str.Value
+		}
+		if subpath != "" {
+			op.RefreshSubpath = &subpath
+		}
+		op.Op = expr.AlterTableOpRefresh
+	} else {
+		return nil, fmt.Errorf("expected REFRESH after ALTER EXTERNAL TABLE")
+	}
+
+	alterTable.Operations = []*expr.AlterTableOperation{op}
+	return alterTable, nil
 }
