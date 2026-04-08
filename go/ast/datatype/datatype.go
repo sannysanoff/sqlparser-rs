@@ -1157,9 +1157,9 @@ func (t *IntegerType) Span() token.Span { return t.SpanVal }
 func (t *IntegerType) dataTypeNode()    {}
 func (t *IntegerType) String() string {
 	if t.DisplayWidth != nil {
-		return fmt.Sprintf("integer(%d)", *t.DisplayWidth)
+		return fmt.Sprintf("INTEGER(%d)", *t.DisplayWidth)
 	}
-	return "integer"
+	return "INTEGER"
 }
 
 // IntUnsignedType represents a MySQL unsigned int.

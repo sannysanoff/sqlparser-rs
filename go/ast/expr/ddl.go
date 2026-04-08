@@ -170,8 +170,8 @@ func (u *UniqueConstraint) String() string {
 	if u.NullsDistinct != NullsDistinctOptionNone {
 		parts = append(parts, u.NullsDistinct.String())
 	}
-	// Include INDEX keyword before index name only if explicitly specified (MySQL style)
-	if u.HasIndexKeyword && u.IndexName != nil {
+	// Include INDEX keyword if explicitly specified (MySQL style)
+	if u.HasIndexKeyword {
 		parts = append(parts, "INDEX")
 	}
 	if u.IndexName != nil {
@@ -990,6 +990,15 @@ func (c *ColumnOptionDef) String() string {
 	// Handle INVISIBLE/VISIBLE (MySQL column visibility)
 	if c.Name == "INVISIBLE" || c.Name == "VISIBLE" {
 		sb.WriteString(c.Name)
+		return sb.String()
+	}
+
+	// Handle CHARACTER SET (MySQL column option)
+	if c.Name == "CHARACTER SET" {
+		sb.WriteString("CHARACTER SET ")
+		if c.Value != nil {
+			sb.WriteString(c.Value.String())
+		}
 		return sb.String()
 	}
 
@@ -3056,9 +3065,10 @@ func (i *IdentityProperty) String() string {
 
 // ColumnIdentity represents a complete IDENTITY or AUTOINCREMENT column option
 type ColumnIdentity struct {
-	SpanVal  token.Span
-	Kind     IdentityPropertyKind
-	Property *IdentityProperty
+	SpanVal          token.Span
+	Kind             IdentityPropertyKind
+	Property         *IdentityProperty
+	HasAutoIncrement bool // true if original keyword was AUTO_INCREMENT (with underscore, MySQL style)
 }
 
 func (c *ColumnIdentity) exprNode()        {}
@@ -3067,7 +3077,12 @@ func (c *ColumnIdentity) IsExpr()          {}
 func (c *ColumnIdentity) Span() token.Span { return c.SpanVal }
 func (c *ColumnIdentity) String() string {
 	var sb strings.Builder
-	sb.WriteString(c.Kind.String())
+	// Use AUTO_INCREMENT (with underscore) for MySQL style, otherwise use Kind.String()
+	if c.HasAutoIncrement {
+		sb.WriteString("AUTO_INCREMENT")
+	} else {
+		sb.WriteString(c.Kind.String())
+	}
 	if c.Property != nil {
 		sb.WriteString(c.Property.String())
 	}
@@ -3446,15 +3461,17 @@ func (f *FunctionDesc) Span() token.Span { return token.Span{} }
 func (f *FunctionDesc) String() string {
 	var sb strings.Builder
 	sb.WriteString(f.Name.String())
-	// Always add () for function calls, even if no arguments
-	sb.WriteString("(")
-	for i, arg := range f.Args {
-		if i > 0 {
-			sb.WriteString(", ")
+	// Only add () if there are arguments
+	if len(f.Args) > 0 {
+		sb.WriteString("(")
+		for i, arg := range f.Args {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(arg.String())
 		}
-		sb.WriteString(arg.String())
+		sb.WriteString(")")
 	}
-	sb.WriteString(")")
 	return sb.String()
 }
 

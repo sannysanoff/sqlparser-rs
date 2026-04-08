@@ -1581,6 +1581,7 @@ type CreateTrigger struct {
 	ExecBody            *expr.TriggerExecBody
 	StatementsAs        bool
 	Statements          *expr.ConditionalStatements
+	Characteristics     *expr.ConstraintCharacteristics
 }
 
 func (c *CreateTrigger) statementNode() {}
@@ -1656,6 +1657,11 @@ func (c *CreateTrigger) String() string {
 	if c.ReferencedTableName != nil {
 		f.WriteString(" FROM ")
 		f.WriteString(c.ReferencedTableName.String())
+	}
+
+	if c.Characteristics != nil {
+		f.WriteString(" ")
+		f.WriteString(c.Characteristics.String())
 	}
 
 	if len(c.Referencing) > 0 {

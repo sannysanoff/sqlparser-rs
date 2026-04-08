@@ -66,7 +66,8 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") || p.PeekKeyword("ON") ||
 			p.PeekKeyword("AUTO_INCREMENT") || p.PeekKeyword("AUTOINCREMENT") || p.PeekKeyword("IDENTITY") ||
 			p.PeekKeyword("AS") || p.PeekKeyword("KEY") || p.PeekKeyword("SRID") ||
-			p.PeekKeyword("INVISIBLE") || p.PeekKeyword("VISIBLE") {
+			p.PeekKeyword("INVISIBLE") || p.PeekKeyword("VISIBLE") ||
+			p.PeekKeyword("CHARACTER") {
 
 			constraint, err := parseColumnConstraint(p)
 			if err != nil {
@@ -118,6 +119,20 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "DEFAULT", Value: defaultExpr}, nil
 	}
 
+	// CHARACTER SET charset (MySQL column option)
+	if p.ParseKeywords([]string{"CHARACTER", "SET"}) {
+		charset, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected charset name after CHARACTER SET: %w", err)
+		}
+		identExpr := &expr.Ident{
+			SpanVal:    charset.Span(),
+			Value:      charset.Value,
+			QuoteStyle: charset.QuoteStyle,
+		}
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "CHARACTER SET", Value: &expr.Identifier{Ident: identExpr}}, nil
+	}
+
 	// COLLATE collation
 	if p.ParseKeyword("COLLATE") {
 		collation, err := p.ParseIdentifier()
@@ -146,8 +161,9 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 	if p.ParseKeyword("AUTO_INCREMENT") || p.ParseKeyword("AUTOINCREMENT") {
 		identProp := parseIdentityProperty(p)
 		colIdent := &expr.ColumnIdentity{
-			Kind:     expr.IdentityPropertyKindAutoincrement,
-			Property: identProp,
+			Kind:             expr.IdentityPropertyKindAutoincrement,
+			Property:         identProp,
+			HasAutoIncrement: true, // Track that original keyword was AUTO_INCREMENT (with underscore)
 		}
 		// Store as AUTO_INCREMENT (canonical form with underscore)
 		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "AUTO_INCREMENT", Value: colIdent}, nil

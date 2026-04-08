@@ -109,6 +109,9 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("EXTENSION"):
 		p.NextToken() // Consume EXTENSION keyword
 		return parseCreateExtension(p)
+	case p.PeekKeyword("CONSTRAINT"):
+		// CREATE CONSTRAINT TRIGGER (PostgreSQL)
+		return parseCreateTrigger(p, orReplace)
 	case p.PeekKeyword("TRIGGER"):
 		return parseCreateTrigger(p, orReplace)
 	case p.PeekKeyword("POLICY"):
@@ -2917,6 +2920,9 @@ func parseCreateExtension(p *Parser) (ast.Statement, error) {
 }
 
 func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
+	// Check for CONSTRAINT keyword (PostgreSQL CREATE CONSTRAINT TRIGGER)
+	isConstraint := p.ParseKeyword("CONSTRAINT")
+
 	// Consume TRIGGER keyword
 	if _, err := p.ExpectKeyword("TRIGGER"); err != nil {
 		return nil, err
@@ -2931,6 +2937,7 @@ func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
 	trigger := &statement.CreateTrigger{
 		Name:              name,
 		OrReplace:         orReplace,
+		IsConstraint:      isConstraint,
 		PeriodBeforeTable: true, // Default to PostgreSQL/MySQL style (period before ON)
 	}
 
@@ -2997,8 +3004,11 @@ func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
 	}
 
 	// Parse optional constraint characteristics (DEFERRABLE, etc.)
-	// For now, just parse and discard - full implementation TODO
-	parseConstraintCharacteristics(p)
+	characteristics, err := parseConstraintCharacteristics(p)
+	if err != nil {
+		return nil, err
+	}
+	trigger.Characteristics = characteristics
 
 	// Parse optional REFERENCING clause
 	if p.PeekKeyword("REFERENCING") {
