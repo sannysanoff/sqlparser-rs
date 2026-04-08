@@ -96,6 +96,12 @@ func parseAlterTable(p *Parser, tableType expr.AlterTableType) (ast.Statement, e
 		TableType: tableType,
 	}
 
+	// Parse IF EXISTS (PostgreSQL)
+	alterTable.IfExists = p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse ONLY (PostgreSQL) - affects inheritance behavior
+	alterTable.Only = p.ParseKeyword("ONLY")
+
 	// Parse table name
 	tableName, err := p.ParseObjectName()
 	if err != nil {
@@ -1192,15 +1198,25 @@ func parseAlterIndex(p *Parser) (ast.Statement, error) {
 		return nil, fmt.Errorf("expected TO after RENAME")
 	}
 
-	_, err = p.ParseObjectName()
+	newName, err := p.ParseObjectName()
 	if err != nil {
 		return nil, fmt.Errorf("expected new index name: %w", err)
 	}
 
-	// For now, use empty operation - the rename info would be in the operation
+	// Convert ast.ObjectName to expr.ObjectName
+	parts := make([]*expr.ObjectNamePart, len(newName.Parts))
+	for i, part := range newName.Parts {
+		if idPart, ok := part.(*ast.ObjectNamePartIdentifier); ok {
+			parts[i] = &expr.ObjectNamePart{Ident: &expr.Ident{Value: idPart.Ident.Value, QuoteStyle: idPart.Ident.QuoteStyle}}
+		}
+	}
+
+	// Create operation with rename info
 	return &statement.AlterIndex{
-		Name:      name,
-		Operation: &expr.AlterIndexOperation{},
+		Name: name,
+		Operation: &expr.AlterIndexOperation{
+			RenameTo: &expr.ObjectName{Parts: parts},
+		},
 	}, nil
 }
 

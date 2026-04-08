@@ -921,8 +921,10 @@ func parseCreateTableColumns(p *Parser) ([]*expr.ColumnDef, []*expr.TableConstra
 		return nil, nil, err
 	}
 
-	var columns []*expr.ColumnDef
-	var constraints []*expr.TableConstraint
+	// Initialize as empty (non-nil) slices to distinguish between "no parentheses"
+	// and "explicit empty parentheses ()"
+	columns := make([]*expr.ColumnDef, 0)
+	constraints := make([]*expr.TableConstraint, 0)
 	commaConsumed := false
 
 	for {

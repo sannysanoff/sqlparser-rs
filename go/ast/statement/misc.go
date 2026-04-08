@@ -48,12 +48,24 @@ func (a *Analyze) statementNode() {}
 
 func (a *Analyze) String() string {
 	var f strings.Builder
-	f.WriteString("ANALYZE ")
+	f.WriteString("ANALYZE")
 	if a.HasTableKeyword {
-		f.WriteString("TABLE ")
+		f.WriteString(" TABLE")
 	}
 	if a.TableName != nil {
+		f.WriteString(" ")
 		f.WriteString(a.TableName.String())
+		// Output column list if present
+		if len(a.Columns) > 0 {
+			f.WriteString(" (")
+			for i, col := range a.Columns {
+				if i > 0 {
+					f.WriteString(", ")
+				}
+				f.WriteString(col.String())
+			}
+			f.WriteString(")")
+		}
 	}
 	return f.String()
 }

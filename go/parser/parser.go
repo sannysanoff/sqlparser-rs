@@ -2904,7 +2904,7 @@ func parseDoubleType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
 		if p.ParseKeyword("UNSIGNED") {
 			return &datatype.DoublePrecisionUnsignedType{SpanVal: spanVal}, nil
 		}
-		return &datatype.DoubleType{SpanVal: spanVal}, nil
+		return &datatype.DoublePrecisionType{SpanVal: spanVal}, nil
 	}
 
 	// Parse optional (p) or (p,s)

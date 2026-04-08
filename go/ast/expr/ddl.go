@@ -2397,13 +2397,21 @@ func (h *HiveSetLocation) Span() token.Span { return token.Span{} }
 func (h *HiveSetLocation) String() string   { return "" }
 
 // AlterIndexOperation represents ALTER INDEX operation.
-type AlterIndexOperation struct{}
+type AlterIndexOperation struct {
+	// RenameTo is the new name for RENAME TO operation
+	RenameTo *ObjectName
+}
 
 func (a *AlterIndexOperation) exprNode()        {}
 func (a *AlterIndexOperation) expr()            {}
 func (a *AlterIndexOperation) IsExpr()          {}
 func (a *AlterIndexOperation) Span() token.Span { return token.Span{} }
-func (a *AlterIndexOperation) String() string   { return "" }
+func (a *AlterIndexOperation) String() string {
+	if a == nil || a.RenameTo == nil {
+		return ""
+	}
+	return "RENAME TO " + a.RenameTo.String()
+}
 
 // AlterSchemaOperation represents ALTER SCHEMA operation.
 type AlterSchemaOperation struct{}

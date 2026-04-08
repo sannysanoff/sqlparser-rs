@@ -161,16 +161,23 @@ func (c *CreateTable) String() string {
 		}
 	}
 
-	if len(c.Columns) > 0 {
+	// Output column definitions and constraints if present.
+	// We output () if there are columns, constraints, or explicit empty parentheses.
+	if len(c.Columns) > 0 || len(c.Constraints) > 0 || c.Columns != nil || c.Constraints != nil {
 		f.WriteString(" (")
-		for i, col := range c.Columns {
-			if i > 0 {
+		first := true
+		for _, col := range c.Columns {
+			if !first {
 				f.WriteString(", ")
 			}
+			first = false
 			f.WriteString(col.String())
 		}
 		for _, constraint := range c.Constraints {
-			f.WriteString(", ")
+			if !first {
+				f.WriteString(", ")
+			}
+			first = false
 			f.WriteString(constraint.String())
 		}
 		f.WriteString(")")
