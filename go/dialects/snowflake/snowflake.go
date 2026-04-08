@@ -1398,6 +1398,11 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 						}
 					}
 				}
+
+				// Expect the closing parenthesis for table kind with transformations
+				if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			// For location kind, expect a query
@@ -2126,9 +2131,29 @@ func (d *SnowflakeDialect) parseSelectItemsForDataLoad(parser dialects.ParserAcc
 				Item: item,
 			})
 		} else {
-			// Fall back to regular select item - for now just skip
-			// In a full implementation, we'd call parser.ParseSelectItem()
-			break
+			// Fall back to regular select item - parse as expression with optional alias
+			exprVal, err := parser.ParseExpression()
+			if err != nil {
+				return nil, err
+			}
+
+			// Check for AS alias
+			var alias *ast.Ident
+			if parser.ParseKeyword("AS") {
+				aliasIdent, err := d.parseIdentifier(parser)
+				if err != nil {
+					return nil, err
+				}
+				alias = aliasIdent
+			}
+
+			items = append(items, &expr.StageLoadSelectItemWrapper{
+				Kind: expr.StageLoadSelectItemKindSelectItem,
+				Item: &FallbackSelectItem{
+					Expr:  exprVal,
+					Alias: alias,
+				},
+			})
 		}
 
 		if !parser.ConsumeToken(token.TokenComma{}) {
@@ -2137,6 +2162,20 @@ func (d *SnowflakeDialect) parseSelectItemsForDataLoad(parser dialects.ParserAcc
 	}
 
 	return items, nil
+}
+
+// FallbackSelectItem represents a regular select item when stage load parsing fails.
+// This is used to support mixed stage load items and regular expressions in COPY INTO.
+type FallbackSelectItem struct {
+	Expr  ast.Expr
+	Alias *ast.Ident
+}
+
+func (f *FallbackSelectItem) String() string {
+	if f.Alias != nil {
+		return fmt.Sprintf("%s AS %s", f.Expr.String(), f.Alias.Value)
+	}
+	return f.Expr.String()
 }
 
 // tryParseStageLoadSelectItem tries to parse a Snowflake-specific stage load select item.
@@ -2156,9 +2195,20 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 		}
 	}
 
-	// Expect $column_number
+	// Expect $column_number (as a placeholder token like "$1")
 	nextTok := parser.NextToken()
-	if char, ok := nextTok.Token.(token.TokenChar); !ok || char.Char != '$' {
+	if placeholder, ok := nextTok.Token.(token.TokenPlaceholder); ok {
+		// Parse column number from placeholder value (e.g., "$1" -> 1)
+		val := 0
+		// Skip the "$" prefix and parse the number
+		if len(placeholder.Value) > 1 {
+			_, err := fmt.Sscanf(placeholder.Value[1:], "%d", &val)
+			if err != nil {
+				return nil, fmt.Errorf("could not parse '%s' as i32: %w", placeholder.Value, err)
+			}
+		}
+		item.FileColNum = int32(val)
+	} else {
 		// Not a stage load item, go back
 		parser.PrevToken()
 		if item.Alias != nil {
@@ -2167,19 +2217,8 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 		return nil, nil
 	}
 
-	// Parse column number
-	numTok := parser.NextToken()
-	if num, ok := numTok.Token.(token.TokenNumber); ok {
-		// Try to parse as integer
-		val := 0
-		fmt.Sscanf(num.Value, "%d", &val)
-		item.FileColNum = int32(val)
-	} else {
-		return nil, fmt.Errorf("expected column number after $")
-	}
-
 	// Check for optional :element
-	if parser.ConsumeToken(token.TokenChar{Char: ':'}) {
+	if parser.ConsumeToken(token.TokenColon{}) {
 		elemTok := parser.NextToken()
 		if word, ok := elemTok.Token.(token.TokenWord); ok {
 			item.Element = &ast.Ident{Value: word.Word.Value}

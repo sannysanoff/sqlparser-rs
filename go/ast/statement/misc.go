@@ -499,29 +499,54 @@ func (c *CopyIntoSnowflake) String() string {
 	}
 
 	// Add FROM clause
-	if c.FromObj != nil {
+	if len(c.FromTransformations) > 0 {
+		// Data load with transformation: FROM (SELECT ... FROM stage [AS alias])
+		f.WriteString(" FROM (SELECT ")
+		for i, t := range c.FromTransformations {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(t.String())
+		}
+		if c.FromObj != nil {
+			f.WriteString(" FROM ")
+			f.WriteString(c.FromObj.String())
+			// Add stage params inside the FROM clause before alias
+			if c.StageParams != nil {
+				stageParamsStr := c.StageParams.String()
+				if stageParamsStr != "" {
+					f.WriteString(stageParamsStr)
+				}
+			}
+			if c.FromObjAlias != nil {
+				f.WriteString(" AS ")
+				f.WriteString(c.FromObjAlias.String())
+			}
+		}
+		f.WriteString(")")
+	} else if c.FromObj != nil {
+		// Standard data load: FROM stage [AS alias]
 		f.WriteString(" FROM ")
 		f.WriteString(c.FromObj.String())
+		// Add stage params
+		if c.StageParams != nil {
+			stageParamsStr := c.StageParams.String()
+			if stageParamsStr != "" {
+				f.WriteString(" ")
+				f.WriteString(stageParamsStr)
+			}
+		}
 		if c.FromObjAlias != nil {
 			f.WriteString(" AS ")
 			f.WriteString(c.FromObjAlias.String())
 		}
 	}
 
-	// Add FROM query (subquery)
+	// Add FROM query (subquery) - for data unload from query
 	if c.FromQuery != nil {
 		f.WriteString(" FROM (")
 		f.WriteString(c.FromQuery.String())
 		f.WriteString(")")
-	}
-
-	// Add stage params
-	if c.StageParams != nil {
-		stageParamsStr := c.StageParams.String()
-		if stageParamsStr != "" {
-			f.WriteString(" ")
-			f.WriteString(stageParamsStr)
-		}
 	}
 
 	// Add FILE_FORMAT

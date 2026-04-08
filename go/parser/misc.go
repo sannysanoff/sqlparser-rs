@@ -786,6 +786,10 @@ func parseSet(p *Parser) (ast.Statement, error) {
 					return nil, err
 				}
 			}
+			// For parenthesized variables, values must also be parenthesized
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
 			ep := NewExpressionParser(p)
 			values := []expr.Expr{}
 			for {
@@ -797,6 +801,9 @@ func parseSet(p *Parser) (ast.Statement, error) {
 				if !p.ConsumeToken(token.TokenComma{}) {
 					break
 				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
 			}
 			// Create variables slice
 			variables := make([]*ast.ObjectName, len(vars))

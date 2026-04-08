@@ -2652,7 +2652,9 @@ func (i IdentityPropertyKind) String() string {
 	case IdentityPropertyKindIdentity:
 		return "IDENTITY"
 	case IdentityPropertyKindAutoincrement:
-		return "AUTO_INCREMENT"
+		// Rust canonical form is AUTOINCREMENT (no underscore) for Snowflake/SQLite
+		// MySQL's AUTO_INCREMENT is handled as dialect-specific option
+		return "AUTOINCREMENT"
 	}
 	return ""
 }
@@ -4656,7 +4658,7 @@ func (s *StageLoadSelectItem) String() string {
 		parts = append(parts, ":"+s.Element.String())
 	}
 	if s.ItemAs != nil {
-		parts = append(parts, "AS "+s.ItemAs.String())
+		parts = append(parts, " AS "+s.ItemAs.String())
 	}
 	return strings.Join(parts, "")
 }

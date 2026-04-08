@@ -418,7 +418,7 @@ func TestParseAlterUserSetOptions(t *testing.T) {
 	// SET options with various types
 	tests := []string{
 		"ALTER USER u1 SET PASSWORD='secret'",
-		"ALTER USER u1 SET DEFAULT_MFA_METHOD='PASSKEY'",
+		"ALTER USER u1 SET DEFAULT_MFA_METHOD PASSKEY",
 		"ALTER USER u1 SET TAG k1='v1'",
 		"ALTER USER u1 SET DEFAULT_SECONDARY_ROLES=('ALL')",
 		"ALTER USER u1 UNSET PASSWORD",

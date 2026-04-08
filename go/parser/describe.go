@@ -133,6 +133,9 @@ func parseExplainWithAlias(p *Parser, describeAlias expr.DescribeAlias) (ast.Sta
 	// Check for ESTIMATE (Snowflake)
 	estimate := p.ParseKeyword("ESTIMATE")
 
+	// Check for TABLE keyword (Snowflake: EXPLAIN TABLE table_name)
+	hasTableKeyword := p.ParseKeyword("TABLE")
+
 	// Check if next token looks like a statement keyword
 	if p.PeekKeyword("SELECT") || p.PeekKeyword("INSERT") || p.PeekKeyword("UPDATE") || p.PeekKeyword("DELETE") {
 		// Try to parse as a statement
@@ -151,7 +154,7 @@ func parseExplainWithAlias(p *Parser, describeAlias expr.DescribeAlias) (ast.Sta
 		}, nil
 	}
 
-	// Parse as table name (DESCRIBE table_name)
+	// Parse as table name (DESCRIBE table_name or EXPLAIN TABLE table_name)
 	tableName, err := p.ParseObjectName()
 	if err != nil {
 		return nil, err
@@ -160,7 +163,7 @@ func parseExplainWithAlias(p *Parser, describeAlias expr.DescribeAlias) (ast.Sta
 	return &statement.ExplainTable{
 		DescribeAlias:   describeAlias,
 		TableName:       tableName,
-		HasTableKeyword: false,
+		HasTableKeyword: hasTableKeyword,
 	}, nil
 }
 
