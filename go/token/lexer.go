@@ -710,6 +710,13 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 			}
 			return nil, NewTokenizerError("Unexpected character '_'", state.Location())
 		}
+
+		// If ch is '.' and next is also '.', we have '..' which should be tokenized as two periods
+		// Consume the first period and return it
+		if next, ok := state.PeekN(1); ok && next == '.' {
+			state.Next() // consume the first period
+			return TokenPeriod{}, nil
+		}
 	}
 
 	// Check for number separator support
@@ -775,7 +782,13 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 	}
 
 	// No fraction -> just a period
-	if s.String() == "." {
+	if s.String() == "." || s.String() == "" {
+		// If s is empty but we started with '.', it's a period
+		// This happens when we have a single '.' not followed by digits
+		if ch == '.' {
+			return TokenPeriod{}, nil
+		}
+		// s is "." - this is a period token
 		return TokenPeriod{}, nil
 	}
 

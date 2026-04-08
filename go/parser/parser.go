@@ -29,6 +29,7 @@ import (
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/ast/query"
 	"github.com/user/sqlparser/ast/statement"
+	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/errors"
 	"github.com/user/sqlparser/parseriface"
 	"github.com/user/sqlparser/token"
@@ -1802,10 +1803,30 @@ func (p *Parser) Expected(expected string, found token.TokenWithSpan) error {
 // ParseObjectName parses an object name (table name, column name, etc.)
 // Handles multi-part names like "schema.table" or "db.schema.table"
 // Also supports identifier-generating functions like IDENTIFIER('name') for Snowflake.
+// Supports double-dot notation (e.g., "db_name..table_name") for dialects that allow it.
 func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 	var parts []ast.ObjectNamePart
 
 	for {
+		// Check for double-dot notation (empty schema name)
+		// This happens when we have "db_name..table_name" in Snowflake
+		if len(parts) > 0 && dialects.SupportsObjectNameDoubleDotNotation(p.GetDialect()) {
+			// Check if next token is a period
+			if _, isPeriod := p.PeekTokenRef().Token.(token.TokenPeriod); isPeriod {
+				// Peek at the token after the period
+				p.AdvanceToken() // consume the first period
+				if _, isSecondPeriod := p.PeekTokenRef().Token.(token.TokenPeriod); isSecondPeriod {
+					// Double-dot notation detected: add an empty part for the schema
+					// and consume the second period
+					p.AdvanceToken() // consume the second period
+					parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: ""}})
+					continue
+				}
+				// Single period - we already consumed it, so just continue to parse next identifier
+				// No need to put it back since we already consumed it
+			}
+		}
+
 		// Parse the next identifier
 		ident, err := p.ParseIdentifier()
 		if err != nil {

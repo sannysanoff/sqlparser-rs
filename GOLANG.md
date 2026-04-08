@@ -1,5 +1,36 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 8 - Double-Dot Notation Investigation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,479 lines | 119% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **523 passing** / **290 failing** (~64%) | Working on Snowflake double-dot notation (db_name..table_name)
+
+**Today's Investigation (Session 8):**
+1. **Analyzed 290 failing tests** to identify major missing chunks
+2. **Investigated Snowflake double-dot notation** (`db_name..table_name`) - identified root cause in lexer
+3. **Lexer fix for `..` tokenization** - Modified `tokenizeNumberOrPeriod()` to handle consecutive periods
+4. **Parser fix for double-dot** - Modified `ParseObjectName()` to detect `..` and insert empty schema part
+
+**Root Cause Analysis:**
+The Go lexer was consuming both periods from `..` and treating them as a single token sequence, while the parser expected two separate `TokenPeriod` tokens. The lexer fix ensures `..` produces two `TokenPeriod` tokens.
+
+**Remaining Issue:**
+The parser fix detects double-dot and adds an empty `ObjectNamePartIdentifier{Value: ""}` to the parts array, but the test still fails. Further investigation needed to determine if the issue is:
+- Empty part not being added correctly
+- Serialization dropping empty parts  
+- AST comparison failing for different reason
+
+---
+
+**New Patterns Documented:**
+- **Pattern E61**: Double-dot notation tokenization - When lexing `..` for Snowflake double-dot notation, the lexer must produce two separate `TokenPeriod` tokens, not consume both as part of a number pattern.
+- **Pattern E62**: Empty object name parts - Double-dot notation like `db..table` requires an empty `ObjectNamePartIdentifier{Value: ""}` between the database and table names to serialize correctly.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 7 - Snowflake CREATE STAGE Full Implementation):**
 
 | Component | Rust | Go | Ratio |
@@ -1384,6 +1415,34 @@ funcArgs = append(funcArgs, convertFunctionArgToQuery(arg))
 type timeTravelExpr struct {
     name string
     args []query.FunctionArg  // Not []query.Expr
+}
+```
+
+### Error E61: Double-dot notation not tokenized correctly
+**Cause**: The lexer in `tokenizeNumberOrPeriod()` was consuming both periods from `..` when no digits followed, treating them as part of a number pattern instead of producing two separate `TokenPeriod` tokens.
+
+**Solution**: Add special handling for `..` at the start of `tokenizeNumberOrPeriod()` to return a single `TokenPeriod` and leave the second period for the next tokenization:
+```go
+// Handle double-dot case - return first period, leave second for next token
+if ch == '.' {
+    if next, ok := state.PeekN(1); ok && next == '.' {
+        state.Next() // consume the first period
+        return TokenPeriod{}, nil
+    }
+}
+```
+
+### Error E62: Single period not followed by digits returns empty TokenNumber
+**Cause**: When a period is not followed by digits (e.g., `.table_name`), the `s` (strings.Builder) remains empty, and the code falls through to return `TokenNumber{Value: "", Long: false}` instead of `TokenPeriod`.
+
+**Solution**: Check for empty `s` with `ch == '.'` and return `TokenPeriod`:
+```go
+// No fraction -> just a period
+if s.String() == "." || s.String() == "" {
+    if ch == '.' {
+        return TokenPeriod{}, nil
+    }
+    return TokenPeriod{}, nil
 }
 ```
 
