@@ -1,5 +1,129 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 16 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,534 lines | 121% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **550 passing** / **263 failing** (~68%) |
+
+**Summary of Session 16:**
+
+1. **Fixed Snowflake DECLARE Statement** (4 tests now passing)
+   - Fixed `DECLARE cursor CURSOR FOR SELECT ...` - cursor declarations work
+   - Fixed `DECLARE res RESULTSET DEFAULT expr` - resultset declarations work  
+   - Fixed `DECLARE ex EXCEPTION (code, 'message')` - exception declarations work
+   - Fixed `DECLARE var TYPE DEFAULT value` - variable declarations work
+   - **Root Cause 1**: The `:=` operator was incorrectly checking for two `=` tokens instead of `TokenAssignment`
+   - **Root Cause 2**: Data type detection used `isDataTypeKeyword()` which was too restrictive
+   - **Root Cause 3**: For RESULTSET with queries, the query was being stored in ForQuery but serialization showed "FOR" instead of "DEFAULT (query)"
+   - **Root Cause 4**: EXCEPTION declarations didn't store both expressions (code and message)
+   - **Fix**: Added `ExceptionParams []Expr` field to Declare AST, fixed parser logic, updated String() method
+
+**Major Missing Chunks Remaining (263 failing tests):**
+
+1. **Snowflake Stage Name with Special Characters** (5 failing tests)
+   - `@stage/day=18/23.parquet` - file extensions parsed as aliases
+   - Root cause: The number `23.` is tokenized as a single NUMBER token with trailing period
+   - Fix needed: Either tokenizer change or parser needs to handle NUMBER tokens with trailing periods
+
+2. **Snowflake PIVOT / UNPIVOT** (1 failing test)
+   - `SELECT * FROM t PIVOT (aggregate FOR col IN (...))`
+   - Missing: PIVOT clause parsing in SELECT statements
+
+3. **Snowflake CONNECT BY / CONNECT_BY_ROOT** (1 failing test)
+   - `SELECT CONNECT_BY_ROOT col FROM t CONNECT BY ...`
+   - Missing: CONNECT_BY_ROOT prefix operator, CONNECT BY clause
+
+4. **Snowflake CHANGES Clause** (1 failing test)
+   - `SELECT * FROM t CHANGES (INFORMATION => DEFAULT) AT (...)`
+   - Missing: CHANGES clause parsing for time travel queries
+
+5. **Snowflake FETCH Clause Extensions** (1 failing test)
+   - Snowflake-specific FETCH variations beyond standard SQL
+
+6. **Snowflake Multi-Table INSERT with VALUES placeholders** (1 failing test - 3/4 passing)
+   - `INSERT ALL INTO t1 VALUES ($1, $2) SELECT ...` - placeholder support
+   - Missing: Placeholder expression support in multi-table insert VALUES clause
+
+**New Patterns Documented:**
+- **Pattern E85**: DECLARE statement variants - Different DECLARE types (CURSOR, RESULTSET, EXCEPTION) require different parsing strategies. Store type-specific data in dedicated fields (ExceptionParams []Expr).
+- **Pattern E86**: Multi-expression AST fields - When SQL syntax has multiple expressions in parentheses (like `EXCEPTION (code, 'message')`), store them as `[]Expr` not as a single expression.
+- **Pattern E87**: TokenAssignment vs double equals - The `:=` operator is `TokenAssignment`, not two `TokenEq` tokens. Don't check for `=` followed by `=`.
+- **Pattern E88**: Flexible data type detection - When parsing DECLARE variable types, check if next token is ANY word (not a reserved keyword), not just specific data type keywords.
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 15 Final):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,050 lines | 120% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **548 passing** / **265 failing** (~67%) |
+
+**Major Missing Chunks Identified (April 8, 2026 - Session 16):**
+
+Based on analysis of 265 failing tests, the following major parser chunks need implementation:
+
+1. **Snowflake DECLARE Statement** (4 failing tests - NOW FIXED)
+   - `DECLARE cursor CURSOR FOR SELECT ...`
+   - `DECLARE res RESULTSET DEFAULT expr`
+   - `DECLARE ex EXCEPTION (...)`
+   - `DECLARE var TYPE DEFAULT value`
+   - ~~Missing~~: AST types, parser functions, serialization - **IMPLEMENTED**
+   - Reference: `src/dialect/snowflake.rs` lines 1720-1960
+
+2. **Snowflake Stage Name with Special Characters** (5 failing tests)
+   - `@stage/day=18/23.parquet` - file extensions parsed as aliases
+   - `@stage/0:18:23/23.parquet` - time notation in paths
+   - Root cause: File extensions (parquet) and path segments treated as implicit table aliases
+   - Fix needed: Tokenizer or parser needs to handle numbers with trailing periods in stage paths
+
+3. **Snowflake PIVOT / UNPIVOT** (1 failing test)
+   - `SELECT * FROM t PIVOT (aggregate FOR col IN (...))`
+   - Missing: PIVOT clause parsing in SELECT statements
+   - Reference: `src/dialect/snowflake.rs` around line 2943
+
+4. **Snowflake CONNECT BY / CONNECT_BY_ROOT** (1 failing test)
+   - `SELECT CONNECT_BY_ROOT col FROM t CONNECT BY ...`
+   - Missing: CONNECT_BY_ROOT prefix operator, CONNECT BY clause
+   - Reference: `src/dialect/snowflake.rs` around line 4590
+
+5. **Snowflake CHANGES Clause** (1 failing test)
+   - `SELECT * FROM t CHANGES (INFORMATION => DEFAULT) AT (...)`
+   - Missing: CHANGES clause parsing for time travel queries
+   - Reference: `src/dialect/snowflake.rs` around line 4023
+
+6. **Snowflake FETCH Clause Extensions** (1 failing test)
+   - `SELECT ... FETCH NEXT n ROWS ONLY` variations
+   - Missing: Snowflake-specific FETCH syntax
+   - Reference: `src/dialect/snowflake.rs` around line 4717
+
+7. **Snowflake Multi-Table INSERT with VALUES** (1 failing test - 3/4 subtests passing)
+   - `INSERT ALL INTO t1 VALUES ($1, $2) SELECT ...` - placeholder support in VALUES
+   - Missing: Placeholder expression support in multi-table insert VALUES clause
+
+**Summary of Session 16:**
+
+**Planned Implementation (High Impact):**
+
+1. **Snowflake DECLARE Statement** - Will fix 4 tests with one implementation
+   - Implement AST types: Declare, DeclareType, CursorDefinition, ResultSetDefinition, ExceptionDefinition
+   - Implement parser functions for all DECLARE variants
+   - Estimated lines: ~300-400
+
+2. **Snowflake Stage Name Tokenizer Fix** - Will fix 5 tests
+   - Fix tokenization of numbers with trailing periods in stage paths
+   - Estimated lines: ~50-100
+
+3. **Snowflake PIVOT / UNPIVOT** - Will fix 1 test (may help other SELECT tests)
+   - Implement PIVOT clause parsing
+   - Estimated lines: ~200-300
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 15 Final):**
 
 | Component | Rust | Go | Ratio |
@@ -1815,6 +1939,76 @@ func (t *YourType) IsExpr() {}
 
 **Solution**: Use `interface{}` for expression fields that may receive either `ast.Expr` or `expr.Expr`, or use a type wrapper/converter. For new code, prefer using `ast.Expr` types from the `ast` package directly.
 
+### Error E85: DECLARE statement not handling different variants correctly
+**Cause**: DECLARE statement has multiple variants (CURSOR, RESULTSET, EXCEPTION, variable) with different syntax. The parser may handle one correctly but fail on others.
+
+**Solution**: Add type-specific fields to the Declare AST:
+```go
+type Declare struct {
+    // ... common fields ...
+    ForQuery        *query.Query  // For CURSOR declarations
+    ExceptionParams []Expr       // For EXCEPTION (code, 'message')
+    // ...
+}
+```
+In String(), check DeclareType and serialize appropriately:
+```go
+if d.DeclareType != nil && *d.DeclareType == DeclareTypeException {
+    sb.WriteString(" (")
+    for i, param := range d.ExceptionParams {
+        if i > 0 { sb.WriteString(", ") }
+        sb.WriteString(param.String())
+    }
+    sb.WriteString(")")
+}
+```
+
+### Error E86: Multi-expression parentheses not serialized correctly
+**Cause**: SQL syntax like `EXCEPTION (42, 'ERROR')` has multiple expressions in parentheses. Storing only one expression loses data.
+
+**Solution**: Use `[]Expr` for multi-expression parentheses:
+```go
+// WRONG: Only stores first expression
+type Declare struct {
+    Assignment Expr  // Only gets "42", loses "'ERROR'"
+}
+
+// CORRECT: Stores both expressions
+type Declare struct {
+    ExceptionParams []Expr  // Gets ["42", "'ERROR'"]
+}
+```
+
+### Error E87: `:=` operator confused with `=` `=` tokens
+**Cause**: The `:=` assignment operator is tokenized as `TokenAssignment`, but the parser may incorrectly check for two consecutive `=` tokens.
+
+**Solution**: Check for `TokenAssignment` directly:
+```go
+// WRONG: This checks for two separate = tokens
+if p.ConsumeToken(token.TokenEq{}) {
+    p.ExpectToken(token.TokenEq{})  // This is wrong!
+}
+
+// CORRECT: Check for := token
+if p.ConsumeToken(token.TokenAssignment{}) {
+    // Handle := operator
+}
+```
+
+### Error E88: Data type detection too restrictive
+**Cause**: Variable declarations like `DECLARE x INT DEFAULT 42` fail because the parser only looks for specific data type keywords.
+
+**Solution**: Check if next token is ANY non-reserved word:
+```go
+// Check if it looks like a data type (any word that's not DEFAULT or reserved)
+wordStr := string(word.Word.Keyword)
+if wordStr != "DEFAULT" && wordStr != "" && !isReservedKeyword(wordStr) {
+    // Try to parse as data type
+    dataType, err = p.ParseDataType()
+    // ...
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -1833,38 +2027,33 @@ func (t *YourType) IsExpr() {}
 | Snowflake Specific | ~70 | ~49 | ~21 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~1,095 tests across all packages, 539 passing, 247 failing (~69% pass rate)
+**Total**: ~813 tests across all packages, 550 passing, 263 failing (~68% pass rate)
 
 **Recent Fixes**:
-- Expression Interface Unification: ✅ Fixed panic in multi-table INSERT and other complex parsing scenarios (added `expr()` and `IsExpr()` to all expr types, added `exprNode()` to `ast.ExpressionBase`)
-- TestSnowflakeMultiTableInsertUnconditional: ✅ 3 of 4 subtests now passing (INSERT ALL INTO with column lists works)
-- TestParseGrant: ✅ Now fully passes (PROCEDURE/FUNCTION with args, ROLE action, CREATE with object type, FUTURE types)
-- TestSnowflakeCopyInto: ✅ Partial (FROM (SELECT ...) subtest now passes)
-- CREATE TABLE Column Constraints: ✅ Serialization fixed (constraint names, CHECK parens, REFERENCES details)
-- TestSnowflakeLateralFlatten: ✅ Now passes (FLATTEN with named arguments)
-- TestParseCTEs: ✅ Now passes (CREATE VIEW with WITH clause)
-- TestPostgresCreateFunction: ✅ Now passing (CREATE FUNCTION with args and attributes)
-- TestParseInsertDefaultValuesFull: ✅ Now passing (RETURNING and ON CONFLICT with DEFAULT VALUES)
-- TestPostgresCreateSimpleBeforeInsertTrigger: ✅ Now passing (EXECUTE FUNCTION without args)
-- TestParseReturn: ✅ Now passing (RETURN statement serialization)
-- TestDictionarySyntax: ✅ Now passing (dictionary literal `{}`)
-- TestParseSemiStructuredDataTraversal: ✅ Now passing (colon operator `a:b`)
-- TestWildcardFuncArg: ✅ Passes with supported dialects (Snowflake, Generic, Redshift)
-- TestParseLoadData: ✅ Now passing (LOAD DATA INPATH 'path')
-- TestLoadExtension: ✅ Now passing (LOAD extension_name)
-- TestTryConvert: ✅ Now passing (TRY_CONVERT with VARCHAR(MAX))
-- TestSnowflakeSubquerySample: ✅ Now passing (SAMPLE clause on subqueries)
-- TestSnowflakeAlterIcebergTable: ✅ Now passing (ALTER ICEBERG TABLE with clustering operations)
-- TestSnowflakeIdentifierFunction: ✅ Partial (4/6 subtests pass - basic IDENTIFIER() support works)
-- TestSnowflakeTimeTravel: ✅ Now passes (AT/BEFORE TIMESTAMP => syntax)
+- **Session 16 (April 8, 2026)**:
+  - TestSnowflakeDeclareCursor: ✅ Now passing (DECLARE c1 CURSOR FOR SELECT)
+  - TestSnowflakeDeclareResultSet: ✅ Now passing (DECLARE res RESULTSET DEFAULT)
+  - TestSnowflakeDeclareException: ✅ Now passing (DECLARE ex EXCEPTION (code, 'message'))
+  - TestSnowflakeDeclareVariable: ✅ Now passing (DECLARE var TYPE DEFAULT value)
+- **Session 15 (April 8, 2026)**:
+  - TestSnowflakeSemiStructuredDataTraversal: ✅ Fixed colon notation serialization (removed extra `.`)
+  - Multi-table INSERT interface fix: ✅ Changed Expr fields to interface{} for type compatibility
+- **Earlier Sessions**:
+  - TestSnowflakeMultiTableInsertUnconditional: ✅ 3 of 4 subtests now passing
+  - TestParseGrant: ✅ Now fully passes
+  - TestSnowflakeCopyInto: ✅ Partial (FROM (SELECT ...) subtest now passes)
+  - CREATE TABLE Column Constraints: ✅ Serialization fixed
+  - TestSnowflakeLateralFlatten: ✅ Now passes
+  - TestParseCTEs: ✅ Now passes
+  - TestPostgresCreateFunction: ✅ Now passing
+  - TestParseInsertDefaultValuesFull: ✅ Now passing
+  - TestSnowflakeAlterIcebergTable: ✅ Now passing
+  - TestSnowflakeTimeTravel: ✅ Now passes
 
 **Notes**:
-- Source: 67,345 lines Rust → 78,775 lines Go (117% ratio - Go implementation is larger due to verbose error handling and type conversions)
-- Tests: 49,886 lines Rust → 14,149 lines Go (28% ratio - many tests still being ported)
-- Main tests package has 260+ tests
-- Additional test packages (ddl, dml, mysql, postgres, query, regression, snowflake) add more tests
-- Current status: 513 passing, 300 failing (~63% pass rate)
-- Some tests require dialect-specific features only supported in specific dialects
-- Test framework compares full AST including spans, which causes some tests to fail even when parsing/serialization is correct
-- Many remaining failures are span/column position mismatches (off-by-one errors) rather than parsing logic errors
+- Source: 67,345 lines Rust → 81,600 lines Go (121% ratio)
+- Tests: 49,886 lines Rust → 14,150 lines Go (28% ratio)
+- Current status: 550 passing, 263 failing (~68% pass rate)
+- Major remaining work: Snowflake Stage Names (5 tests), PIVOT (1 test), CONNECT BY (1 test), CHANGES (1 test), FETCH (1 test)
+- Many remaining failures are span/column position mismatches rather than parsing logic errors
 

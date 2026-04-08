@@ -4347,7 +4347,7 @@ func (d DeclareAssignment) String() string {
 }
 
 // Declare represents a single DECLARE statement item.
-// A DECLARE statement can contain multiple declarations (e.g., Snowflake).
+// A DECLARE statement can contain multiple declarations (e.g. Snowflake).
 type Declare struct {
 	// Names being declared. Can be multiple for BigQuery style: DECLARE a, b, c DEFAULT 42;
 	Names []*Ident
@@ -4370,6 +4370,9 @@ type Declare struct {
 	Hold *bool
 	// ForQuery is the FOR <query> clause in a CURSOR declaration
 	ForQuery *query.Query
+	// ExceptionParams stores the (code, message) tuple for EXCEPTION declarations
+	// Only used when DeclareType is DeclareTypeException
+	ExceptionParams []Expr
 	// SpanVal is the source span
 	SpanVal token.Span
 }
@@ -4446,18 +4449,43 @@ func (d *Declare) String() string {
 		}
 	}
 
-	// Write assignment
-	if d.Assignment != nil {
-		if d.AssignmentType != DeclareAssignmentExpr {
+	// Write assignment - special handling for EXCEPTION and RESULTSET
+	if d.DeclareType != nil && *d.DeclareType == DeclareTypeException && len(d.ExceptionParams) > 0 {
+		// EXCEPTION uses parentheses: EXCEPTION (code, 'message')
+		sb.WriteString(" (")
+		for i, param := range d.ExceptionParams {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(param.String())
+		}
+		sb.WriteString(")")
+	} else if d.Assignment != nil {
+		if d.DeclareType != nil && *d.DeclareType == DeclareTypeResultSet && d.ForQuery != nil {
+			// RESULTSET with query uses: RESULTSET DEFAULT (query)
 			sb.WriteString(" ")
 			sb.WriteString(d.AssignmentType.String())
+			sb.WriteString(" (")
+			sb.WriteString(d.ForQuery.String())
+			sb.WriteString(")")
+		} else {
+			// Standard assignment
+			if d.AssignmentType != DeclareAssignmentExpr {
+				sb.WriteString(" ")
+				sb.WriteString(d.AssignmentType.String())
+			}
+			sb.WriteString(" ")
+			sb.WriteString(d.Assignment.String())
 		}
-		sb.WriteString(" ")
-		sb.WriteString(d.Assignment.String())
+	} else if d.DeclareType != nil && *d.DeclareType == DeclareTypeResultSet && d.ForQuery != nil {
+		// RESULTSET with query but no explicit assignment (should have DEFAULT)
+		sb.WriteString(" DEFAULT (")
+		sb.WriteString(d.ForQuery.String())
+		sb.WriteString(")")
 	}
 
-	// Write FOR query
-	if d.ForQuery != nil {
+	// Write FOR query (only for CURSOR type, not RESULTSET which is handled above)
+	if d.ForQuery != nil && (d.DeclareType == nil || *d.DeclareType == DeclareTypeCursor) {
 		sb.WriteString(" FOR ")
 		sb.WriteString(d.ForQuery.String())
 	}

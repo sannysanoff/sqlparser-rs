@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
@@ -1706,11 +1707,12 @@ func parseSnowflakeDeclare(p *Parser) (ast.Statement, error) {
 			return nil, err
 		}
 		var (
-			declareType *expr.DeclareType
-			forQuery    *query.Query
-			assignment  expr.Expr
-			assignType  expr.DeclareAssignment
-			dataType    interface{}
+			declareType     *expr.DeclareType
+			forQuery        *query.Query
+			assignment      expr.Expr
+			assignType      expr.DeclareAssignment
+			dataType        interface{}
+			exceptionParams []expr.Expr
 		)
 		if p.ParseKeyword("CURSOR") {
 			dt := expr.DeclareTypeCursor
@@ -1733,16 +1735,63 @@ func parseSnowflakeDeclare(p *Parser) (ast.Statement, error) {
 		} else if p.ParseKeyword("RESULTSET") {
 			dt := expr.DeclareTypeResultSet
 			declareType = &dt
-			if p.ParseKeyword("DEFAULT") || p.ParseKeyword(":=") {
-				p.ExpectToken(token.TokenLParen{})
-				stmt, err := p.parseQuery()
-				if err != nil {
-					return nil, err
+			// Check for DEFAULT or := assignment
+			if p.ParseKeyword("DEFAULT") {
+				assignType = expr.DeclareAssignmentDefault
+				// Check if it's a parenthesized query
+				if p.ConsumeToken(token.TokenLParen{}) {
+					tok := p.PeekToken()
+					if word, ok := tok.Token.(token.TokenWord); ok && word.Word.Keyword == "SELECT" {
+						// It's a query
+						stmt, err := p.parseQuery()
+						if err != nil {
+							return nil, err
+						}
+						forQuery = extractQueryFromStatement(stmt)
+						p.ExpectToken(token.TokenRParen{})
+					} else {
+						// It's a regular parenthesized expression
+						p.PrevToken() // Put back the paren
+						assignment, err = NewExpressionParser(p).ParseExpr()
+						if err != nil {
+							return nil, err
+						}
+					}
+				} else {
+					// Simple expression
+					assignment, err = NewExpressionParser(p).ParseExpr()
+					if err != nil {
+						return nil, err
+					}
 				}
-				forQuery = extractQueryFromStatement(stmt)
-				p.ExpectToken(token.TokenRParen{})
-				if assignType != expr.DeclareAssignmentDuckAssignment {
-					assignType = expr.DeclareAssignmentDefault
+			} else if p.ConsumeToken(token.TokenAssignment{}) {
+				// := operator
+				assignType = expr.DeclareAssignmentDuckAssignment
+				// Check if it's a parenthesized query
+				if p.ConsumeToken(token.TokenLParen{}) {
+					tok := p.PeekToken()
+					if word, ok := tok.Token.(token.TokenWord); ok && word.Word.Keyword == "SELECT" {
+						// It's a query
+						stmt, err := p.parseQuery()
+						if err != nil {
+							return nil, err
+						}
+						forQuery = extractQueryFromStatement(stmt)
+						p.ExpectToken(token.TokenRParen{})
+					} else {
+						// It's a regular parenthesized expression
+						p.PrevToken() // Put back the paren
+						assignment, err = NewExpressionParser(p).ParseExpr()
+						if err != nil {
+							return nil, err
+						}
+					}
+				} else {
+					// Simple expression
+					assignment, err = NewExpressionParser(p).ParseExpr()
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		} else if p.ParseKeyword("EXCEPTION") {
@@ -1750,31 +1799,46 @@ func parseSnowflakeDeclare(p *Parser) (ast.Statement, error) {
 			declareType = &dt
 			if p.ConsumeToken(token.TokenLParen{}) {
 				ep := NewExpressionParser(p)
-				if _, err = ep.ParseExpr(); err != nil {
-					return nil, err
-				}
-				p.ExpectToken(token.TokenComma{})
-				if _, err = ep.ParseExpr(); err != nil {
-					return nil, err
-				}
-				p.ExpectToken(token.TokenRParen{})
-			}
-		} else {
-			nextTok := p.PeekToken()
-			if word, ok := nextTok.Token.(token.TokenWord); ok && isDataTypeKeyword(string(word.Word.Keyword)) {
-				dataType, err = p.ParseDataType()
+				// Parse first expression (error code)
+				firstExpr, err := ep.ParseExpr()
 				if err != nil {
 					return nil, err
 				}
+				p.ExpectToken(token.TokenComma{})
+				// Parse second expression (error message)
+				secondExpr, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				p.ExpectToken(token.TokenRParen{})
+				// Store both expressions in ExceptionParams
+				exceptionParams = []expr.Expr{firstExpr, secondExpr}
 			}
+		} else {
+			// Variable declaration - check for data type first
+			// Snowflake: DECLARE var_name [TYPE] [{ DEFAULT | := } expr]
+			nextTok := p.PeekToken()
+			if word, ok := nextTok.Token.(token.TokenWord); ok {
+				// Check if it looks like a data type (any word that's not DEFAULT or a keyword)
+				wordStr := string(word.Word.Keyword)
+				if wordStr != "DEFAULT" && wordStr != "" && !isReservedKeyword(wordStr) {
+					// Try to parse as data type
+					dataType, err = p.ParseDataType()
+					if err != nil {
+						// Not a data type, continue without consuming
+						dataType = nil
+					}
+				}
+			}
+			// Check for assignment operators
 			if p.ParseKeyword("DEFAULT") {
 				assignment, err = NewExpressionParser(p).ParseExpr()
 				if err != nil {
 					return nil, err
 				}
 				assignType = expr.DeclareAssignmentDefault
-			} else if p.ConsumeToken(token.TokenEq{}) {
-				p.ExpectToken(token.TokenEq{})
+			} else if p.ConsumeToken(token.TokenAssignment{}) {
+				// := operator (Duck-style assignment)
 				assignment, err = NewExpressionParser(p).ParseExpr()
 				if err != nil {
 					return nil, err
@@ -1786,6 +1850,7 @@ func parseSnowflakeDeclare(p *Parser) (ast.Statement, error) {
 			Names: []*expr.Ident{exprFromAstIdent(name)}, DataType: dataType,
 			Assignment: assignment, AssignmentType: assignType,
 			DeclareType: declareType, ForQuery: forQuery,
+			ExceptionParams: exceptionParams,
 		})
 		if !p.ConsumeToken(token.TokenSemiColon{}) {
 			break
@@ -2178,4 +2243,30 @@ func parseConditionalStatements(p *Parser, terminalKeywords []string) ([]ast.Sta
 		}
 		stmts = append(stmts, stmt)
 	}
+}
+
+// isReservedKeyword checks if a word is a reserved SQL keyword
+// Used to determine if a word can be an identifier or is a reserved keyword
+func isReservedKeyword(word string) bool {
+	// List of common reserved keywords that can't be used as data type names
+	reserved := map[string]bool{
+		"SELECT": true, "FROM": true, "WHERE": true, "INSERT": true,
+		"UPDATE": true, "DELETE": true, "CREATE": true, "DROP": true,
+		"ALTER": true, "TABLE": true, "INDEX": true, "VIEW": true,
+		"AND": true, "OR": true, "NOT": true, "NULL": true,
+		"TRUE": true, "FALSE": true, "DEFAULT": true, "PRIMARY": true,
+		"FOREIGN": true, "KEY": true, "REFERENCES": true, "CONSTRAINT": true,
+		"UNIQUE": true, "CHECK": true, "INTO": true, "VALUES": true,
+		"SET": true, "ORDER": true, "BY": true, "GROUP": true,
+		"HAVING": true, "LIMIT": true, "OFFSET": true, "JOIN": true,
+		"INNER": true, "OUTER": true, "LEFT": true, "RIGHT": true,
+		"FULL": true, "CROSS": true, "ON": true, "AS": true,
+		"WITH": true, "UNION": true, "INTERSECT": true, "EXCEPT": true,
+		"CASE": true, "WHEN": true, "THEN": true, "ELSE": true,
+		"END": true, "IF": true, "FOR": true, "WHILE": true,
+		"LOOP": true, "RETURN": true, "CURSOR": true, "RESULTSET": true,
+		"EXCEPTION": true, "DECLARE": true, "BEGIN": true, "COMMIT": true,
+		"ROLLBACK": true, "TRANSACTION": true, "GO": true,
+	}
+	return reserved[strings.ToUpper(word)]
 }
