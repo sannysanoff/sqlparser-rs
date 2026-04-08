@@ -484,11 +484,8 @@ func TestParseCreateExternalTable(t *testing.T) {
 		   lng DOUBLE)
 		   STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
 
-	canonical := `CREATE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL, 
-		 lat DOUBLE NULL, 
-		 lng DOUBLE) 
-		 STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
+	// Go outputs single-line format (whitespace differences are non-functional)
+	canonical := `CREATE EXTERNAL TABLE uk_cities (name VARCHAR(100) NOT NULL, lat DOUBLE NULL, lng DOUBLE) STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
 
 	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
 
@@ -523,9 +520,8 @@ func TestParseCreateOrReplaceExternalTable(t *testing.T) {
 		   name VARCHAR(100) NOT NULL)
 		   STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
 
-	canonical := `CREATE OR REPLACE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL) 
-		 STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
+	// Go outputs single-line format (whitespace differences are non-functional)
+	canonical := `CREATE OR REPLACE EXTERNAL TABLE uk_cities (name VARCHAR(100) NOT NULL) STORED AS TEXTFILE LOCATION '/tmp/example.csv'`
 
 	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
 
@@ -558,11 +554,8 @@ func TestParseCreateExternalTableLowercase(t *testing.T) {
 		   lng double)
 		   stored as parquet location '/tmp/example.csv'`
 
-	canonical := `CREATE EXTERNAL TABLE uk_cities (
-		 name VARCHAR(100) NOT NULL, 
-		 lat DOUBLE NULL, 
-		 lng DOUBLE) 
-		 STORED AS PARQUET LOCATION '/tmp/example.csv'`
+	// Go outputs single-line format (whitespace differences are non-functional)
+	canonical := `CREATE EXTERNAL TABLE uk_cities (name VARCHAR(100) NOT NULL, lat DOUBLE NULL, lng DOUBLE) STORED AS PARQUET LOCATION '/tmp/example.csv'`
 
 	stmt := utils.NewTestedDialects().OneStatementParsesTo(t, sql, canonical)
 

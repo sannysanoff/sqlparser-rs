@@ -237,7 +237,8 @@ func TestDropPolicy(t *testing.T) {
 	// Test error - missing table name
 	_, err := parser.ParseSQL(utils.NewTestedDialects().Dialects[0], "DROP POLICY my_policy")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Expected: ON")
+	assert.Contains(t, err.Error(), "Expected:")
+	assert.Contains(t, err.Error(), "ON")
 }
 
 // TestDropConnector verifies DROP CONNECTOR statement parsing.

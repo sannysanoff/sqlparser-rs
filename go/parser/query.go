@@ -156,6 +156,10 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 	} else if p.PeekKeyword("FROM") && dialects.SupportsFromFirstSelect(p.GetDialect()) {
 		// FROM-first syntax: "FROM t SELECT *" (DuckDB/ClickHouse style)
 		body, err = parseSelect(p)
+	} else if p.PeekKeyword("MERGE") {
+		// MERGE in CTE: WITH x AS (MERGE INTO ... RETURNING *)
+		tok := p.NextToken()
+		body, err = parseMerge(p, tok)
 	} else if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		// Parenthesized subquery: (SELECT ...) or nested parens for recursion testing
 		p.AdvanceToken() // consume (
@@ -3874,6 +3878,13 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	} else if sQuery, ok := innerQuery.(*statement.Query); ok {
 		// Query with WITH clause
 		cte.Query = sQuery.Query
+	} else if stmt, ok := innerQuery.(ast.Statement); ok {
+		// MERGE, UPDATE, DELETE, INSERT in CTE (e.g., WITH x AS (MERGE ...))
+		cte.Query = &query.Query{
+			Body: &query.StatementSetExpr{
+				Statement: stmt,
+			},
+		}
 	}
 	cte.Alias = alias
 

@@ -124,6 +124,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("SECRET"):
 		return parseCreateSecret(p, orReplace, temporary)
 	case p.PeekKeyword("CONNECTOR"):
+		p.NextToken() // consume CONNECTOR
 		return parseCreateConnector(p, orReplace)
 	case p.PeekKeyword("OPERATOR"):
 		return parseCreateOperator(p)
