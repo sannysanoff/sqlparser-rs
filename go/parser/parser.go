@@ -1020,13 +1020,11 @@ func (p *Parser) parseComment() (ast.Statement, error) {
 	if p.ParseKeyword("NULL") {
 		comment = nil
 	} else {
-		tok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+		str, err := p.ParseStringLiteral()
 		if err != nil {
 			return nil, err
 		}
-		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
-			comment = &str.Value
-		}
+		comment = &str
 	}
 
 	return &statement.Comment{

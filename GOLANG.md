@@ -1,6 +1,38 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 40 (PostgreSQL Test Fixes, Analysis of 218 Failing Tests)
+## Latest Update: April 8, 2026 - Session 41 (COMMENT ON Fix, 912 Tests Passing)
+
+**Line Counts (Updated April 8, 2026 - Session 41):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 98,396 lines | 146% |
+| Tests | 49,886 lines | 14,175 lines | 28% |
+| **Test Status** | - | **912 tests passing** / **287 tests failing** (~76%) |
+| **Total Test Cases** | - | 1,199 test functions |
+
+### Session 41 Summary:
+
+**Fixed COMMENT ON Statement Parsing** (1 test now passing, fixes ~8 total)
+- Fixed `TestParseComments` - now properly passing
+- **Root Cause**: `parseComment()` used `ExpectToken(token.TokenSingleQuotedString{})` which compares both type AND value. The empty struct had empty Value field, causing error "Expected: '', found: 'comment'"
+- **Fix**: Changed to use `p.ParseStringLiteral()` which properly handles string literal parsing without value comparison
+- **Pattern E157**: String literal parsing - Use `ParseStringLiteral()` method instead of `ExpectToken()` when parsing string values, as `ExpectToken` compares the value field too
+
+**Massive Code Port Priorities Identified**
+
+Based on 287 failing tests analysis, highest-impact features to port:
+
+1. **TPCH Query Fixtures** (~46 tests) - Path resolution issues for test fixtures
+2. **Complex Query Features** (~30 tests) - CTEs, window functions, complex JOINs
+3. **CREATE TABLE options** (~15 tests) - INHERIT, ON COMMIT, TABLESPACE
+4. **ALTER TABLE operations** (~12 tests) - ALTER COLUMN, ADD GENERATED, OWNER TO
+5. **TRUNCATE with Options** (~8 tests) - RESTART IDENTITY, CONTINUE IDENTITY, CASCADE
+6. **Transaction Statements** (~6 tests) - BEGIN, COMMIT, ROLLBACK, LOCK TABLE
+
+---
+
+## Previous Update: April 8, 2026 - Session 40 (PostgreSQL Test Fixes, Analysis of 218 Failing Tests)
 
 **Line Counts (Updated April 8, 2026 - Session 40):**
 
@@ -561,6 +593,26 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
   3. TRUNCATE options (~8 tests) - Extend `Truncate` with `RestartIdentity`, `ContinueIdentity`
   4. CREATE TABLE options (~15 tests) - Add `INHERIT`, `ON COMMIT`, `TABLESPACE`
   5. ALTER TABLE operations (~12 tests) - Add `ALTER COLUMN`, `ADD GENERATED`, `OWNER TO`
+
+---
+
+### Session 41 Patterns (New):
+
+- **Pattern E157**: String literal parsing with `ParseStringLiteral()` - When parsing string literal values (like in COMMENT ON ... IS 'string'), always use `p.ParseStringLiteral()` instead of `p.ExpectToken(token.TokenSingleQuotedString{})`. The `ExpectToken` method compares both the token type AND the value field, but an empty `TokenSingleQuotedString{}` struct has an empty Value, causing incorrect error messages like "Expected: '', found: 'actual_value'":
+  ```go
+  // WRONG: ExpectToken compares type AND value, causing "Expected: '', found: 'comment'"
+  tok, err := p.ExpectToken(token.TokenSingleQuotedString{})
+  if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+      comment = &str.Value
+  }
+  
+  // CORRECT: ParseStringLiteral properly handles string token value extraction
+  str, err := p.ParseStringLiteral()
+  if err != nil {
+      return nil, err
+  }
+  comment = &str
+  ```
 
 ---
 
