@@ -1,5 +1,37 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 17 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,596 lines | 121% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **552 passing** / **261 failing** (~68%) |
+
+**Summary of Session 17:**
+
+1. **Implemented Snowflake CONNECT BY Clause** (1 test now passing)
+   - Added `maybeParseConnectBy()` function to parse START WITH and CONNECT BY clauses
+   - Supports `CONNECT BY [NOCYCLE]` syntax with comma-separated relationships
+   - Supports `START WITH condition` syntax for root row selection
+   - Integrated into `parseSelect()` after WHERE clause and before GROUP BY
+   - Sets parser state to `StateConnectBy` when parsing expressions for PRIOR handling
+   - Reference: src/parser/mod.rs:14634
+
+2. **Implemented CONNECT_BY_ROOT Prefix Operator** (1 test now passing)
+   - Added `ConnectByRootExpr` AST type in `ast/expr/complex.go`
+   - Added parsing support in `tryParseReservedWordPrefix()` in `parser/prefix.go`
+   - Syntax: `CONNECT_BY_ROOT column_name` returns the root row's column value
+   - Only enabled for dialects that support CONNECT BY (Snowflake, Oracle, Generic)
+   - Reference: src/dialect/snowflake.rs - CONNECT_BY_ROOT is a reserved keyword for select item operator
+
+**New Patterns Documented:**
+- **Pattern E89**: CONNECT BY clause parsing - Parse START WITH and CONNECT BY clauses after WHERE, before GROUP BY. Store as `[]query.ConnectByKind` with `*query.ConnectBy` and `*query.StartWith` variants.
+- **Pattern E90**: Parser state management for hierarchical queries - Set `StateConnectBy` when parsing expressions in CONNECT BY context so PRIOR operator is recognized.
+- **Pattern E91**: CONNECT_BY_ROOT prefix operator - Handle like PRIOR but available in any expression context for dialects that support CONNECT BY. Parse with precedence `PrecedencePlusMinus`.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 16 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -21,20 +53,20 @@
    - **Root Cause 4**: EXCEPTION declarations didn't store both expressions (code and message)
    - **Fix**: Added `ExceptionParams []Expr` field to Declare AST, fixed parser logic, updated String() method
 
-**Major Missing Chunks Remaining (263 failing tests):**
+**Major Missing Chunks Remaining (261 failing tests):**
 
 1. **Snowflake Stage Name with Special Characters** (5 failing tests)
    - `@stage/day=18/23.parquet` - file extensions parsed as aliases
    - Root cause: The number `23.` is tokenized as a single NUMBER token with trailing period
    - Fix needed: Either tokenizer change or parser needs to handle NUMBER tokens with trailing periods
 
-2. **Snowflake PIVOT / UNPIVOT** (1 failing test)
+2. **Snowflake PIVOT / UNPIVOT** (1 failing test - implementation exists, may be test/serialization issue)
    - `SELECT * FROM t PIVOT (aggregate FOR col IN (...))`
-   - Missing: PIVOT clause parsing in SELECT statements
+   - Implementation exists in `parsePivotTableFactor()` - needs verification
 
-3. **Snowflake CONNECT BY / CONNECT_BY_ROOT** (1 failing test)
+3. **Snowflake CONNECT BY / CONNECT_BY_ROOT** (1 test - NOW IMPLEMENTED)
    - `SELECT CONNECT_BY_ROOT col FROM t CONNECT BY ...`
-   - Missing: CONNECT_BY_ROOT prefix operator, CONNECT BY clause
+   - ~~Missing~~: CONNECT_BY_ROOT prefix operator, CONNECT BY clause - **IMPLEMENTED**
 
 4. **Snowflake CHANGES Clause** (1 failing test)
    - `SELECT * FROM t CHANGES (INFORMATION => DEFAULT) AT (...)`
@@ -2009,6 +2041,61 @@ if wordStr != "DEFAULT" && wordStr != "" && !isReservedKeyword(wordStr) {
 }
 ```
 
+### Error E89: CONNECT BY clause not parsed
+**Cause**: SELECT statements with CONNECT BY clause fail because the parser doesn't check for START WITH and CONNECT BY keywords.
+
+**Solution**: Add CONNECT BY parsing after WHERE clause and before GROUP BY:
+```go
+// Parse CONNECT BY clause (Oracle/Snowflake hierarchical queries)
+var connectBy []query.ConnectByKind
+if dialects.SupportsConnectBy(p.GetDialect()) {
+    connectBy, err = maybeParseConnectBy(p)
+    if err != nil {
+        return nil, err
+    }
+}
+
+// Then add connectBy to the Select struct
+return &SelectStatement{
+    Select: query.Select{
+        // ... other fields ...
+        ConnectBy: connectBy,
+        // ...
+    },
+}
+```
+
+### Error E90: CONNECT_BY_ROOT not recognized as prefix operator
+**Cause**: CONNECT_BY_ROOT is a keyword that acts as a prefix operator (like PRIOR) but isn't handled in the prefix parser.
+
+**Solution**: Add CONNECT_BY_ROOT to `tryParseReservedWordPrefix()`:
+```go
+case "CONNECT_BY_ROOT":
+    if dialects.SupportsConnectBy(dialect) {
+        prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
+        innerExpr, err := ep.ParseExprWithPrecedence(prec)
+        if err != nil {
+            return nil, err
+        }
+        return &expr.ConnectByRootExpr{
+            SpanVal: mergeSpans(span, innerExpr.Span()),
+            Expr:    innerExpr,
+        }, nil
+    }
+```
+
+### Error E91: PRIOR not recognized in CONNECT BY context
+**Cause**: PRIOR is only recognized when the parser is in StateConnectBy state, but the state isn't set when parsing CONNECT BY expressions.
+
+**Solution**: Set parser state when parsing CONNECT BY expressions:
+```go
+// Set parser state to ConnectBy for PRIOR handling
+oldState := p.GetState()
+p.SetState(dialects.StateConnectBy)
+relationships, err := parseCommaSeparatedExpressions(ep)
+p.SetState(oldState)
+```
+
 ---
 
 ## Test Status Summary
@@ -2027,9 +2114,12 @@ if wordStr != "DEFAULT" && wordStr != "" && !isReservedKeyword(wordStr) {
 | Snowflake Specific | ~70 | ~49 | ~21 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~813 tests across all packages, 550 passing, 263 failing (~68% pass rate)
+**Total**: ~813 tests across all packages, 552 passing, 261 failing (~68% pass rate)
 
 **Recent Fixes**:
+- **Session 17 (April 8, 2026)**:
+  - TestSnowflakeConnectByRoot: ✅ Now passing (CONNECT_BY_ROOT operator)
+  - CONNECT BY clause parsing: ✅ Implemented START WITH and CONNECT BY support
 - **Session 16 (April 8, 2026)**:
   - TestSnowflakeDeclareCursor: ✅ Now passing (DECLARE c1 CURSOR FOR SELECT)
   - TestSnowflakeDeclareResultSet: ✅ Now passing (DECLARE res RESULTSET DEFAULT)
@@ -2051,9 +2141,10 @@ if wordStr != "DEFAULT" && wordStr != "" && !isReservedKeyword(wordStr) {
   - TestSnowflakeTimeTravel: ✅ Now passes
 
 **Notes**:
-- Source: 67,345 lines Rust → 81,600 lines Go (121% ratio)
+- Source: 67,345 lines Rust → 81,596 lines Go (121% ratio)
 - Tests: 49,886 lines Rust → 14,150 lines Go (28% ratio)
-- Current status: 550 passing, 263 failing (~68% pass rate)
-- Major remaining work: Snowflake Stage Names (5 tests), PIVOT (1 test), CONNECT BY (1 test), CHANGES (1 test), FETCH (1 test)
+- Current status: 552 passing, 261 failing (~68% pass rate)
+- Major remaining work: Snowflake Stage Names (5 tests), PIVOT (1 test), CHANGES (1 test), FETCH (1 test), Multi-Table INSERT placeholders (1 test)
 - Many remaining failures are span/column position mismatches rather than parsing logic errors
+- Remaining failing tests by category: PostgreSQL (~75), DDL (~60), Snowflake (~21)
 

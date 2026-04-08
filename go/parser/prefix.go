@@ -548,6 +548,19 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 			}, nil
 		}
 
+	case "CONNECT_BY_ROOT":
+		if dialects.SupportsConnectBy(dialect) {
+			prec := ep.getPrecedence(parseriface.PrecedencePlusMinus)
+			innerExpr, err := ep.ParseExprWithPrecedence(prec)
+			if err != nil {
+				return nil, err
+			}
+			return &expr.ConnectByRootExpr{
+				SpanVal: mergeSpans(span, innerExpr.Span()),
+				Expr:    innerExpr,
+			}, nil
+		}
+
 	case "MAP":
 		nextTok := ep.parser.PeekTokenRef()
 		if _, ok := nextTok.Token.(token.TokenLBrace); ok && dialects.SupportsMapLiteralSyntax(dialect) {

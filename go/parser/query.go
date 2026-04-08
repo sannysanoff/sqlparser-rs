@@ -476,6 +476,15 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		selection = &queryExprWrapper{expr: expr}
 	}
 
+	// Parse CONNECT BY clause (Oracle/Snowflake hierarchical queries)
+	var connectBy []query.ConnectByKind
+	if dialects.SupportsConnectBy(p.GetDialect()) {
+		connectBy, err = maybeParseConnectBy(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Parse GROUP BY clause
 	var groupBy query.GroupByExpr
 	if p.ParseKeyword("GROUP") {
@@ -767,6 +776,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			Projection:          projection,
 			From:                from,
 			Selection:           selection,
+			ConnectBy:           connectBy,
 			GroupBy:             groupBy,
 			Having:              having,
 			NamedWindow:         namedWindow,
@@ -4858,4 +4868,64 @@ func parseFetchClause(p *Parser) (*query.Fetch, error) {
 		Percent:  percent,
 		WithTies: withTies,
 	}, nil
+}
+
+// maybeParseConnectBy parses START WITH and CONNECT BY clauses for hierarchical queries.
+// This is used by Oracle, Snowflake, and other dialects that support hierarchical queries.
+// Syntax: [START WITH condition] [CONNECT BY [NOCYCLE] relationships]
+// Reference: src/parser/mod.rs:14634
+func maybeParseConnectBy(p *Parser) ([]query.ConnectByKind, error) {
+	var clauses []query.ConnectByKind
+
+	for {
+		if p.ParseKeyword("START") {
+			if !p.ParseKeyword("WITH") {
+				return nil, p.Expected("WITH after START", p.PeekToken())
+			}
+			// Set parser state to ConnectBy for PRIOR handling
+			oldState := p.GetState()
+			p.SetState(dialects.StateConnectBy)
+			ep := NewExpressionParser(p)
+			condition, err := ep.ParseExpr()
+			p.SetState(oldState)
+			if err != nil {
+				return nil, err
+			}
+			clauses = append(clauses, &query.StartWith{
+				Condition: &queryExprWrapper{expr: condition},
+			})
+		} else if p.ParseKeyword("CONNECT") {
+			if !p.ParseKeyword("BY") {
+				return nil, p.Expected("BY after CONNECT", p.PeekToken())
+			}
+			// Check for NOCYCLE
+			nocycle := p.ParseKeyword("NOCYCLE")
+			// Set parser state to ConnectBy for PRIOR handling
+			oldState := p.GetState()
+			p.SetState(dialects.StateConnectBy)
+			ep := NewExpressionParser(p)
+			// Parse comma-separated expressions
+			var relationships []query.Expr
+			for {
+				rel, err := ep.ParseExpr()
+				if err != nil {
+					p.SetState(oldState)
+					return nil, err
+				}
+				relationships = append(relationships, &queryExprWrapper{expr: rel})
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			p.SetState(oldState)
+			clauses = append(clauses, &query.ConnectBy{
+				Nocycle:       nocycle,
+				Relationships: relationships,
+			})
+		} else {
+			break
+		}
+	}
+
+	return clauses, nil
 }

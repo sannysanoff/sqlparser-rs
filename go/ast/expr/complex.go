@@ -517,6 +517,27 @@ func (p *PriorExpr) String() string {
 	return "PRIOR " + p.Expr.String()
 }
 
+// ConnectByRootExpr represents a CONNECT_BY_ROOT expression in a hierarchical query.
+// CONNECT_BY_ROOT returns the value of the root row for the specified column.
+type ConnectByRootExpr struct {
+	SpanVal token.Span
+	Expr    Expr
+}
+
+func (c *ConnectByRootExpr) exprNode() {}
+func (c *ConnectByRootExpr) expr()     {}
+func (c *ConnectByRootExpr) IsExpr()   {}
+
+// Span returns the source span for this expression.
+func (c *ConnectByRootExpr) Span() token.Span {
+	return c.SpanVal
+}
+
+// String returns the SQL representation.
+func (c *ConnectByRootExpr) String() string {
+	return "CONNECT_BY_ROOT " + c.Expr.String()
+}
+
 // LambdaFunctionParameter represents a parameter to a lambda function.
 type LambdaFunctionParameter struct {
 	SpanVal  token.Span
