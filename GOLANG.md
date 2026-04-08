@@ -48,29 +48,75 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 8, 2026 - Session 70 Complete**
+**Latest Update: April 8, 2026 - Session 71 Complete**
 
 **Summary:**
-- Previous: ~95 subtests failing
-- Current: **~101 subtests failing** (712+ passing)
-- Net change: ~4 tests fixed, major UPDATE FROM and SQLite OR clause implementation
+- Previous: ~101 subtests failing
+- Current: **~100 subtests failing** (715+ passing)
+- Net change: ~3 tests fixed, major keyword handling implementation
 - Key fixes:
-  1. **UPDATE FROM before SET**: Fixed parser to handle `UPDATE t1 FROM t2 SET ...` syntax (Snowflake/MSSQL style)
-  2. **SQLite UPDATE OR clause**: Added support for `UPDATE OR REPLACE/ROLLBACK/ABORT/FAIL/IGNORE`
-  3. **FROM keyword as table alias**: Fixed bug where FROM was consumed as implicit table alias
-  4. **Boolean case consistency**: Fixed test to use lowercase `true` matching Rust canonical form
-- Remaining high-impact work: INSERT ... RETURNING, MySQL functional key parts, PostgreSQL CREATE INDEX options
+  1. **Keywords as column names after dot**: Fixed parser to handle `T.interval`, `T.case`, `T.cast` etc.
+  2. **Reserved keywords in compound identifiers**: Added CASE, CAST, EXTRACT, SUBSTRING, LEFT, RIGHT to RESERVED_FOR_IDENTIFIER
+  3. **INSERT ... RETURNING fix**: RETURNING keyword now works after SELECT source
+- Remaining high-impact work: MySQL functional key parts, PostgreSQL CREATE INDEX options, NOT precedence
 
 ---
 
-## Line Counts (Updated April 8, 2026 - Session 70)
+## Line Counts (Updated April 8, 2026 - Session 71)
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 87,407 lines | 130% |
+| Source (parser+ast+dialects) | 67,345 lines | 87,829 lines | 130% |
 | Tests | 49,886 lines | 14,245 lines | 29% |
 | **Test Status - Snowflake** | - | **100% passing** (99+ subtests) |
-| **Test Status - All Packages** | - | **~712 subtests passing, ~101 failing** |
+| **Test Status - All Packages** | - | **~715 subtests passing, ~100 failing** |
+
+---
+
+## Session 71 Summary: Keywords as Column Names After Dot (April 8, 2026)
+
+**Major Bug Fix:**
+
+Fixed critical bug where keywords like `interval`, `case`, `cast` were not being treated as identifiers after a dot in compound expressions like `T.interval`.
+
+**Root Cause:**
+The `parseCompoundExprWithOptions()` function in `parser/core.go` was trying to parse keywords like `case` as expressions (e.g., CASE WHEN ... END) even when they appeared after a dot (e.g., `T.case`). The Rust implementation treats reserved keywords as identifiers when they appear after a dot.
+
+**The Fix:**
+Two changes were needed:
+
+1. In `parser/core.go` - Check for reserved keywords after dot and treat them as identifiers:
+```go
+case token.TokenWord:
+    // Check if the word is a reserved keyword that should be treated as identifier after a dot
+    if token.IsReservedForIdentifier(tok.Word.Keyword) {
+        // Reserved keyword - treat as identifier after dot (e.g., T.interval)
+        ident := ep.parseIdentifierFromWord(tok, nextTok.Span)
+        chain = append(chain, &expr.DotAccess{...})
+        ep.parser.AdvanceToken()
+    }
+```
+
+2. In `token/keywords.go` - Added keywords to RESERVED_FOR_IDENTIFIER list:
+```go
+var RESERVED_FOR_IDENTIFIER = []Keyword{
+    EXISTS, INTERVAL, STRUCT, TRIM,
+    // Keywords that should be treated as identifiers after a dot
+    CASE, CAST, EXTRACT, SUBSTRING, LEFT, RIGHT,
+    ...
+}
+```
+
+**INSERT ... RETURNING Fix:**
+Also fixed RETURNING parsing for INSERT statements. The issue was that `RETURNING` wasn't in the reserved keyword lists, so it could be consumed as an implicit alias in some contexts.
+
+**Tests Fixed:**
+- TestKeywordsAsColumnNamesAfterDot: 8 subtests passing
+- TestParseInsertSelectReturning: 2 subtests
+- TestParseInsertSelectFromReturning: 2 subtests
+
+**New Pattern Documented:**
+- **Pattern E262**: Keywords after dot - When parsing compound expressions like `T.keyword`, check if the keyword is in RESERVED_FOR_IDENTIFIER and treat it as an identifier, not as starting a new expression.
 
 ---
 
@@ -526,6 +572,13 @@ Pattern E261: FROM Keyword as Table Alias Bug
 - Solution: Add "FROM": true to isReservedForTableAlias() reserved keywords map
 - Example: UPDATE t1 FROM t2 SET ... was failing because t1 was parsed with FROM as its alias
 - Files typically modified: parser/query.go
+
+Pattern E262: Keywords as Identifiers After Dot
+- When: Parsing compound expressions like T.interval, T.case, T.cast
+- Problem: Keywords are parsed as starting new expressions (CASE WHEN, INTERVAL '1' DAY) instead of identifiers
+- Solution: Check if keyword is in RESERVED_FOR_IDENTIFIER and treat as identifier after dot
+- Example: In parseCompoundExprWithOptions(), check token.IsReservedForIdentifier(tok.Word.Keyword) before parsing as expression
+- Files typically modified: parser/core.go, token/keywords.go
 ```
 
 **See full pattern catalog in code comments and previous session notes.**

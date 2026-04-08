@@ -357,34 +357,46 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 				ep.parser.AdvanceToken()
 
 			case token.TokenWord:
-				// Try to parse as expression with restricted precedence
-				periodPrec := dialect.PrecValue(parseriface.PrecedencePeriod)
-				subExpr, err := ep.ParseExprWithPrecedence(periodPrec)
-				if err != nil {
-					// Fall back to identifier
+				// Check if the word is a reserved keyword that should be treated as identifier after a dot
+				// This matches Rust behavior: keywords like "interval", "case" etc. become identifiers after dot
+				if token.IsReservedForIdentifier(tok.Word.Keyword) {
+					// Reserved keyword - treat as identifier after dot (e.g., T.interval)
 					ident := ep.parseIdentifierFromWord(tok, nextTok.Span)
 					chain = append(chain, &expr.DotAccess{
 						SpanVal: nextTok.Span,
 						Expr:    ident,
 					})
+					ep.parser.AdvanceToken()
 				} else {
-					// Flatten compound expressions
-					switch e := subExpr.(type) {
-					case *expr.CompoundFieldAccess:
-						chain = append(chain, &expr.DotAccess{SpanVal: e.Root.Span(), Expr: e.Root})
-						chain = append(chain, e.AccessChain...)
-					case *expr.CompoundIdentifier:
-						for _, part := range e.Idents {
+					// Try to parse as expression with restricted precedence
+					periodPrec := dialect.PrecValue(parseriface.PrecedencePeriod)
+					subExpr, err := ep.ParseExprWithPrecedence(periodPrec)
+					if err != nil {
+						// Fall back to identifier
+						ident := ep.parseIdentifierFromWord(tok, nextTok.Span)
+						chain = append(chain, &expr.DotAccess{
+							SpanVal: nextTok.Span,
+							Expr:    ident,
+						})
+					} else {
+						// Flatten compound expressions
+						switch e := subExpr.(type) {
+						case *expr.CompoundFieldAccess:
+							chain = append(chain, &expr.DotAccess{SpanVal: e.Root.Span(), Expr: e.Root})
+							chain = append(chain, e.AccessChain...)
+						case *expr.CompoundIdentifier:
+							for _, part := range e.Idents {
+								chain = append(chain, &expr.DotAccess{
+									SpanVal: part.Span(),
+									Expr:    &expr.Identifier{SpanVal: part.Span(), Ident: part},
+								})
+							}
+						default:
 							chain = append(chain, &expr.DotAccess{
-								SpanVal: part.Span(),
-								Expr:    &expr.Identifier{SpanVal: part.Span(), Ident: part},
+								SpanVal: subExpr.Span(),
+								Expr:    subExpr,
 							})
 						}
-					default:
-						chain = append(chain, &expr.DotAccess{
-							SpanVal: subExpr.Span(),
-							Expr:    subExpr,
-						})
 					}
 				}
 
