@@ -279,7 +279,7 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "ON UPDATE", Value: onUpdateExpr}, nil
 	}
 
-	// REFERENCES table [(cols)] [ON DELETE action] [ON UPDATE action]
+	// REFERENCES table [(cols)] [MATCH kind] [ON DELETE action] [ON UPDATE action]
 	if p.ParseKeyword("REFERENCES") {
 		refTable, err := p.ParseObjectName()
 		if err != nil {
@@ -295,12 +295,25 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			}
 		}
 
-		// Parse ON DELETE/ON UPDATE actions
+		// Parse MATCH kind (FULL | PARTIAL | SIMPLE) and ON DELETE/ON UPDATE actions
+		// They can appear in any order, so we loop until no more clauses are found
+		var matchKind *expr.ConstraintReferenceMatchKind
 		var onDelete, onUpdate expr.ReferentialAction
 		for {
-			if p.ParseKeywords([]string{"ON", "DELETE"}) {
+			if matchKind == nil && p.ParseKeyword("MATCH") {
+				if p.ParseKeyword("FULL") {
+					kind := expr.ConstraintReferenceMatchKindFull
+					matchKind = &kind
+				} else if p.ParseKeyword("PARTIAL") {
+					kind := expr.ConstraintReferenceMatchKindPartial
+					matchKind = &kind
+				} else if p.ParseKeyword("SIMPLE") {
+					kind := expr.ConstraintReferenceMatchKindSimple
+					matchKind = &kind
+				}
+			} else if onDelete == expr.ReferentialActionNone && p.ParseKeywords([]string{"ON", "DELETE"}) {
 				onDelete = parseReferentialAction(p)
-			} else if p.ParseKeywords([]string{"ON", "UPDATE"}) {
+			} else if onUpdate == expr.ReferentialActionNone && p.ParseKeywords([]string{"ON", "UPDATE"}) {
 				onUpdate = parseReferentialAction(p)
 			} else {
 				break
@@ -309,10 +322,11 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 
 		// Store all REFERENCES details in the Value field
 		refDetails := &expr.ColumnOptionReferences{
-			Table:    refTable,
-			Columns:  refCols,
-			OnDelete: onDelete,
-			OnUpdate: onUpdate,
+			Table:     refTable,
+			Columns:   refCols,
+			MatchKind: matchKind,
+			OnDelete:  onDelete,
+			OnUpdate:  onUpdate,
 		}
 
 		// Parse optional constraint characteristics (DEFERRABLE, etc.)

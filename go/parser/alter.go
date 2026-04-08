@@ -1794,36 +1794,42 @@ func parseAlterUserKeyValueOptions(p *Parser, commaSeparated bool) ([]*expr.SqlO
 // parseAlterSchema parses ALTER SCHEMA statements
 // Reference: src/parser/mod.rs:11064
 func parseAlterSchema(p *Parser) (ast.Statement, error) {
+	// Parse IF EXISTS (optional)
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
 	// Parse schema name
 	name, err := p.ParseObjectName()
 	if err != nil {
 		return nil, fmt.Errorf("expected schema name after ALTER SCHEMA: %w", err)
 	}
 
-	// Check for RENAME TO
+	var operations []expr.AlterSchemaOperation
+
+	// Parse operations
 	if p.ParseKeyword("RENAME") {
 		if !p.ParseKeyword("TO") {
 			return nil, fmt.Errorf("expected TO after RENAME")
 		}
-		newName, err := p.ParseIdentifier()
+		newName, err := p.ParseObjectName()
 		if err != nil {
 			return nil, fmt.Errorf("expected new schema name: %w", err)
 		}
-		_ = newName
-	}
-
-	// Check for OWNER TO
-	if p.ParseKeywords([]string{"OWNER", "TO"}) {
-		owner, err := p.ParseIdentifier()
+		operations = append(operations, &expr.AlterSchemaRenameTo{NewName: newName})
+	} else if p.ParseKeywords([]string{"OWNER", "TO"}) {
+		// Parse owner: identifier or CURRENT_ROLE/CURRENT_USER/SESSION_USER
+		owner, err := parseOwner(p)
 		if err != nil {
 			return nil, fmt.Errorf("expected owner name: %w", err)
 		}
-		_ = owner
+		operations = append(operations, &expr.AlterSchemaOwnerTo{Owner: *owner})
+	} else {
+		return nil, fmt.Errorf("expected RENAME TO or OWNER TO after ALTER SCHEMA")
 	}
 
 	return &statement.AlterSchema{
-		Name:      name,
-		Operation: &expr.AlterSchemaOperation{},
+		Name:       name,
+		IfExists:   ifExists,
+		Operations: operations,
 	}, nil
 }
 
@@ -2109,53 +2115,394 @@ func parseAlterOperator(p *Parser) (ast.Statement, error) {
 	// Note: "OPERATOR" keyword was already consumed by the main ALTER parser
 
 	// Parse operator name (can be symbol like @@, <, >, etc.)
-	_, err := p.ParseOperatorName()
+	name, err := p.ParseOperatorName()
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse parentheses with types
+	// Parse parentheses with types: (left_type, right_type) or (NONE, right_type) for unary
 	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
 
-	// Skip type parsing
-	for !p.ConsumeToken(token.TokenRParen{}) {
-		p.AdvanceToken()
+	// Parse left operand type (or NONE for unary operators)
+	var leftType string
+	if p.ParseKeyword("NONE") {
+		leftType = "NONE"
+	} else {
+		// Parse data type
+		dt, err := p.ParseDataType()
+		if err != nil {
+			return nil, fmt.Errorf("expected left operand type or NONE: %w", err)
+		}
+		leftType = dt.String()
 	}
 
-	// Simplified: just return a placeholder statement
-	return &statement.AlterOperator{}, nil
+	// Expect comma
+	if _, err := p.ExpectToken(token.TokenComma{}); err != nil {
+		return nil, err
+	}
+
+	// Parse right operand type
+	rightDt, err := p.ParseDataType()
+	if err != nil {
+		return nil, fmt.Errorf("expected right operand type: %w", err)
+	}
+	rightType := rightDt.String()
+
+	// Expect closing paren
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	signature := &expr.OperatorSignature{
+		Name:      name,
+		LeftType:  leftType,
+		RightType: rightType,
+	}
+
+	// Parse operation: OWNER TO | SET SCHEMA | SET (...)
+	var operation expr.AlterOperatorOperation
+
+	if p.ParseKeywords([]string{"OWNER", "TO"}) {
+		owner, err := parseOwner(p)
+		if err != nil {
+			return nil, fmt.Errorf("expected owner name: %w", err)
+		}
+		operation = &expr.AlterOperatorOwnerTo{Owner: *owner}
+	} else if p.ParseKeywords([]string{"SET", "SCHEMA"}) {
+		schemaName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected schema name: %w", err)
+		}
+		operation = &expr.AlterOperatorSetSchema{SchemaName: schemaName}
+	} else if p.ParseKeyword("SET") {
+		// SET (options)
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		var options []*expr.OperatorOption
+		for {
+			if p.ConsumeToken(token.TokenRParen{}) {
+				break
+			}
+
+			// Parse option
+			opt, err := parseOperatorOption(p)
+			if err != nil {
+				return nil, err
+			}
+			options = append(options, opt)
+
+			// Check for comma or closing paren
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			} else if p.ConsumeToken(token.TokenRParen{}) {
+				break
+			}
+		}
+
+		operation = &expr.AlterOperatorSet{Options: options}
+	} else {
+		return nil, fmt.Errorf("expected OWNER TO, SET SCHEMA, or SET after operator signature")
+	}
+
+	return &statement.AlterOperator{
+		Name:      name,
+		Signature: signature,
+		Operation: operation,
+	}, nil
+}
+
+// parseOperatorOption parses an operator option for ALTER OPERATOR SET
+func parseOperatorOption(p *Parser) (*expr.OperatorOption, error) {
+	// Options: RESTRICT = name|NONE, JOIN = name|NONE, COMMUTATOR = name, NEGATOR = name, HASHES, MERGES
+
+	if p.ParseKeyword("RESTRICT") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		var opt *expr.OperatorOption
+		if p.ParseKeyword("NONE") {
+			opt = &expr.OperatorOption{Kind: expr.OperatorOptionKindRestrict, Name: nil}
+		} else {
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected procedure name or NONE after RESTRICT =: %w", err)
+			}
+			opt = &expr.OperatorOption{Kind: expr.OperatorOptionKindRestrict, Name: name}
+		}
+		return opt, nil
+	}
+
+	if p.ParseKeyword("JOIN") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		var opt *expr.OperatorOption
+		if p.ParseKeyword("NONE") {
+			opt = &expr.OperatorOption{Kind: expr.OperatorOptionKindJoin, Name: nil}
+		} else {
+			name, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected procedure name or NONE after JOIN =: %w", err)
+			}
+			opt = &expr.OperatorOption{Kind: expr.OperatorOptionKindJoin, Name: name}
+		}
+		return opt, nil
+	}
+
+	if p.ParseKeyword("COMMUTATOR") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		name, err := p.ParseOperatorName()
+		if err != nil {
+			return nil, fmt.Errorf("expected operator name after COMMUTATOR =: %w", err)
+		}
+		return &expr.OperatorOption{Kind: expr.OperatorOptionKindCommutator, Name: name}, nil
+	}
+
+	if p.ParseKeyword("NEGATOR") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		name, err := p.ParseOperatorName()
+		if err != nil {
+			return nil, fmt.Errorf("expected operator name after NEGATOR =: %w", err)
+		}
+		return &expr.OperatorOption{Kind: expr.OperatorOptionKindNegator, Name: name}, nil
+	}
+
+	if p.ParseKeyword("HASHES") {
+		return &expr.OperatorOption{Kind: expr.OperatorOptionKindHashes}, nil
+	}
+
+	if p.ParseKeyword("MERGES") {
+		return &expr.OperatorOption{Kind: expr.OperatorOptionKindMerges}, nil
+	}
+
+	return nil, fmt.Errorf("expected RESTRICT, JOIN, COMMUTATOR, NEGATOR, HASHES, or MERGES")
 }
 
 // parseAlterOperatorClass parses ALTER OPERATOR CLASS statements
+// Reference: src/parser/mod.rs:11033
 func parseAlterOperatorClass(p *Parser) (ast.Statement, error) {
 	// ALTER OPERATOR CLASS name USING index_method RENAME TO new_name | OWNER TO new_owner | SET SCHEMA new_schema
 	// Note: "OPERATOR" and "CLASS" keywords were already consumed by the main ALTER parser
 
-	// Skip name and USING clause
-	p.AdvanceToken() // name
-	if p.ParseKeyword("USING") {
-		p.AdvanceToken() // method
+	// Parse name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected operator class name: %w", err)
 	}
 
-	// Simplified: just return a placeholder
-	return &statement.AlterOperatorClass{}, nil
+	// Parse USING clause
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected index method: %w", err)
+	}
+
+	// Parse operation
+	var operation expr.OperatorClassOperation
+
+	if p.ParseKeywords([]string{"RENAME", "TO"}) {
+		newName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected new name: %w", err)
+		}
+		operation = &expr.OpClassRenameTo{NewName: newName}
+	} else if p.ParseKeywords([]string{"OWNER", "TO"}) {
+		owner, err := parseOwner(p)
+		if err != nil {
+			return nil, fmt.Errorf("expected owner name: %w", err)
+		}
+		operation = &expr.OpClassOwnerTo{Owner: *owner}
+	} else if p.ParseKeywords([]string{"SET", "SCHEMA"}) {
+		schemaName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected schema name: %w", err)
+		}
+		operation = &expr.OpClassSetSchema{SchemaName: schemaName}
+	} else {
+		return nil, fmt.Errorf("expected RENAME TO, OWNER TO, or SET SCHEMA")
+	}
+
+	return &statement.AlterOperatorClass{
+		Name:        name,
+		IndexMethod: indexMethod,
+		Operations:  []expr.OperatorClassOperation{operation},
+	}, nil
 }
 
 // parseAlterOperatorFamily parses ALTER OPERATOR FAMILY statements
+// Reference: src/parser/mod.rs:10994
 func parseAlterOperatorFamily(p *Parser) (ast.Statement, error) {
-	// ALTER OPERATOR FAMILY name USING index_method ...
+	// ALTER OPERATOR FAMILY name USING index_method ADD/DROP | RENAME TO | OWNER TO | SET SCHEMA
 	// Note: "OPERATOR" and "FAMILY" keywords were already consumed by the main ALTER parser
 
-	// Skip name and USING clause
-	p.AdvanceToken() // name
-	if p.ParseKeyword("USING") {
-		p.AdvanceToken() // method
+	// Parse name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected operator family name: %w", err)
 	}
 
-	// Simplified: just return a placeholder
-	return &statement.AlterOperatorFamily{}, nil
+	// Parse USING clause
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected index method: %w", err)
+	}
+
+	// Parse operation
+	var operation expr.OperatorFamilyOperation
+
+	if p.ParseKeyword("ADD") {
+		items, err := parseOpFamilyItems(p)
+		if err != nil {
+			return nil, err
+		}
+		operation = &expr.OpFamilyAdd{Items: items}
+	} else if p.ParseKeyword("DROP") {
+		items, err := parseOpFamilyItems(p)
+		if err != nil {
+			return nil, err
+		}
+		operation = &expr.OpFamilyDrop{Items: items}
+	} else if p.ParseKeywords([]string{"RENAME", "TO"}) {
+		newName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected new name: %w", err)
+		}
+		operation = &expr.OpFamilyRenameTo{NewName: newName}
+	} else if p.ParseKeywords([]string{"OWNER", "TO"}) {
+		owner, err := parseOwner(p)
+		if err != nil {
+			return nil, fmt.Errorf("expected owner name: %w", err)
+		}
+		operation = &expr.OpFamilyOwnerTo{Owner: *owner}
+	} else if p.ParseKeywords([]string{"SET", "SCHEMA"}) {
+		schemaName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected schema name: %w", err)
+		}
+		operation = &expr.OpFamilySetSchema{SchemaName: schemaName}
+	} else {
+		return nil, fmt.Errorf("expected ADD, DROP, RENAME TO, OWNER TO, or SET SCHEMA")
+	}
+
+	return &statement.AlterOperatorFamily{
+		Name:        name,
+		IndexMethod: indexMethod,
+		Operations:  []expr.OperatorFamilyOperation{operation},
+	}, nil
+}
+
+// parseOpFamilyItems parses operator/function items for ALTER OPERATOR FAMILY ADD/DROP
+func parseOpFamilyItems(p *Parser) ([]*expr.OpFamilyAddItem, error) {
+	var items []*expr.OpFamilyAddItem
+
+	for {
+		item := &expr.OpFamilyAddItem{}
+
+		if p.ParseKeyword("OPERATOR") {
+			item.IsOperator = true
+		} else if p.ParseKeyword("FUNCTION") {
+			item.IsOperator = false
+		} else {
+			return nil, fmt.Errorf("expected OPERATOR or FUNCTION")
+		}
+
+		// Parse number
+		tok := p.PeekToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			p.AdvanceToken()
+			// Parse the number value
+			var n int
+			fmt.Sscanf(num.Value, "%d", &n)
+			item.Number = n
+		} else {
+			return nil, fmt.Errorf("expected number after OPERATOR/FUNCTION")
+		}
+
+		// Check if next token is '(' - if so, this is DROP with just types
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+			// DROP case: just types like (INT4, INT2)
+			p.ConsumeToken(token.TokenLParen{})
+			for {
+				if p.ConsumeToken(token.TokenRParen{}) {
+					break
+				}
+				// Parse type name
+				if tok, ok := p.PeekToken().Token.(token.TokenWord); ok {
+					p.AdvanceToken()
+					item.ArgTypes = append(item.ArgTypes, string(tok.Word.Keyword))
+				} else {
+					return nil, fmt.Errorf("expected type name")
+				}
+				if p.ConsumeToken(token.TokenComma{}) {
+					continue
+				} else if p.ConsumeToken(token.TokenRParen{}) {
+					break
+				}
+			}
+		} else {
+			// ADD case: name then optional types
+			name, err := p.ParseOperatorName()
+			if err != nil {
+				return nil, fmt.Errorf("expected operator name: %w", err)
+			}
+			item.Name = name
+
+			// Parse optional types and FOR clauses
+			if p.ConsumeToken(token.TokenLParen{}) {
+				for {
+					if p.ConsumeToken(token.TokenRParen{}) {
+						break
+					}
+					// Parse type name
+					if tok, ok := p.PeekToken().Token.(token.TokenWord); ok {
+						p.AdvanceToken()
+						item.ArgTypes = append(item.ArgTypes, string(tok.Word.Keyword))
+					} else {
+						return nil, fmt.Errorf("expected type name")
+					}
+					if p.ConsumeToken(token.TokenComma{}) {
+						continue
+					} else if p.ConsumeToken(token.TokenRParen{}) {
+						break
+					}
+				}
+			}
+
+			// Parse FOR SEARCH or FOR ORDER BY
+			if p.ParseKeywords([]string{"FOR", "SEARCH"}) {
+				item.ForSearch = true
+			} else if p.ParseKeywords([]string{"FOR", "ORDER", "BY"}) {
+				orderByName, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected ordering operator name: %w", err)
+				}
+				item.ForOrderBy = orderByName.String()
+			}
+		}
+
+		items = append(items, item)
+
+		// Check for comma (more items) or break
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		break
+	}
+
+	return items, nil
 }
 
 // parseAlterTableDisable parses DISABLE { ROW LEVEL SECURITY | RULE | TRIGGER }

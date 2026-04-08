@@ -804,12 +804,13 @@ func (o OnCommit) String() string {
 }
 
 // ColumnOptionReferences stores details for a REFERENCES column constraint.
-// Used for inline foreign key constraints like: REFERENCES table_name(col1, col2) ON DELETE CASCADE
+// Used for inline foreign key constraints like: REFERENCES table_name(col1, col2) [MATCH kind] ON DELETE CASCADE
 type ColumnOptionReferences struct {
-	Table    *ast.ObjectName
-	Columns  []*ast.Ident
-	OnDelete ReferentialAction
-	OnUpdate ReferentialAction
+	Table     *ast.ObjectName
+	Columns   []*ast.Ident
+	MatchKind *ConstraintReferenceMatchKind
+	OnDelete  ReferentialAction
+	OnUpdate  ReferentialAction
 }
 
 func (c *ColumnOptionReferences) exprNode()        {}
@@ -831,6 +832,10 @@ func (c *ColumnOptionReferences) String() string {
 		sb.WriteString("(")
 		sb.WriteString(strings.Join(colStrs, ", "))
 		sb.WriteString(")")
+	}
+	if c.MatchKind != nil {
+		sb.WriteString(" ")
+		sb.WriteString(c.MatchKind.String())
 	}
 	if c.OnDelete != ReferentialActionNone {
 		sb.WriteString(" ON DELETE ")
@@ -2426,13 +2431,43 @@ func (a *AlterIndexOperation) String() string {
 }
 
 // AlterSchemaOperation represents ALTER SCHEMA operation.
-type AlterSchemaOperation struct{}
+// This is an interface that can be one of:
+// - *AlterSchemaRenameTo
+// - *AlterSchemaOwnerTo
+type AlterSchemaOperation interface {
+	Expr
+	IsAlterSchemaOperation()
+}
 
-func (a *AlterSchemaOperation) exprNode()        {}
-func (a *AlterSchemaOperation) expr()            {}
-func (a *AlterSchemaOperation) IsExpr()          {}
-func (a *AlterSchemaOperation) Span() token.Span { return token.Span{} }
-func (a *AlterSchemaOperation) String() string   { return "" }
+// AlterSchemaRenameTo represents ALTER SCHEMA RENAME TO operation
+type AlterSchemaRenameTo struct {
+	NewName *ast.ObjectName
+}
+
+func (a *AlterSchemaRenameTo) exprNode()               {}
+func (a *AlterSchemaRenameTo) expr()                   {}
+func (a *AlterSchemaRenameTo) IsExpr()                 {}
+func (a *AlterSchemaRenameTo) Span() token.Span        { return token.Span{} }
+func (a *AlterSchemaRenameTo) IsAlterSchemaOperation() {}
+
+func (a *AlterSchemaRenameTo) String() string {
+	return "RENAME TO " + a.NewName.String()
+}
+
+// AlterSchemaOwnerTo represents ALTER SCHEMA OWNER TO operation
+type AlterSchemaOwnerTo struct {
+	Owner Owner
+}
+
+func (a *AlterSchemaOwnerTo) exprNode()               {}
+func (a *AlterSchemaOwnerTo) expr()                   {}
+func (a *AlterSchemaOwnerTo) IsExpr()                 {}
+func (a *AlterSchemaOwnerTo) Span() token.Span        { return token.Span{} }
+func (a *AlterSchemaOwnerTo) IsAlterSchemaOperation() {}
+
+func (a *AlterSchemaOwnerTo) String() string {
+	return "OWNER TO " + a.Owner.String()
+}
 
 // AlterTypeOperation represents ALTER TYPE operation.
 // This is an interface that can be one of:
@@ -3930,12 +3965,12 @@ func (o *OperatorOption) String() string {
 		if o.Name != nil {
 			return fmt.Sprintf("RESTRICT = %s", o.Name.String())
 		}
-		return "RESTRICT"
+		return "RESTRICT = NONE"
 	case OperatorOptionKindJoin:
 		if o.Name != nil {
 			return fmt.Sprintf("JOIN = %s", o.Name.String())
 		}
-		return "JOIN"
+		return "JOIN = NONE"
 	default:
 		return ""
 	}
@@ -4115,41 +4150,297 @@ func (d *DropOperatorSignature) String() string {
 	return f.String()
 }
 
-// OperatorSignature represents operator signature.
-type OperatorSignature struct{}
+// OperatorSignature represents operator signature for ALTER OPERATOR.
+// Format: name (left_type, right_type) where left_type can be NONE for unary operators
+type OperatorSignature struct {
+	Name      *ast.ObjectName
+	LeftType  string // "NONE" for unary operators, or type name
+	RightType string // Type name
+}
 
 func (o *OperatorSignature) exprNode()        {}
 func (o *OperatorSignature) expr()            {}
 func (o *OperatorSignature) IsExpr()          {}
 func (o *OperatorSignature) Span() token.Span { return token.Span{} }
-func (o *OperatorSignature) String() string   { return "" }
+
+func (o *OperatorSignature) String() string {
+	var f strings.Builder
+	f.WriteString(o.Name.String())
+	f.WriteString(" (")
+	if o.LeftType != "" {
+		f.WriteString(o.LeftType)
+	}
+	f.WriteString(", ")
+	f.WriteString(o.RightType)
+	f.WriteString(")")
+	return f.String()
+}
 
 // AlterOperatorOperation represents ALTER OPERATOR operation.
-type AlterOperatorOperation struct{}
+// This is an interface that can be one of:
+// - *AlterOperatorOwnerTo
+// - *AlterOperatorSetSchema
+// - *AlterOperatorSet
+type AlterOperatorOperation interface {
+	Expr
+	IsAlterOperatorOperation()
+}
 
-func (a *AlterOperatorOperation) exprNode()        {}
-func (a *AlterOperatorOperation) expr()            {}
-func (a *AlterOperatorOperation) IsExpr()          {}
-func (a *AlterOperatorOperation) Span() token.Span { return token.Span{} }
-func (a *AlterOperatorOperation) String() string   { return "" }
+// AlterOperatorOwnerTo represents ALTER OPERATOR OWNER TO operation
+type AlterOperatorOwnerTo struct {
+	Owner Owner
+}
 
-// OperatorFamilyOperation represents operator family operation.
-type OperatorFamilyOperation struct{}
+func (a *AlterOperatorOwnerTo) exprNode()                 {}
+func (a *AlterOperatorOwnerTo) expr()                     {}
+func (a *AlterOperatorOwnerTo) IsExpr()                   {}
+func (a *AlterOperatorOwnerTo) Span() token.Span          { return token.Span{} }
+func (a *AlterOperatorOwnerTo) IsAlterOperatorOperation() {}
 
-func (o *OperatorFamilyOperation) exprNode()        {}
-func (o *OperatorFamilyOperation) expr()            {}
-func (o *OperatorFamilyOperation) IsExpr()          {}
-func (o *OperatorFamilyOperation) Span() token.Span { return token.Span{} }
-func (o *OperatorFamilyOperation) String() string   { return "" }
+func (a *AlterOperatorOwnerTo) String() string {
+	return "OWNER TO " + a.Owner.String()
+}
 
-// OperatorClassOperation represents operator class operation.
-type OperatorClassOperation struct{}
+// AlterOperatorSetSchema represents ALTER OPERATOR SET SCHEMA operation
+type AlterOperatorSetSchema struct {
+	SchemaName *ast.ObjectName
+}
 
-func (o *OperatorClassOperation) exprNode()        {}
-func (o *OperatorClassOperation) expr()            {}
-func (o *OperatorClassOperation) IsExpr()          {}
-func (o *OperatorClassOperation) Span() token.Span { return token.Span{} }
-func (o *OperatorClassOperation) String() string   { return "" }
+func (a *AlterOperatorSetSchema) exprNode()                 {}
+func (a *AlterOperatorSetSchema) expr()                     {}
+func (a *AlterOperatorSetSchema) IsExpr()                   {}
+func (a *AlterOperatorSetSchema) Span() token.Span          { return token.Span{} }
+func (a *AlterOperatorSetSchema) IsAlterOperatorOperation() {}
+
+func (a *AlterOperatorSetSchema) String() string {
+	return "SET SCHEMA " + a.SchemaName.String()
+}
+
+// AlterOperatorSet represents ALTER OPERATOR SET (options) operation
+type AlterOperatorSet struct {
+	Options []*OperatorOption
+}
+
+func (a *AlterOperatorSet) exprNode()                 {}
+func (a *AlterOperatorSet) expr()                     {}
+func (a *AlterOperatorSet) IsExpr()                   {}
+func (a *AlterOperatorSet) Span() token.Span          { return token.Span{} }
+func (a *AlterOperatorSet) IsAlterOperatorOperation() {}
+
+func (a *AlterOperatorSet) String() string {
+	var f strings.Builder
+	f.WriteString("SET (")
+	for i, opt := range a.Options {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(opt.String())
+	}
+	f.WriteString(")")
+	return f.String()
+}
+
+// OperatorFamilyOperation represents ALTER OPERATOR FAMILY operation.
+// This is an interface that can be one of:
+// - *OpFamilyAdd
+// - *OpFamilyDrop
+// - *OpFamilyRenameTo
+// - *OpFamilyOwnerTo
+// - *OpFamilySetSchema
+type OperatorFamilyOperation interface {
+	Expr
+	IsOperatorFamilyOperation()
+}
+
+// OpFamilyAddItem represents an item to add to operator family
+type OpFamilyAddItem struct {
+	IsOperator bool // true for OPERATOR, false for FUNCTION
+	Number     int  // Operator/function number
+	Name       *ast.ObjectName
+	ArgTypes   []string // Type names for operator/function
+	ForSearch  bool     // FOR SEARCH for operators
+	ForOrderBy string   // FOR ORDER BY name for operators
+}
+
+// OpFamilyAdd represents ADD { OPERATOR | FUNCTION } items
+type OpFamilyAdd struct {
+	Items []*OpFamilyAddItem
+}
+
+func (o *OpFamilyAdd) exprNode()                  {}
+func (o *OpFamilyAdd) expr()                      {}
+func (o *OpFamilyAdd) IsExpr()                    {}
+func (o *OpFamilyAdd) Span() token.Span           { return token.Span{} }
+func (o *OpFamilyAdd) IsOperatorFamilyOperation() {}
+
+func (o *OpFamilyAdd) String() string {
+	var f strings.Builder
+	f.WriteString("ADD ")
+	for i, item := range o.Items {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		if item.IsOperator {
+			f.WriteString("OPERATOR ")
+		} else {
+			f.WriteString("FUNCTION ")
+		}
+		f.WriteString(fmt.Sprintf("%d ", item.Number))
+		f.WriteString(item.Name.String())
+		if len(item.ArgTypes) > 0 {
+			if item.IsOperator {
+				// Space before parenthesis for operators per Rust canonical form
+				f.WriteString(" (")
+			} else {
+				// No space for functions
+				f.WriteString("(")
+			}
+			f.WriteString(strings.Join(item.ArgTypes, ", "))
+			f.WriteString(")")
+		}
+		if item.ForSearch {
+			f.WriteString(" FOR SEARCH")
+		}
+		if item.ForOrderBy != "" {
+			f.WriteString(" FOR ORDER BY ")
+			f.WriteString(item.ForOrderBy)
+		}
+	}
+	return f.String()
+}
+
+// OpFamilyDrop represents DROP { OPERATOR | FUNCTION } items
+type OpFamilyDrop struct {
+	Items []*OpFamilyAddItem
+}
+
+func (o *OpFamilyDrop) exprNode()                  {}
+func (o *OpFamilyDrop) expr()                      {}
+func (o *OpFamilyDrop) IsExpr()                    {}
+func (o *OpFamilyDrop) Span() token.Span           { return token.Span{} }
+func (o *OpFamilyDrop) IsOperatorFamilyOperation() {}
+
+func (o *OpFamilyDrop) String() string {
+	var f strings.Builder
+	f.WriteString("DROP ")
+	for i, item := range o.Items {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		if item.IsOperator {
+			f.WriteString("OPERATOR ")
+		} else {
+			f.WriteString("FUNCTION ")
+		}
+		f.WriteString(fmt.Sprintf("%d ", item.Number))
+		if len(item.ArgTypes) > 0 {
+			f.WriteString("(")
+			f.WriteString(strings.Join(item.ArgTypes, ", "))
+			f.WriteString(")")
+		}
+	}
+	return f.String()
+}
+
+// OpFamilyRenameTo represents RENAME TO operation
+type OpFamilyRenameTo struct {
+	NewName *ast.ObjectName
+}
+
+func (o *OpFamilyRenameTo) exprNode()                  {}
+func (o *OpFamilyRenameTo) expr()                      {}
+func (o *OpFamilyRenameTo) IsExpr()                    {}
+func (o *OpFamilyRenameTo) Span() token.Span           { return token.Span{} }
+func (o *OpFamilyRenameTo) IsOperatorFamilyOperation() {}
+
+func (o *OpFamilyRenameTo) String() string {
+	return "RENAME TO " + o.NewName.String()
+}
+
+// OpFamilyOwnerTo represents OWNER TO operation
+type OpFamilyOwnerTo struct {
+	Owner Owner
+}
+
+func (o *OpFamilyOwnerTo) exprNode()                  {}
+func (o *OpFamilyOwnerTo) expr()                      {}
+func (o *OpFamilyOwnerTo) IsExpr()                    {}
+func (o *OpFamilyOwnerTo) Span() token.Span           { return token.Span{} }
+func (o *OpFamilyOwnerTo) IsOperatorFamilyOperation() {}
+
+func (o *OpFamilyOwnerTo) String() string {
+	return "OWNER TO " + o.Owner.String()
+}
+
+// OpFamilySetSchema represents SET SCHEMA operation
+type OpFamilySetSchema struct {
+	SchemaName *ast.ObjectName
+}
+
+func (o *OpFamilySetSchema) exprNode()                  {}
+func (o *OpFamilySetSchema) expr()                      {}
+func (o *OpFamilySetSchema) IsExpr()                    {}
+func (o *OpFamilySetSchema) Span() token.Span           { return token.Span{} }
+func (o *OpFamilySetSchema) IsOperatorFamilyOperation() {}
+
+func (o *OpFamilySetSchema) String() string {
+	return "SET SCHEMA " + o.SchemaName.String()
+}
+
+// OperatorClassOperation represents ALTER OPERATOR CLASS operation.
+// This is an interface that can be one of:
+// - *OpClassRenameTo
+// - *OpClassOwnerTo
+// - *OpClassSetSchema
+type OperatorClassOperation interface {
+	Expr
+	IsOperatorClassOperation()
+}
+
+// OpClassRenameTo represents RENAME TO operation for operator class
+type OpClassRenameTo struct {
+	NewName *ast.ObjectName
+}
+
+func (o *OpClassRenameTo) exprNode()                 {}
+func (o *OpClassRenameTo) expr()                     {}
+func (o *OpClassRenameTo) IsExpr()                   {}
+func (o *OpClassRenameTo) Span() token.Span          { return token.Span{} }
+func (o *OpClassRenameTo) IsOperatorClassOperation() {}
+
+func (o *OpClassRenameTo) String() string {
+	return "RENAME TO " + o.NewName.String()
+}
+
+// OpClassOwnerTo represents OWNER TO operation for operator class
+type OpClassOwnerTo struct {
+	Owner Owner
+}
+
+func (o *OpClassOwnerTo) exprNode()                 {}
+func (o *OpClassOwnerTo) expr()                     {}
+func (o *OpClassOwnerTo) IsExpr()                   {}
+func (o *OpClassOwnerTo) Span() token.Span          { return token.Span{} }
+func (o *OpClassOwnerTo) IsOperatorClassOperation() {}
+
+func (o *OpClassOwnerTo) String() string {
+	return "OWNER TO " + o.Owner.String()
+}
+
+// OpClassSetSchema represents SET SCHEMA operation for operator class
+type OpClassSetSchema struct {
+	SchemaName *ast.ObjectName
+}
+
+func (o *OpClassSetSchema) exprNode()                 {}
+func (o *OpClassSetSchema) expr()                     {}
+func (o *OpClassSetSchema) IsExpr()                   {}
+func (o *OpClassSetSchema) Span() token.Span          { return token.Span{} }
+func (o *OpClassSetSchema) IsOperatorClassOperation() {}
+
+func (o *OpClassSetSchema) String() string {
+	return "SET SCHEMA " + o.SchemaName.String()
+}
 
 // OptimizerHintStyle represents the style of an optimizer hint.
 type OptimizerHintStyle int

@@ -1,5 +1,48 @@
 # Go SQL Parser Development Guide
 
+## Session 82 Summary: PostgreSQL ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented major PostgreSQL DDL features, resolving 6 failing tests:
+
+1. **FOREIGN KEY MATCH clause** (parser/ddl.go, ast/expr/ddl.go)
+   - Added `MatchKind` field to `ColumnOptionReferences` for inline REFERENCES
+   - Parses MATCH FULL, MATCH PARTIAL, MATCH SIMPLE in column constraints
+   - Fixed TestPostgresForeignKeyMatch and TestPostgresForeignKeyMatchWithActions
+
+2. **ALTER SCHEMA** (parser/alter.go, ast/expr/ddl.go, ast/statement/ddl.go)
+   - Implemented proper AST with interface-based operations
+   - Operations: RENAME TO, OWNER TO (with CURRENT_ROLE/CURRENT_USER/SESSION_USER)
+   - Fixed TestPostgresAlterSchema
+
+3. **ALTER OPERATOR** (parser/alter.go, ast/expr/ddl.go, ast/statement/ddl.go)
+   - Full implementation of ALTER OPERATOR with signature parsing
+   - Operations: OWNER TO, SET SCHEMA, SET (with RESTRICT, JOIN, COMMUTATOR, NEGATOR, HASHES, MERGES)
+   - Fixed TestPostgresAlterOperator
+
+4. **ALTER OPERATOR FAMILY** (parser/alter.go, ast/expr/ddl.go)
+   - Implemented ADD/DROP for OPERATOR and FUNCTION items
+   - Operations: RENAME TO, OWNER TO, SET SCHEMA
+   - Proper spacing: OPERATOR name (types) vs FUNCTION name(types)
+   - Fixed TestPostgresAlterOperatorFamily
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,721 lines | 132% |
+| Tests | 49,886 lines | 14,254 lines | 29% |
+| **Test Status** | - | **~763 passing, ~50 failing** (was ~753 passing, ~56 failing) |
+
+**New Patterns Documented:**
+- **Pattern E292**: FOREIGN KEY MATCH in inline REFERENCES - Parse MATCH clause after REFERENCES table(columns) and before ON DELETE/ON UPDATE
+- **Pattern E293**: ALTER SCHEMA operations - Use interface-based design with AlterSchemaOperation interface for RENAME TO, OWNER TO
+- **Pattern E294**: ALTER OPERATOR signature - Parse operator name followed by (left_type, right_type) where left_type can be NONE
+- **Pattern E295**: Operator option parsing - RESTRICT/JOIN can be = NONE or = name; COMMUTATOR/NEGATOR use ParseOperatorName
+- **Pattern E296**: ALTER OPERATOR FAMILY spacing - OPERATOR items have space before (types), FUNCTION items don't: `OPERATOR 1 < (INT4, INT2)` vs `FUNCTION 1 name(INT4, INT2)`
+
+---
+
 ## Session 81 Summary: DROP DOMAIN/PROCEDURE & ALTER TYPE Implementation (April 9, 2026)
 
 **Major Fixes:**
@@ -263,16 +306,20 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 81 Complete**
+**Latest Update: April 9, 2026 - Session 82 Complete**
 
 **Summary:**
-- **Test Functions:** ~753 passing, ~56 failing (~93.1% pass rate)
+- **Test Functions:** ~763 passing, ~50 failing (~93.9% pass rate)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL Table Features** (~8 failures): table functions, partition by, WITH clauses, CREATE TABLE WITH options
-  2. **PostgreSQL ALTER statements** (~6 failures): ALTER SCHEMA, ALTER OPERATOR/FAMILY, remaining ALTER TYPE operations
-  3. **UPDATE in CTE** (~2 failures): WITH clause containing UPDATE statements
-  4. **MySQL features** (~6 failures): := assignment, index with USING, prefix key parts
-  5. **Miscellaneous** (~4 failures): escaped strings, dollar-quoted strings error cases, IN union
+  1. **PostgreSQL Table Features** (~10 failures): table functions, partition by, WITH clauses, CREATE TABLE WITH options, table constraints
+  2. **UPDATE in CTE** (~2 failures): WITH clause containing UPDATE statements
+  3. **MySQL features** (~10 failures): := assignment, index with USING, prefix key parts, foreign key index names
+  4. **Miscellaneous** (~6 failures): escaped strings, dollar-quoted strings error cases, IN union, SELECT without projection, OFFSET clause
+- **Recently Fixed (Session 82):**
+  1. **FOREIGN KEY MATCH clause** - Added MatchKind field to ColumnOptionReferences for inline REFERENCES
+  2. **ALTER SCHEMA** - Full implementation with RENAME TO and OWNER TO operations
+  3. **ALTER OPERATOR** - Full implementation with OWNER TO, SET SCHEMA, and SET operations
+  4. **ALTER OPERATOR FAMILY** - Full implementation with ADD/DROP for OPERATOR and FUNCTION
 - **Recently Fixed (Session 81):**
   1. **DROP DOMAIN** - Full implementation with CASCADE/RESTRICT support
   2. **DROP PROCEDURE** - Complex argument parsing with IN/OUT/INOUT modes and defaults
@@ -1045,6 +1092,10 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
+### Sessions 81-82 (April 9, 2026)
+- **Session 82**: ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (+6 tests) - ~763 passing, 50 failing
+- **Session 81**: DROP DOMAIN/PROCEDURE, ALTER TYPE (+4 tests) - ~753 passing, 56 failing
+
 ### Sessions 68-79 (April 8-9, 2026)
 - **Session 79**: PostgreSQL Operators (CREATE/DROP/ALTER), AUTOINCREMENT fix (+4 tests) - ~740 passing, 63 failing
 - **Session 78**: Data type canonical form (INTEGER uppercase), CREATE CONSTRAINT TRIGGER, AUTO_INCREMENT, CHARACTER SET (+12 tests) - ~739 passing, 66 failing
@@ -1571,6 +1622,83 @@ Pattern E288: Boolean Value Case
   }
   ```
 - Files typically modified: ast/expr/basic.go
+
+Pattern E292: FOREIGN KEY MATCH in Inline REFERENCES
+- When: Parsing column-level REFERENCES constraints like `col INT REFERENCES t(id) MATCH FULL`
+- Problem: Parser only handles MATCH in table-level FOREIGN KEY constraints, not inline REFERENCES
+- Solution: Add MatchKind field to ColumnOptionReferences, parse MATCH after REFERENCES table(columns)
+- Example:
+  ```go
+  // In parseColumnConstraint() when keyword is REFERENCES:
+  if p.ParseKeyword("MATCH") {
+      if p.ParseKeyword("FULL") {
+          matchKind := expr.ConstraintReferenceMatchKindFull
+          refDetails.MatchKind = &matchKind
+      }
+  }
+  ```
+- Files typically modified: parser/ddl.go, ast/expr/ddl.go
+
+Pattern E293: ALTER SCHEMA Operations
+- When: Implementing ALTER SCHEMA RENAME TO and OWNER TO
+- Problem: Need proper AST structure to represent different operations
+- Solution: Use interface-based design with AlterSchemaOperation interface
+- Example:
+  ```go
+  type AlterSchemaOperation interface { Expr; IsAlterSchemaOperation() }
+  type AlterSchemaRenameTo struct { NewName *ast.ObjectName }
+  type AlterSchemaOwnerTo struct { Owner Owner }
+  ```
+- Files typically modified: ast/expr/ddl.go, ast/statement/ddl.go, parser/alter.go
+
+Pattern E294: ALTER OPERATOR Signature Parsing
+- When: Parsing ALTER OPERATOR name(types) ... statements
+- Problem: Operator signature requires parsing two types in parentheses
+- Solution: Parse name followed by (left_type, right_type) where left_type can be NONE
+- Example:
+  ```go
+  name, _ := p.ParseOperatorName()
+  p.ExpectToken(token.TokenLParen{})
+  leftType := parseTypeOrNone(p)  // NONE or actual type
+  p.ExpectToken(token.TokenComma{})
+  rightType := p.ParseDataType()
+  p.ExpectToken(token.TokenRParen{})
+  ```
+- Files typically modified: parser/alter.go, ast/expr/ddl.go
+
+Pattern E295: Operator Option Parsing
+- When: Parsing ALTER OPERATOR SET (RESTRICT = name, JOIN = NONE, ...)
+- Problem: RESTRICT and JOIN can be = NONE or = name; COMMUTATOR/NEGATOR use operator names
+- Solution: Check for NONE keyword first, then parse name; use ParseOperatorName for commutator/negator
+- Example:
+  ```go
+  if p.ParseKeyword("RESTRICT") {
+      p.ExpectToken(token.TokenEq{})
+      if p.ParseKeyword("NONE") {
+          opt = &OperatorOption{Kind: OperatorOptionKindRestrict, Name: nil}
+      } else {
+          name, _ := p.ParseObjectName()
+          opt = &OperatorOption{Kind: OperatorOptionKindRestrict, Name: name}
+      }
+  }
+  ```
+- Files typically modified: parser/alter.go
+
+Pattern E296: ALTER OPERATOR FAMILY Spacing
+- When: Serializing ALTER OPERATOR FAMILY ADD items
+- Problem: Rust canonical form has different spacing for OPERATOR vs FUNCTION
+- Solution: OPERATOR items have space before (types), FUNCTION items don't
+- Example:
+  ```go
+  // OPERATOR with space: "OPERATOR 1 < (INT4, INT2)"
+  // FUNCTION without space: "FUNCTION 1 btint42cmp(INT4, INT2)"
+  if item.IsOperator {
+      f.WriteString(" (")  // Space for operators
+  } else {
+      f.WriteString("(")   // No space for functions
+  }
+  ```
+- Files typically modified: ast/expr/ddl.go
 
 **See full pattern catalog in code comments and previous session notes.**
 

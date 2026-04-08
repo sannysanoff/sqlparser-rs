@@ -996,9 +996,9 @@ func (a *AlterTable) String() string {
 // AlterSchema represents an ALTER SCHEMA statement
 type AlterSchema struct {
 	BaseStatement
-	Name      *ast.ObjectName
-	IfExists  bool
-	Operation *expr.AlterSchemaOperation
+	Name       *ast.ObjectName
+	IfExists   bool
+	Operations []expr.AlterSchemaOperation
 }
 
 func (a *AlterSchema) statementNode() {}
@@ -1010,8 +1010,10 @@ func (a *AlterSchema) String() string {
 		f.WriteString("IF EXISTS ")
 	}
 	f.WriteString(a.Name.String())
-	f.WriteString(" ")
-	f.WriteString(a.Operation.String())
+	for _, op := range a.Operations {
+		f.WriteString(" ")
+		f.WriteString(op.String())
+	}
 	return f.String()
 }
 
@@ -2801,7 +2803,7 @@ type AlterOperator struct {
 	BaseStatement
 	Name      *ast.ObjectName
 	Signature *expr.OperatorSignature
-	Operation *expr.AlterOperatorOperation
+	Operation expr.AlterOperatorOperation
 }
 
 func (a *AlterOperator) statementNode() {}
@@ -2809,7 +2811,9 @@ func (a *AlterOperator) statementNode() {}
 func (a *AlterOperator) String() string {
 	var f strings.Builder
 	f.WriteString("ALTER OPERATOR ")
-	f.WriteString(a.Name.String())
+	f.WriteString(a.Signature.String())
+	f.WriteString(" ")
+	f.WriteString(a.Operation.String())
 	return f.String()
 }
 
@@ -2822,7 +2826,7 @@ type AlterOperatorFamily struct {
 	BaseStatement
 	Name        *ast.ObjectName
 	IndexMethod *ast.Ident
-	Operations  []*expr.OperatorFamilyOperation
+	Operations  []expr.OperatorFamilyOperation
 }
 
 func (a *AlterOperatorFamily) statementNode() {}
@@ -2833,6 +2837,10 @@ func (a *AlterOperatorFamily) String() string {
 	f.WriteString(a.Name.String())
 	f.WriteString(" USING ")
 	f.WriteString(a.IndexMethod.String())
+	for _, op := range a.Operations {
+		f.WriteString(" ")
+		f.WriteString(op.String())
+	}
 	return f.String()
 }
 
@@ -2845,7 +2853,7 @@ type AlterOperatorClass struct {
 	BaseStatement
 	Name        *ast.ObjectName
 	IndexMethod *ast.Ident
-	Operations  []*expr.OperatorClassOperation
+	Operations  []expr.OperatorClassOperation
 }
 
 func (a *AlterOperatorClass) statementNode() {}
@@ -2856,6 +2864,10 @@ func (a *AlterOperatorClass) String() string {
 	f.WriteString(a.Name.String())
 	f.WriteString(" USING ")
 	f.WriteString(a.IndexMethod.String())
+	for _, op := range a.Operations {
+		f.WriteString(" ")
+		f.WriteString(op.String())
+	}
 	return f.String()
 }
 
