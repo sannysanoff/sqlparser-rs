@@ -53,7 +53,7 @@ type TableTableFactor struct {
 	Alias          *TableAlias
 	Args           *TableFunctionArgs
 	WithHints      []Expr
-	Version        *TableVersion
+	Version        *TableVersionWithInfo
 	WithOrdinality bool
 	Partitions     []Ident
 	JsonPath       *JsonPath

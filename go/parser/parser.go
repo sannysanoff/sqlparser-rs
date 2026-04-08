@@ -1748,16 +1748,35 @@ func (p *Parser) parseRaise() (ast.Statement, error) {
 
 // ParseExpression implements the dialects.ParserAccessor interface.
 func (p *Parser) ParseExpression() (ast.Expr, error) {
-	ep := NewExpressionParser(p)
-	e, err := ep.ParseExpr()
-	if err != nil {
-		return nil, err
+	// For now, handle the most common cases needed for IDENTIFIER() and similar functions
+	// This is a simplified version that handles string literals
+	tok := p.PeekTokenRef()
+
+	switch v := tok.Token.(type) {
+	case token.TokenSingleQuotedString:
+		p.AdvanceToken()
+		return &ast.EValue{
+			Value: ast.NewSingleQuotedString(v.Value),
+		}, nil
+	case token.TokenDoubleQuotedString:
+		p.AdvanceToken()
+		return &ast.EValue{
+			Value: ast.NewDoubleQuotedString(v.Value),
+		}, nil
+	case token.TokenNumber:
+		p.AdvanceToken()
+		num, err := ast.NewNumber(v.Value, false)
+		if err != nil {
+			return nil, err
+		}
+		return &ast.EValue{
+			Value: num,
+		}, nil
+	default:
+		// For now, return an error for unsupported expression types
+		// This can be extended as needed
+		return nil, fmt.Errorf("unsupported expression token: %T", tok.Token)
 	}
-	// Return the expression wrapped in a simple wrapper
-	// Since expr.Expr and ast.Expr have different interfaces, we need to return something that implements ast.Expr
-	// For now, return a placeholder
-	_ = e // Use the parsed expression
-	return nil, fmt.Errorf("expression parsing bridge not fully implemented")
 }
 
 // ParseInsert implements the dialects.ParserAccessor interface.
@@ -1782,6 +1801,7 @@ func (p *Parser) Expected(expected string, found token.TokenWithSpan) error {
 
 // ParseObjectName parses an object name (table name, column name, etc.)
 // Handles multi-part names like "schema.table" or "db.schema.table"
+// Also supports identifier-generating functions like IDENTIFIER('name') for Snowflake.
 func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 	var parts []ast.ObjectNamePart
 
@@ -1791,7 +1811,42 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 		if err != nil {
 			return nil, err
 		}
-		parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
+
+		// Check if this is an identifier-generating function (e.g., IDENTIFIER() in Snowflake)
+		if p.GetDialect().IsIdentifierGeneratingFunctionName(ident, parts) {
+			// Expect opening parenthesis
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+
+			// Parse function arguments
+			var args []ast.Expr
+			if _, ok := p.PeekTokenRef().Token.(token.TokenRParen); !ok {
+				for {
+					// Parse expression as argument
+					arg, err := p.ParseExpression()
+					if err != nil {
+						return nil, err
+					}
+					args = append(args, arg)
+
+					// Check for comma or closing parenthesis
+					if p.ConsumeToken(token.TokenComma{}) {
+						continue
+					}
+					break
+				}
+			}
+
+			// Expect closing parenthesis
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+
+			parts = append(parts, &ast.ObjectNamePartFunction{Name: ident, Args: args})
+		} else {
+			parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
+		}
 
 		// Check if there's a period - if so, continue to next part
 		if p.ConsumeToken(token.TokenPeriod{}) {

@@ -1,5 +1,27 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Final Session):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 52,159 lines | 78,911 lines | 151% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **733 passing** / **474 failing** (~61%) | +10 tests passing
+
+**Today's Major Fixes (Final Session):**
+1. **Snowflake IDENTIFIER() Function** - Added support for `IDENTIFIER('name')` function in object names (CREATE TABLE, CREATE SCHEMA, etc.)
+2. **Snowflake Time Travel (AT/BEFORE)** - Implemented parsing for `AT(TIMESTAMP => expr)` and `BEFORE(TIMESTAMP => expr)` syntax
+3. **Reserved Keywords for Time Travel** - Added AT, BEFORE, CHANGES to reserved keywords for table aliases to prevent them being consumed as implicit aliases
+4. **Named Argument Parsing in Table Version** - Used `ParseFunctionArg()` instead of `ParseExpr()` to properly handle `=>` operator in time travel expressions
+
+**New Patterns Documented:**
+- **Pattern E40**: IDENTIFIER() function in object names - When parsing object names with dialects that support identifier-generating functions, check `IsIdentifierGeneratingFunctionName()` and parse function arguments when the identifier is followed by `(`
+- **Pattern E41**: Time travel keyword reservation - AT, BEFORE, CHANGES must be in reserved keywords list for table aliases to prevent them being consumed as implicit aliases in time travel queries
+- **Pattern E42**: Named argument parsing for table version - Use `ParseFunctionArg()` not `ParseExpr()` when parsing table version expressions like `AT(TIMESTAMP => expr)` to properly handle the `=>` operator
+- **Pattern E43**: Table version type consistency - Use `[]query.FunctionArg` instead of `[]query.Expr` when storing function arguments for table versioning to ensure proper String() method availability
+
+---
+
 **Line Counts (Updated April 8, 2026 - Night Session):**
 
 | Component | Rust | Go | Ratio |
@@ -1170,6 +1192,39 @@ if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
 }
 ```
 
+### Error E36: Time travel keywords consumed as table aliases
+**Cause**: When parsing `FROM tbl AT(TIMESTAMP => expr)`, the `AT` keyword is consumed as an implicit table alias because it's not in the reserved keywords list.
+
+**Solution**: Add AT, BEFORE, CHANGES to reserved keywords for table aliases:
+```go
+// In isReservedForTableAlias():
+"AT": true, "BEFORE": true, "CHANGES": true,  // Snowflake time travel keywords
+```
+
+### Error E37: Named argument operator not recognized in table version parsing
+**Cause**: When parsing `AT(TIMESTAMP => expr)`, using `ep.ParseExpr()` doesn't recognize the `=>` operator for named arguments.
+
+**Solution**: Use `ParseFunctionArg()` instead of `ParseExpr()` to handle named argument syntax:
+```go
+// Parse function argument (handles named arguments with => operator)
+arg, err := ep.ParseFunctionArg()
+if err != nil {
+    return nil
+}
+funcArgs = append(funcArgs, convertFunctionArgToQuery(arg))
+```
+
+### Error E38: FunctionArg type mismatch with query.Expr
+**Cause**: When storing function arguments for table versioning, `query.FunctionArg` (value type) doesn't implement `query.Expr` because its `String()` method has a pointer receiver.
+
+**Solution**: Store `[]query.FunctionArg` instead of `[]query.Expr` in the time travel expression struct:
+```go
+type timeTravelExpr struct {
+    name string
+    args []query.FunctionArg  // Not []query.Expr
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -1208,12 +1263,15 @@ if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
 - TestTryConvert: ✅ Now passing (TRY_CONVERT with VARCHAR(MAX))
 - TestSnowflakeSubquerySample: ✅ Now passing (SAMPLE clause on subqueries)
 - TestSnowflakeAlterIcebergTable: ✅ Now passing (ALTER ICEBERG TABLE with clustering operations)
+- TestSnowflakeIdentifierFunction: ✅ Partial (4/6 subtests pass - basic IDENTIFIER() support works)
+- TestSnowflakeTimeTravel: ✅ Now passes (AT/BEFORE TIMESTAMP => syntax)
 
 **Notes**:
-- Source: 67,345 lines Rust → 93,120 lines Go (138% ratio - includes comprehensive comments and new implementations)
+- Source: 52,159 lines Rust → 78,911 lines Go (151% ratio - includes comprehensive comments and new implementations)
 - Tests: 49,886 lines Rust → 14,149 lines Go (28% ratio - many tests still being ported)
-- Main tests package has 260 tests
+- Main tests package has 260+ tests
 - Additional test packages (ddl, dml, mysql, postgres, query, regression, snowflake) add more tests
+- Current status: 733 passing, 474 failing (~61% pass rate)
 - Some tests require dialect-specific features only supported in specific dialects
 - Test framework compares full AST including spans, which causes some tests to fail even when parsing/serialization is correct
 - Many remaining failures are span/column position mismatches (off-by-one errors) rather than parsing logic errors

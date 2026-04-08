@@ -2290,6 +2290,13 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		}, nil
 	}
 
+	// Parse potential version qualifier (AT, BEFORE, CHANGES for time travel)
+	// Reference: src/parser/mod.rs:15728
+	var version *query.TableVersionWithInfo
+	if p.GetDialect().SupportsTableVersioning() {
+		version = maybeParseTableVersion(p)
+	}
+
 	// Check for TABLESAMPLE before alias (some dialects)
 	var sampleKind *query.TableSampleKind
 	if p.GetDialect().SupportsTableSampleBeforeAlias() {
@@ -2341,6 +2348,158 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		Sample:     sampleKind,
 		IndexHints: indexHints,
 		WithHints:  withHints,
+		Version:    version,
+	}, nil
+}
+
+// maybeParseTableVersion parses optional table version clauses like AT/BEFORE/CHANGES
+// Reference: src/parser/mod.rs:16370-16415
+func maybeParseTableVersion(p *Parser) *query.TableVersionWithInfo {
+	if !p.GetDialect().SupportsTableVersioning() {
+		return nil
+	}
+
+	ep := NewExpressionParser(p)
+
+	// Check for AT(...) or BEFORE(...) - Snowflake time travel
+	if p.PeekKeyword("AT") || p.PeekKeyword("BEFORE") {
+		// Parse the function name (AT or BEFORE)
+		funcName, err := p.ParseObjectName()
+		if err != nil {
+			return nil
+		}
+
+		// Expect opening parenthesis - if not present, this isn't time travel syntax
+		tok := p.PeekTokenRef()
+		if _, ok := tok.Token.(token.TokenLParen); !ok {
+			// Not a function call, put back the object name tokens
+			// TODO: Implement proper token backup
+			return nil
+		}
+		p.AdvanceToken() // consume (
+
+		// Collect the arguments using function arg parser (handles named arguments like TIMESTAMP => expr)
+		var funcArgs []query.FunctionArg
+		if _, ok := p.PeekTokenRef().Token.(token.TokenRParen); !ok {
+			for {
+				// Parse function argument (handles named arguments with => operator)
+				arg, err := ep.ParseFunctionArg()
+				if err != nil {
+					return nil
+				}
+				funcArgs = append(funcArgs, convertFunctionArgToQuery(arg))
+
+				if p.ConsumeToken(token.TokenComma{}) {
+					continue
+				}
+				break
+			}
+		}
+
+		// Expect closing parenthesis
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil
+		}
+
+		// Create a simple expression wrapper that stores the function-like call
+		funcExpr := &timeTravelExpr{
+			name: funcName.String(),
+			args: funcArgs,
+		}
+
+		return &query.TableVersionWithInfo{
+			Type: query.TableVersionFunction,
+			Expr: funcExpr,
+		}
+	}
+
+	// Check for CHANGES(...) - Snowflake change tracking
+	if p.PeekKeyword("CHANGES") {
+		// Parse CHANGES function-like call
+		changesFunc, err := parseTimeTravelFunction(p, ep)
+		if err != nil {
+			return nil
+		}
+
+		// Parse AT function-like call
+		atFunc, err := parseTimeTravelFunction(p, ep)
+		if err != nil {
+			return nil
+		}
+
+		// Optional END function-like call
+		var endFunc query.Expr
+		if p.PeekKeyword("END") {
+			endFunc, err = parseTimeTravelFunction(p, ep)
+			if err != nil {
+				return nil
+			}
+		}
+
+		return &query.TableVersionWithInfo{
+			Type: query.TableVersionChanges,
+			ChangesInfo: &query.TableVersionChangesInfo{
+				Changes: changesFunc,
+				At:      atFunc,
+				End:     endFunc,
+			},
+		}
+	}
+
+	return nil
+}
+
+// timeTravelExpr represents a time travel function-like expression (AT, BEFORE, CHANGES)
+type timeTravelExpr struct {
+	name string
+	args []query.FunctionArg
+}
+
+func (t *timeTravelExpr) String() string {
+	var argStrs []string
+	for _, a := range t.args {
+		argStrs = append(argStrs, a.String())
+	}
+	return fmt.Sprintf("%s(%s)", t.name, strings.Join(argStrs, ", "))
+}
+
+// parseTimeTravelFunction parses a function-like call like AT(TIMESTAMP => expr) or CHANGES(INFO => DEFAULT)
+func parseTimeTravelFunction(p *Parser, ep *ExpressionParser) (query.Expr, error) {
+	funcName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse arguments using function arg parser (handles named arguments with => operator)
+	var funcArgs []query.FunctionArg
+	if _, ok := p.PeekTokenRef().Token.(token.TokenRParen); !ok {
+		for {
+			arg, err := ep.ParseFunctionArg()
+			if err != nil {
+				return nil, err
+			}
+			funcArgs = append(funcArgs, convertFunctionArgToQuery(arg))
+
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			}
+			break
+		}
+	}
+
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return &timeTravelExpr{
+		name: funcName.String(),
+		args: funcArgs,
 	}, nil
 }
 
@@ -2722,6 +2881,8 @@ func isReservedForTableAlias(keyword string) bool {
 		"SORT": true, "LATERAL": true, "VIEW": true,
 		"OFFSET": true, "FETCH": true, "MINUS": true,
 		"NATURAL": true, "CLUSTER": true, "DISTRIBUTE": true, "GLOBAL": true, "ANTI": true,
+		// Snowflake time travel keywords - these start time travel clauses, not aliases
+		"AT": true, "BEFORE": true, "CHANGES": true,
 	}
 	return reserved[keyword]
 }
