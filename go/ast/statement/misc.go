@@ -104,9 +104,21 @@ func (s *Set) String() string {
 			f.WriteString(v.String())
 		}
 		f.WriteString(") = ")
-		f.WriteString("(")
-		f.WriteString(formatExprs(s.Values, ", "))
-		f.WriteString(")")
+		// If we have a single TupleExpr value, don't add extra parentheses
+		// since TupleExpr.String() already includes them
+		if len(s.Values) == 1 {
+			if tuple, ok := s.Values[0].(*expr.TupleExpr); ok {
+				f.WriteString(tuple.String())
+			} else {
+				f.WriteString("(")
+				f.WriteString(s.Values[0].String())
+				f.WriteString(")")
+			}
+		} else {
+			f.WriteString("(")
+			f.WriteString(formatExprs(s.Values, ", "))
+			f.WriteString(")")
+		}
 	} else if s.Variable != nil {
 		f.WriteString(s.Variable.String())
 		f.WriteString(" = ")

@@ -751,6 +751,42 @@ func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr
 		}, nil
 	}
 
+	// Check for parenthesized subquery (e.g., IN ((SELECT ...) UNION (SELECT ...)))
+	// The inner parentheses contain a set operation
+	if _, ok := next.Token.(token.TokenLParen); ok {
+		// Try to parse as a parenthesized expression which might be a subquery with set ops
+		parsedExpr, err := ep.ParseExpr()
+		if err != nil {
+			// If that fails, fall back to expression list parsing
+		} else {
+			// Check if we got a subquery (parenthesized query)
+			if subq, ok := parsedExpr.(*expr.Subquery); ok {
+				if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				return &expr.InSubquery{
+					Expr: left,
+					Subquery: &expr.QueryExpr{
+						SpanVal:   subq.Span(),
+						Statement: subq.Query.Statement,
+					},
+					Negated: negated,
+					SpanVal: mergeSpans(left.Span(), ep.parser.GetCurrentToken().Span),
+				}, nil
+			}
+			// If it's not a subquery, it might be a single expression in parentheses
+			if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			return &expr.InList{
+				Expr:    left,
+				List:    []expr.Expr{parsedExpr},
+				Negated: negated,
+				SpanVal: mergeSpans(left.Span(), parsedExpr.Span()),
+			}, nil
+		}
+	}
+
 	// Parse expression list
 	list, err := ep.parseCommaSeparatedExprs()
 	if err != nil {

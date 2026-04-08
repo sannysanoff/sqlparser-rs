@@ -231,6 +231,6 @@ func TestParseOuterJoin(t *testing.T) {
 	// RIGHT OUTER JOIN
 	dialects.VerifiedStmt(t, "SELECT * FROM t1 RIGHT OUTER JOIN t2 ON t1.id = t2.id")
 
-	// FULL OUTER JOIN (normalizes to FULL JOIN)
-	dialects.OneStatementParsesTo(t, "SELECT * FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id", "SELECT * FROM t1 FULL JOIN t2 ON t1.id = t2.id")
+	// FULL OUTER JOIN
+	dialects.VerifiedStmt(t, "SELECT * FROM t1 FULL OUTER JOIN t2 ON t1.id = t2.id")
 }

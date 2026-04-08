@@ -152,6 +152,12 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
+	// Check for set operations (UNION/INTERSECT/EXCEPT) and parse them
+	body, err = parseSetOperations(p, body)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, FOR clause, or locks)
 	needsQueryWrapper := withClause != nil
 
@@ -186,6 +192,99 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 	}
 
 	return body, nil
+}
+
+// parseSetOperations parses UNION/INTERSECT/EXCEPT set operations
+// Reference: src/parser/mod.rs:14134 parse_set_operation
+func parseSetOperations(p *Parser, left ast.Statement) (ast.Statement, error) {
+	// Convert left statement to SetExpr
+	var leftExpr query.SetExpr
+	if selStmt, ok := left.(*SelectStatement); ok {
+		leftExpr = &query.SelectSetExpr{Select: &selStmt.Select}
+	} else {
+		// For non-SELECT statements, wrap in a generic way
+		return left, nil
+	}
+
+	// Check for set operation keywords
+	var op query.SetOperator
+	if p.ParseKeyword("UNION") {
+		op = query.SetOperatorUnion
+	} else if p.ParseKeyword("EXCEPT") {
+		op = query.SetOperatorExcept
+	} else if p.ParseKeyword("INTERSECT") {
+		op = query.SetOperatorIntersect
+	} else {
+		// No set operation, return the original statement
+		return left, nil
+	}
+
+	// Parse set quantifier (ALL/DISTINCT/BY NAME)
+	setQuantifier := query.SetQuantifierNone
+	if p.ParseKeyword("ALL") {
+		setQuantifier = query.SetQuantifierAll
+	} else if p.ParseKeyword("DISTINCT") {
+		setQuantifier = query.SetQuantifierDistinct
+	} else if p.ParseKeywords([]string{"BY", "NAME"}) {
+		setQuantifier = query.SetQuantifierByName
+	}
+
+	// Parse the right side of the set operation
+	var rightExpr query.SetExpr
+	if p.PeekKeyword("SELECT") {
+		rightBody, err := parseSelect(p)
+		if err != nil {
+			return nil, err
+		}
+		if selStmt, ok := rightBody.(*SelectStatement); ok {
+			rightExpr = &query.SelectSetExpr{Select: &selStmt.Select}
+		}
+	} else if p.PeekKeyword("VALUES") {
+		valStmt, err := parseValues(p)
+		if err != nil {
+			return nil, err
+		}
+		// Extract Values from the ValuesStatement's Query
+		if valStmt.Query != nil {
+			if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
+				rightExpr = valSetExpr
+			}
+		}
+	} else if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		// Right side is a parenthesized subquery: (SELECT ...) or (VALUES ...)
+		// Parse it as a query and extract the SetExpr
+		subqueryStmt, err := parseQueryBody(p)
+		if err != nil {
+			return nil, err
+		}
+		// Convert to SetExpr
+		if selStmt, ok := subqueryStmt.(*SelectStatement); ok {
+			rightExpr = &query.SelectSetExpr{Select: &selStmt.Select}
+		} else if valStmt, ok := subqueryStmt.(*ValuesStatement); ok {
+			if valStmt.Query != nil {
+				if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
+					rightExpr = valSetExpr
+				}
+			}
+		}
+	} else {
+		return nil, p.ExpectedRef("SELECT, VALUES, or parenthesized subquery after set operation", p.PeekTokenRef())
+	}
+
+	// Create the set operation
+	setOp := &query.SetOperation{
+		Left:          leftExpr,
+		Op:            op,
+		SetQuantifier: setQuantifier,
+		Right:         rightExpr,
+	}
+
+	// Wrap in a Query for the statement
+	return &statement.Query{
+		Query: &query.Query{
+			Body: setOp,
+		},
+	}, nil
 }
 
 // parseQueryBody parses the body of a query (SELECT, VALUES, etc.)
@@ -1131,7 +1230,8 @@ func isJoinKeyword(tok token.TokenWithSpan) bool {
 		kw := strings.ToUpper(string(word.Word.Keyword))
 		return kw == "JOIN" || kw == "CROSS" || kw == "INNER" ||
 			kw == "LEFT" || kw == "RIGHT" || kw == "FULL" ||
-			kw == "NATURAL"
+			kw == "NATURAL" || kw == "ANTI" || kw == "SEMI" ||
+			kw == "GLOBAL"
 	}
 	return false
 }
@@ -1164,6 +1264,7 @@ func parseTableWithJoins(p *Parser) (query.TableWithJoins, error) {
 func parseJoin(p *Parser) (query.Join, error) {
 	// Parse join type modifiers
 	natural := p.ParseKeyword("NATURAL")
+	global := p.ParseKeyword("GLOBAL")
 
 	// Determine join type string
 	// Default is just "JOIN" (not "INNER JOIN" - we preserve the original syntax)
@@ -1259,13 +1360,12 @@ func parseJoin(p *Parser) (query.Join, error) {
 		constraint = &query.NoneJoinConstraint{}
 	}
 
-	// Handle NATURAL prefix in type
-	if natural {
-		joinTypeStr = "NATURAL " + joinTypeStr
-	}
+	// Note: NATURAL prefix is added by StandardJoinOp.String() based on NaturalJoinConstraint
+	// We don't add it here to avoid double NATURAL in output
 
 	return query.Join{
 		Relation: table,
+		Global:   global,
 		JoinOperator: &query.StandardJoinOp{
 			Type:       joinTypeStr,
 			Constraint: constraint,

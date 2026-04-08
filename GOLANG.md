@@ -1,14 +1,51 @@
 ---
 
-**Line Counts (Updated April 8, 2026 - Session 10 Complete - 4 Tests Fixed):**
+**Line Counts (Updated April 8, 2026 - Session 11 - JOIN and SET Operations Implementation):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 66,842 lines | 80,378 lines | 120% |
-| Tests | 49,886 lines | 14,318 lines | 29% |
-| **Test Status** | - | **528 passing** / **285 failing** (~65%) | +4 tests passing
+| Source (parser+ast+dialects) | 59,133 lines | 74,678 lines | 126% |
+| Tests | 49,847 lines | 19,172 lines | 38% |
+| **Test Status** | - | **539 passing** / **274 failing** (~66%) | +11 tests passing
 
-**Today's Major Fixes (Session 10):**
+**Today's Major Fixes (Session 11):**
+
+1. **NATURAL JOIN Double Serialization** - Fixed duplicate "NATURAL" in JOIN output:
+   - **Problem**: `SELECT * FROM t1 NATURAL JOIN t2` was serializing as `SELECT * FROM t1 NATURAL NATURAL JOIN t2`
+   - **Root Cause**: `parseJoin()` was prepending "NATURAL " to joinTypeStr AND `StandardJoinOp.String()` was also adding "NATURAL " prefix when constraint was NaturalJoinConstraint
+   - **Fix**: Removed the "NATURAL " prefix addition in parseJoin() since StandardJoinOp.String() handles it based on constraint type
+   - **Pattern E70**: Avoid double serialization by having either the parser OR the String() method handle prefixing, not both
+
+2. **JOIN Keywords Missing from isJoinKeyword()** - Added ANTI, SEMI, GLOBAL support:
+   - **Problem**: `SELECT * FROM t1 ANTI JOIN t2` failed with "Expected: end of statement, found: ANTI"
+   - **Root Cause**: `isJoinKeyword()` only recognized CROSS, INNER, LEFT, RIGHT, FULL, NATURAL but not ANTI, SEMI, or GLOBAL
+   - **Fix**: Added ANTI, SEMI, GLOBAL to isJoinKeyword() check
+   - **Tests Fixed**: TestParseJoinsOn (ANTI JOIN, GLOBAL FULL JOIN now pass)
+
+3. **UNION/INTERSECT/EXCEPT Set Operations** - Implemented basic set operation parsing:
+   - **Problem**: `SELECT * FROM a UNION SELECT * FROM b` failed with "Expected: end of statement, found: UNION"
+   - **Root Cause**: parseQuery() did not check for set operation keywords after parsing query body
+   - **Fix**: Added parseSetOperations() function that checks for UNION/EXCEPT/INTERSECT after parsing SELECT/VALUES and constructs SetOperation AST
+   - **Pattern E71**: Set operations are parsed at query level after the initial query body is parsed, not within the expression parser
+   - **Tests Fixed**: TestParseUnion, TestParseIntersect, TestParseExcept (all passing)
+
+4. **Parenthesized SET Variable Serialization** - Fixed double parentheses:
+   - **Problem**: `SET (a, b, c) = (1, 2, 3)` was serializing as `SET (a, b, c) = ((1, 2, 3))`
+   - **Root Cause**: Set.String() was adding parentheses around values even when values were already TupleExpr with their own parentheses
+   - **Fix**: Check if single value is TupleExpr and don't add extra parentheses in that case
+
+**New Patterns Documented:**
+- **Pattern E70**: Avoid double serialization - Either the parser OR the String() method should add syntax prefixes, never both
+- **Pattern E71**: Set operations (UNION/INTERSECT/EXCEPT) are parsed at query level after initial query body, handling left and right sides with quantifiers (ALL/DISTINCT/BY NAME)
+- **Pattern E72**: isJoinKeyword() must recognize all join-starting keywords including variant-specific ones like ANTI, SEMI, GLOBAL
+
+**Still In Progress:**
+- IN clause with parenthesized set operations: `IN ((SELECT ...) UNION (SELECT ...))` - requires handling set operations at parenthesized expression level, not just query level
+- TestParseInUnion and TestAnySomeAllComparison still failing due to set operation handling in subquery contexts
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 10 Complete - 4 Tests Fixed):**
 
 1. **TestParseWindowClause** - Fixed incorrect test expectation:
    - **Problem**: Test used BigQuery dialect to test error case for `WINDOW window1 AS window2`, but BigQuery supports named window references
