@@ -1,6 +1,52 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 41 (COMMENT ON Fix, 912 Tests Passing)
+## Latest Update: April 8, 2026 - Session 42 (LIST/REMOVE + GRANT Fixes, 599 Tests Passing)
+
+**Line Counts (Updated April 8, 2026 - Session 42):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,181 lines | 125% |
+| Tests | 49,886 lines | 13,937 lines | 28% |
+| **Test Status** | - | **599 tests passing** / **214 tests failing** (~73.6%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 42 Summary:
+
+**Implemented Snowflake LIST/REMOVE Commands** (4 tests now passing - major feature!)
+- Fixed `TestSnowflakeLsAndRm` - all 4 subtests now passing
+- **Implementation**: Added `parseFileStagingCommand()` function in Snowflake dialect to handle LIST, LS, REMOVE, RM commands
+- **Features**: 
+  - `LIST @~` - User's home stage
+  - `LIST @stage_name/path` - Stage with path
+  - `LIST @"STAGE_WITH_QUOTES"` - Quoted stage names
+  - `REMOVE @stage PATTERN='...'` - Remove with pattern matching
+- **Pattern E158**: Snowflake LIST/REMOVE parsing - Check for LIST/LS/REMOVE/RM keywords in `ParseStatement()`, parse stage name using `ParseSnowflakeStageName()`, then parse optional `PATTERN = '...'` clause
+
+**Fixed GRANT Multi-Word Privileges** (6+ tests now passing - major feature!)
+- Fixed `TestSnowflakeGrantAccountGlobalPrivileges` - all 8 subtests now passing
+- Fixed `TestSnowflakeGrantRoleTo` - 3 out of 4 subtests now passing (one remaining issue with complex dotted names)
+- **Implementation**: Added support for multi-word privilege actions in `parseGrantPermission()`:
+  - `APPLY MASKING POLICY`
+  - `APPLY ROW ACCESS POLICY`
+  - `EXECUTE TASK`
+  - `EXECUTE MANAGED TASK`
+  - `MANAGE GRANTS`
+  - `MANAGE WAREHOUSES`
+  - `MONITOR USAGE`
+  - `MONITOR EXECUTION`
+  - `DATABASE ROLE` (Snowflake-specific)
+- Added new `ActionTypeManage` and `ActionTypeMonitor` to the ActionType enum
+- **Pattern E159**: Multi-word GRANT privileges - Check for base keyword (APPLY, EXECUTE, MANAGE, MONITOR) then parse subsequent keywords to construct full privilege name stored in `RawKeyword`
+
+**Fixed Quote Preservation in Stage Names**
+- Fixed double-quoted stage names losing quotes during serialization
+- **Implementation**: Updated `createIdentWithQuoteStyle()` to preserve quote style when the stage name contains quotes
+- **Pattern E160**: Quote style preservation for compound identifiers - When parsing stage names that may contain quoted parts, track and preserve the quote style so serialization matches the original SQL
+
+---
+
+## Previous Update: April 8, 2026 - Session 41 (COMMENT ON Fix, 912 Tests Passing)
 
 **Line Counts (Updated April 8, 2026 - Session 41):**
 
@@ -612,6 +658,53 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
       return nil, err
   }
   comment = &str
+  ```
+
+---
+
+### Session 42 Patterns (New):
+
+- **Pattern E158**: Snowflake LIST/REMOVE parsing - Check for LIST/LS/REMOVE/RM keywords in `ParseStatement()`, then parse the stage name using `ParseSnowflakeStageName()`. Handle optional `PATTERN = '...'` clause after the stage name:
+  ```go
+  if parser.PeekKeyword("LIST") || parser.PeekKeyword("LS") {
+      stmt, err := d.parseFileStagingCommand(parser, "LIST")
+      return stmt, true, err
+  }
+  ```
+
+- **Pattern E159**: Multi-word GRANT privileges - Check for base keyword first (APPLY, EXECUTE, MANAGE, MONITOR), then parse subsequent keywords to construct the full privilege name. Store the complete string in `RawKeyword` for proper serialization:
+  ```go
+  case statement.ActionTypeApply:
+      if p.ParseKeyword("MASKING") && p.ParseKeyword("POLICY") {
+          action.RawKeyword = "APPLY MASKING POLICY"
+      }
+  ```
+
+- **Pattern E160**: Quote style preservation for compound identifiers - When the identifier value already contains quotes (e.g., from parsing `"STAGE_NAME"`), create the Ident with `QuoteStyle` set so serialization adds the appropriate quotes:
+  ```go
+  func createIdentWithQuoteStyle(value string) *ast.Ident {
+      if strings.Contains(value, "\"") {
+          quote := rune('"')
+          return &ast.Ident{Value: value, QuoteStyle: &quote}
+      }
+      return &ast.Ident{Value: value}
+  }
+  ```
+
+- **Pattern E161**: DATABASE ROLE support in GRANT - Check for DATABASE keyword before calling ParseActionType. If followed by ROLE, parse it as a special ROLE action type with RawKeyword set to "DATABASE ROLE":
+  ```go
+  if word.Word.Value == "DATABASE" {
+      p.NextToken()
+      if p.ParseKeyword("ROLE") {
+          roleName, err := p.ParseObjectName()
+          return &statement.Action{
+              ActionType: statement.ActionTypeRole,
+              RawKeyword: "DATABASE ROLE",
+              Role:       roleName,
+          }, nil
+      }
+      p.PrevToken() // Put back DATABASE if not followed by ROLE
+  }
   ```
 
 ---

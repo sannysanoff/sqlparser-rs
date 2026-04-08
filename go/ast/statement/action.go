@@ -122,6 +122,10 @@ const (
 	ActionTypeReplicate
 	// ActionTypeRole - ROLE (for GRANT ROLE name TO ...)
 	ActionTypeRole
+	// ActionTypeManage - MANAGE
+	ActionTypeManage
+	// ActionTypeMonitor - MONITOR
+	ActionTypeMonitor
 )
 
 func (a ActionType) String() string {
@@ -170,6 +174,10 @@ func (a ActionType) String() string {
 		return "REPLICATE"
 	case ActionTypeRole:
 		return "ROLE"
+	case ActionTypeManage:
+		return "MANAGE"
+	case ActionTypeMonitor:
+		return "MONITOR"
 	default:
 		return ""
 	}
@@ -222,6 +230,10 @@ func ParseActionType(s string) (ActionType, bool) {
 		return ActionTypeReplicate, true
 	case "ROLE":
 		return ActionTypeRole, true
+	case "MANAGE":
+		return ActionTypeManage, true
+	case "MONITOR":
+		return ActionTypeMonitor, true
 	default:
 		return ActionTypeConnect, false
 	}

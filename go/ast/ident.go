@@ -86,6 +86,13 @@ func (i *Ident) String() string {
 	quote := *i.QuoteStyle
 	switch quote {
 	case '"', '\'', '`':
+		// Special case: if the value starts with @ (Snowflake stage reference),
+		// put the @ outside the quotes: @"STAGE" instead of "@STAGE"
+		if strings.HasPrefix(i.Value, "@") {
+			stageName := i.Value[1:] // Remove the @ prefix
+			escaped := escapeQuotedString(stageName, quote)
+			return fmt.Sprintf("@%c%s%c", quote, escaped, quote)
+		}
 		escaped := escapeQuotedString(i.Value, quote)
 		return fmt.Sprintf("%c%s%c", quote, escaped, quote)
 	case '[':

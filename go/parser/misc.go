@@ -360,6 +360,27 @@ func parseGrantPermission(p *Parser) (*statement.Action, error) {
 	if !ok {
 		return nil, p.expected("privilege name", tok)
 	}
+
+	// Special case for DATABASE ROLE (Snowflake-specific)
+	// GRANT DATABASE ROLE r1 TO ROLE r2
+	if word.Word.Value == "DATABASE" {
+		p.NextToken() // consume DATABASE
+		if p.ParseKeyword("ROLE") {
+			// Parse the database role name
+			roleName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected database role name after DATABASE ROLE: %w", err)
+			}
+			return &statement.Action{
+				ActionType: statement.ActionTypeRole,
+				RawKeyword: "DATABASE ROLE",
+				Role:       roleName,
+			}, nil
+		}
+		// If not followed by ROLE, put back DATABASE and continue
+		p.PrevToken()
+	}
+
 	actionType, found := statement.ParseActionType(word.Value)
 	if !found {
 		return nil, p.expected("privilege name", tok)
@@ -367,6 +388,54 @@ func parseGrantPermission(p *Parser) (*statement.Action, error) {
 	p.NextToken()
 
 	action := &statement.Action{ActionType: actionType, RawKeyword: word.Word.Value}
+
+	// Handle multi-word privilege actions
+	switch actionType {
+	case statement.ActionTypeApply:
+		// APPLY MASKING POLICY, APPLY ROW ACCESS POLICY, etc.
+		if p.ParseKeyword("MASKING") {
+			if p.ParseKeyword("POLICY") {
+				action.RawKeyword = "APPLY MASKING POLICY"
+			} else {
+				return nil, fmt.Errorf("expected POLICY after APPLY MASKING")
+			}
+		} else if p.ParseKeyword("ROW") {
+			if p.ParseKeyword("ACCESS") {
+				if p.ParseKeyword("POLICY") {
+					action.RawKeyword = "APPLY ROW ACCESS POLICY"
+				} else {
+					return nil, fmt.Errorf("expected POLICY after APPLY ROW ACCESS")
+				}
+			} else {
+				return nil, fmt.Errorf("expected ACCESS after APPLY ROW")
+			}
+		}
+	case statement.ActionTypeExecute:
+		// EXECUTE TASK, EXECUTE MANAGED TASK, etc.
+		if p.ParseKeyword("TASK") {
+			action.RawKeyword = "EXECUTE TASK"
+		} else if p.ParseKeyword("MANAGED") {
+			if p.ParseKeyword("TASK") {
+				action.RawKeyword = "EXECUTE MANAGED TASK"
+			} else {
+				return nil, fmt.Errorf("expected TASK after EXECUTE MANAGED")
+			}
+		}
+	case statement.ActionTypeManage:
+		// MANAGE GRANTS, MANAGE WAREHOUSES, etc.
+		if p.ParseKeyword("GRANTS") {
+			action.RawKeyword = "MANAGE GRANTS"
+		} else if p.ParseKeyword("WAREHOUSES") {
+			action.RawKeyword = "MANAGE WAREHOUSES"
+		}
+	case statement.ActionTypeMonitor:
+		// MONITOR USAGE, MONITOR EXECUTION, etc.
+		if p.ParseKeyword("USAGE") {
+			action.RawKeyword = "MONITOR USAGE"
+		} else if p.ParseKeyword("EXECUTION") {
+			action.RawKeyword = "MONITOR EXECUTION"
+		}
+	}
 
 	// Special case for ROLE action: parse the role name (e.g., GRANT ROLE role1 TO ...)
 	if actionType == statement.ActionTypeRole {
@@ -512,20 +581,30 @@ func parseGrantees(p *Parser) ([]*statement.Grantee, error) {
 }
 
 // parseGranteeName parses a grantee name (identifier, 'user'@'host', or 'namespace:username')
+// Supports dotted identifiers for Snowflake-style role names like db1.sc1.r1
 // Reference: src/parser/mod.rs parse_grantee_name (line 17273)
 func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
-	ident, err := p.ParseIdentifier()
+	// Parse the object name (handles both single identifiers and dotted names like db1.sc1.r1)
+	objName, err := p.ParseObjectName()
 	if err != nil {
 		return nil, err
 	}
+
 	// Check for MySQL-style 'user'@'host' syntax
 	if p.ConsumeToken(token.TokenAtSign{}) {
 		host, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, err
 		}
-		return &statement.GranteeName{User: ident, Host: host}, nil
+		// Use the first part of the object name as the user
+		if len(objName.Parts) > 0 {
+			if part, ok := objName.Parts[0].(*ast.ObjectNamePartIdentifier); ok {
+				return &statement.GranteeName{User: part.Ident, Host: host}, nil
+			}
+		}
+		return nil, fmt.Errorf("expected identifier before @ in grantee name")
 	}
+
 	// Check for Redshift-style namespace:username syntax
 	// https://docs.aws.amazon.com/redshift/latest/mgmt/redshift-iam-access-control-native-idp.html
 	if p.ConsumeToken(token.TokenColon{}) {
@@ -534,10 +613,16 @@ func parseGranteeName(p *Parser) (*statement.GranteeName, error) {
 			return nil, err
 		}
 		// Combine namespace:username into a single identifier
-		combinedValue := ident.Value + ":" + secondIdent.Value
-		return &statement.GranteeName{ObjectName: ast.NewObjectNameFromIdents(&ast.Ident{Value: combinedValue})}, nil
+		if len(objName.Parts) > 0 {
+			if part, ok := objName.Parts[0].(*ast.ObjectNamePartIdentifier); ok {
+				combinedValue := part.Ident.Value + ":" + secondIdent.Value
+				return &statement.GranteeName{ObjectName: ast.NewObjectNameFromIdents(&ast.Ident{Value: combinedValue})}, nil
+			}
+		}
+		return nil, fmt.Errorf("expected identifier before : in grantee name")
 	}
-	return &statement.GranteeName{ObjectName: ast.NewObjectNameFromIdents(ident)}, nil
+
+	return &statement.GranteeName{ObjectName: objName}, nil
 }
 
 // parseSet parses SET statements

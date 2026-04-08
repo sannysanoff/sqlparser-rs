@@ -1255,9 +1255,18 @@ func (d *SnowflakeDialect) ParseStatement(parser dialects.ParserAccessor) (ast.S
 		restore()
 	}
 
+	// Check for LIST/LS and REMOVE/RM file staging commands
+	if parser.PeekKeyword("LIST") || parser.PeekKeyword("LS") {
+		stmt, err := d.parseFileStagingCommand(parser, "LIST")
+		return stmt, true, err
+	}
+	if parser.PeekKeyword("REMOVE") || parser.PeekKeyword("RM") {
+		stmt, err := d.parseFileStagingCommand(parser, "REMOVE")
+		return stmt, true, err
+	}
+
 	// TODO: Implement other Snowflake-specific statements:
 	// - SHOW OBJECTS
-	// - LIST/LS, REMOVE/RM (file staging commands)
 	// - CREATE STAGE
 	return nil, false, nil
 }
@@ -1625,7 +1634,6 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 			tok := parser.NextToken()
 			switch t := tok.Token.(type) {
 			case token.TokenWord:
-				// Check if followed by period + word for file extensions
 				// e.g., "file" in "file.parquet" should include the extension
 				nextTok := parser.PeekToken()
 				if _, ok := nextTok.Token.(token.TokenPeriod); ok {
@@ -1644,7 +1652,7 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 						if _, isWord := nextAfterExt.Token.(token.TokenWord); isWord {
 							// Next token is a word - it's likely a table alias, stop here
 							parts = append(parts, &ast.ObjectNamePartIdentifier{
-								Ident: &ast.Ident{Value: stageName.String()},
+								Ident: createIdentWithQuoteStyle(stageName.String()),
 							})
 							return &ast.ObjectName{Parts: parts}, nil
 						}
@@ -1658,13 +1666,47 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 					// This word is followed by whitespace - it's likely a table alias
 					// End the stage name here without consuming this word
 					parts = append(parts, &ast.ObjectNamePartIdentifier{
-						Ident: &ast.Ident{Value: stageName.String()},
+						Ident: createIdentWithQuoteStyle(stageName.String()),
 					})
 					return &ast.ObjectName{Parts: parts}, nil
 				}
 
+				// Check if this word is "PATTERN" followed by whitespace or '='
+				// If so, don't consume it as part of the stage name - it's a PATTERN clause
+				if t.Word.Value == "PATTERN" {
+					if _, isWhitespace := nextTok.Token.(token.TokenWhitespace); isWhitespace {
+						// PATTERN followed by whitespace - end stage name here
+						// Put back PATTERN so caller can handle it
+						parser.PrevToken()
+						parts = append(parts, &ast.ObjectNamePartIdentifier{
+							Ident: createIdentWithQuoteStyle(stageName.String()),
+						})
+						return &ast.ObjectName{Parts: parts}, nil
+					}
+					if _, isEq := nextTok.Token.(token.TokenEq); isEq {
+						// PATTERN followed by '=' - end stage name here
+						// Put back PATTERN so caller can handle it
+						parser.PrevToken()
+						parts = append(parts, &ast.ObjectNamePartIdentifier{
+							Ident: createIdentWithQuoteStyle(stageName.String()),
+						})
+						return &ast.ObjectName{Parts: parts}, nil
+					}
+				}
+
 				// Regular word - add it and continue
-				stageName.WriteString(t.Word.Value)
+				// Check if the word has a quote style (e.g., double-quoted identifier)
+				// If so, include the quotes in the stage name so createIdentWithQuoteStyle
+				// can detect them and set the QuoteStyle properly
+				if t.Word.QuoteStyle != nil {
+					quote := *t.Word.QuoteStyle
+					endQuote := matchingEndQuote(quote)
+					stageName.WriteByte(quote)
+					stageName.WriteString(t.Word.Value)
+					stageName.WriteByte(endQuote)
+				} else {
+					stageName.WriteString(t.Word.Value)
+				}
 			// Continue to next token
 			case token.TokenPeriod:
 				stageName.WriteRune('.')
@@ -1692,7 +1734,7 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 						if _, isWord := nextAfterExt.Token.(token.TokenWord); isWord {
 							// Next token is a word - it's likely a table alias, stop here
 							parts = append(parts, &ast.ObjectNamePartIdentifier{
-								Ident: &ast.Ident{Value: stageName.String()},
+								Ident: createIdentWithQuoteStyle(stageName.String()),
 							})
 							return &ast.ObjectName{Parts: parts}, nil
 						}
@@ -1706,7 +1748,7 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 					// This number is followed by whitespace - it's likely a table alias
 					// End the stage name here without consuming this number
 					parts = append(parts, &ast.ObjectNamePartIdentifier{
-						Ident: &ast.Ident{Value: stageName.String()},
+						Ident: createIdentWithQuoteStyle(stageName.String()),
 					})
 					return &ast.ObjectName{Parts: parts}, nil
 				}
@@ -1721,10 +1763,14 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 					// Not part of stage name - put back the token and return
 					parser.PrevToken()
 					parts = append(parts, &ast.ObjectNamePartIdentifier{
-						Ident: &ast.Ident{Value: stageName.String()},
+						Ident: createIdentWithQuoteStyle(stageName.String()),
 					})
 					return &ast.ObjectName{Parts: parts}, nil
 				}
+			case token.TokenTilde:
+				// Tilde character (used in @~ for user's home stage)
+				stageName.WriteRune('~')
+				continue
 			case token.TokenColon:
 				stageName.WriteRune(':')
 				continue
@@ -1748,23 +1794,28 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				stageName.WriteString(t.Value)
 				stageName.WriteString("'")
 				continue
+			case token.TokenDoubleQuotedString:
+				stageName.WriteString("\"")
+				stageName.WriteString(t.Value)
+				stageName.WriteString("\"")
+				continue
 			case token.TokenWhitespace:
 				// Whitespace ends the stage name but doesn't need to be put back
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
-					Ident: &ast.Ident{Value: stageName.String()},
+					Ident: createIdentWithQuoteStyle(stageName.String()),
 				})
 				return &ast.ObjectName{Parts: parts}, nil
 			case token.EOF:
 				// EOF ends the stage name - no need to put back
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
-					Ident: &ast.Ident{Value: stageName.String()},
+					Ident: createIdentWithQuoteStyle(stageName.String()),
 				})
 				return &ast.ObjectName{Parts: parts}, nil
 			default:
 				// End of stage name - put back the token so caller can handle it
 				parser.PrevToken()
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
-					Ident: &ast.Ident{Value: stageName.String()},
+					Ident: createIdentWithQuoteStyle(stageName.String()),
 				})
 				return &ast.ObjectName{Parts: parts}, nil
 			}
@@ -2522,4 +2573,81 @@ func (d *SnowflakeDialect) parseMultiTableInsertWhenClauses(parser dialects.Pars
 	}
 
 	return whenClauses, elseClause, nil
+}
+
+// parseFileStagingCommand parses LIST/LS or REMOVE/RM commands.
+// Reference: src/dialect/snowflake.rs:parse_file_staging_command
+func (d *SnowflakeDialect) parseFileStagingCommand(parser dialects.ParserAccessor, commandType string) (ast.Statement, error) {
+	// Consume the command keyword (LIST, LS, REMOVE, or RM)
+	parser.AdvanceToken()
+
+	// Parse the stage name
+	stage, err := d.ParseSnowflakeStageName(parser)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional PATTERN = '...' clause
+	var pattern *string
+	if parser.PeekKeyword("PATTERN") {
+		parser.AdvanceToken() // consume PATTERN
+		if _, err := parser.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		patternTok := parser.PeekTokenRef()
+		if str, ok := patternTok.Token.(token.TokenSingleQuotedString); ok {
+			parser.AdvanceToken()
+			pattern = &str.Value
+		} else {
+			return nil, fmt.Errorf("expected string literal after PATTERN =")
+		}
+	}
+
+	// Create the command
+	cmd := &expr.FileStagingCommand{
+		SpanVal: stage.Span(),
+		Stage:   stage,
+		Pattern: pattern,
+	}
+
+	// Return appropriate statement type
+	if commandType == "LIST" {
+		return &statement.List{Command: cmd}, nil
+	}
+	return &statement.Remove{Command: cmd}, nil
+}
+
+// createIdentWithQuoteStyle creates an ast.Ident from a string value, preserving quote style.
+// If the value contains double-quoted parts (e.g., @"STAGE"), the quotes are stripped from the value
+// and the QuoteStyle is set so that String() will re-add them properly.
+func createIdentWithQuoteStyle(value string) *ast.Ident {
+	// Check if the value contains a double-quoted substring
+	// For Snowflake stage names like @"STAGE_WITH_QUOTES"
+	if strings.Contains(value, "\"") {
+		// The value contains quotes - we need to:
+		// 1. Remove the quotes from the value
+		// 2. Set QuoteStyle so String() will add them back
+		unquoted := strings.ReplaceAll(value, "\"", "")
+		quote := rune('"')
+		return &ast.Ident{
+			Value:      unquoted,
+			QuoteStyle: &quote,
+		}
+	}
+	// No quotes, return unquoted identifier
+	return &ast.Ident{Value: value}
+}
+
+// matchingEndQuote returns the matching closing quote character for a given opening quote.
+func matchingEndQuote(ch byte) byte {
+	switch ch {
+	case '"':
+		return '"' // ANSI and most dialects
+	case '[':
+		return ']' // MS SQL
+	case '`':
+		return '`' // MySQL
+	default:
+		return ch
+	}
 }

@@ -5486,14 +5486,27 @@ func (h *HiveLoadDataFormat) IsExpr()          {}
 func (h *HiveLoadDataFormat) Span() token.Span { return token.Span{} }
 func (h *HiveLoadDataFormat) String() string   { return "" }
 
-// FileStagingCommand represents file staging command.
-type FileStagingCommand struct{}
+// FileStagingCommand represents a file staging command (LIST/REMOVE/LS/RM).
+type FileStagingCommand struct {
+	SpanVal token.Span
+	Stage   *ast.ObjectName
+	Pattern *string
+}
 
 func (f *FileStagingCommand) exprNode()        {}
 func (f *FileStagingCommand) expr()            {}
 func (f *FileStagingCommand) IsExpr()          {}
-func (f *FileStagingCommand) Span() token.Span { return token.Span{} }
-func (f *FileStagingCommand) String() string   { return "" }
+func (f *FileStagingCommand) Span() token.Span { return f.SpanVal }
+func (f *FileStagingCommand) String() string {
+	var sb strings.Builder
+	sb.WriteString(f.Stage.String())
+	if f.Pattern != nil {
+		sb.WriteString(" PATTERN='")
+		sb.WriteString(*f.Pattern)
+		sb.WriteString("'")
+	}
+	return sb.String()
+}
 
 // PrintStatement represents PRINT statement.
 type PrintStatement struct {
