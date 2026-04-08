@@ -116,7 +116,7 @@ func (v *ValueExpr) String() string {
 	if v.Value == nil {
 		return "NULL"
 	}
-	// Handle Go bool types (Rust uses lowercase true/false as canonical form)
+	// Handle Go bool types - canonical form is lowercase true/false (matches Rust)
 	if b, ok := v.Value.(bool); ok {
 		if b {
 			return "true"

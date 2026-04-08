@@ -2332,7 +2332,9 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseVarchar2Type(p, tok.Span)
 	case "NVARCHAR2":
 		return parseNvarchar2Type(p, tok.Span)
-	case "BOOL", "BOOLEAN":
+	case "BOOL":
+		return &datatype.BoolType{SpanVal: tok.Span}, nil
+	case "BOOLEAN":
 		return &datatype.BooleanType{SpanVal: tok.Span}, nil
 	case "DATE":
 		return &datatype.DateType{SpanVal: tok.Span}, nil

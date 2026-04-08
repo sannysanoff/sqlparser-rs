@@ -455,7 +455,7 @@ func TestGroupConcat(t *testing.T) {
 func TestParseLogicalXor(t *testing.T) {
 	dialects := MySQL()
 	dialects.VerifiedStmt(t, "SELECT 1 XOR 0")
-	dialects.VerifiedStmt(t, "SELECT TRUE XOR FALSE")
+	dialects.VerifiedStmt(t, "SELECT true XOR false")
 	dialects.VerifiedStmt(t, "SELECT a XOR b FROM t")
 }
 

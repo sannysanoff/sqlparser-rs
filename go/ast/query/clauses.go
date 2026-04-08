@@ -317,14 +317,15 @@ type Fetch struct {
 }
 
 func (f *Fetch) String() string {
-	// Build the FETCH clause preserving the original syntax
+	// Build the FETCH clause using canonical form (matching Rust implementation)
+	// Canonical form: FETCH FIRST [quantity] [PERCENT] ROWS {ONLY | WITH TIES}
+	// Note: FIRST is always used regardless of whether input used FIRST or NEXT
+	// Note: ROWS is always used regardless of whether input used ROW or ROWS
 	var parts []string
 	parts = append(parts, "FETCH")
 
-	// Add FIRST or NEXT if it was present in original
-	if f.HasNext {
-		parts = append(parts, "NEXT")
-	} else if f.HasFirst {
+	// Always use FIRST in canonical form (not NEXT)
+	if f.HasFirst || f.HasNext || f.Quantity != nil {
 		parts = append(parts, "FIRST")
 	}
 
@@ -337,20 +338,17 @@ func (f *Fetch) String() string {
 		parts = append(parts, quantityStr)
 	}
 
-	// Add ROW or ROWS if it was present in original
-	if f.HasRow {
-		parts = append(parts, "ROW")
-	} else if f.HasRows {
+	// Always use ROWS in canonical form (not ROW)
+	// ROWS should be present when there's a quantity or when ONLY/WITH TIES is present
+	if f.Quantity != nil || f.HasOnlyOrWithTies {
 		parts = append(parts, "ROWS")
 	}
 
-	// Add ONLY or WITH TIES if it was present
-	if f.HasOnlyOrWithTies {
-		if f.WithTies {
-			parts = append(parts, "WITH TIES")
-		} else {
-			parts = append(parts, "ONLY")
-		}
+	// Add ONLY or WITH TIES
+	if f.WithTies {
+		parts = append(parts, "WITH TIES")
+	} else {
+		parts = append(parts, "ONLY")
 	}
 
 	return strings.Join(parts, " ")

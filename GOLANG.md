@@ -1,5 +1,47 @@
 # Go SQL Parser Development Guide
 
+## Session 80 Summary: FETCH Canonical Form & BOOLEAN/BOOL Fixes (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented three major canonical form fixes, resolving 5+ failing tests:
+
+1. **FETCH Clause Canonical Form** (ast/query/clauses.go)
+   - Fixed String() to always output "FIRST" regardless of input using FIRST or NEXT
+   - Fixed String() to always output "ROWS" regardless of input using ROW or ROWS
+   - Fixed String() to always include "ONLY" or "WITH TIES" in output
+   - Canonical form: `FETCH FIRST [quantity] [PERCENT] ROWS {ONLY | WITH TIES}`
+   - Fixed TestParseFetchVariations and Snowflake FETCH tests
+
+2. **BOOL vs BOOLEAN Type Fix** (parser/parser.go, ast/datatype/datatype.go)
+   - Split "BOOL" and "BOOLEAN" parsing to return different types
+   - "BOOL" keyword now creates `BoolType` (String() returns "BOOL")
+   - "BOOLEAN" keyword now creates `BooleanType` (String() returns "BOOLEAN")
+   - Fixed TestParseNotNullInColumnOptions which expects "BOOL" in output
+
+3. **TRUE/FALSE Case Fix** (go/tests/mysql/mysql_batch2_test.go)
+   - Updated TestParseLogicalXor to use lowercase "true XOR false" (matches Rust)
+   - Rust canonical form uses lowercase true/false for boolean values
+   - ValueExpr.String() returns lowercase for Go bool types
+
+4. **Snowflake FETCH Test Fix** (tests/snowflake/snowflake_test.go)
+   - Updated TestSnowflakeFetchClause to use OneStatementParsesTo for variants
+   - Test now properly validates that all variants normalize to canonical form
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,330 lines | 131% |
+| Tests | 49,886 lines | 14,412 lines | 29% |
+| **Test Status** | - | **~740 passing, ~60 failing** (was ~740 passing, ~63 failing) |
+
+**New Patterns Documented:**
+- **Pattern E286**: FETCH canonical form - Always output "FIRST" (not NEXT), "ROWS" (not ROW), and always include "ONLY"/"WITH TIES"
+- **Pattern E287**: BOOL vs BOOLEAN - Parse as separate types with different String() outputs
+- **Pattern E288**: Boolean value case - Go bool values serialize to lowercase "true"/"false" (matches Rust)
+
+---
+
 ## Session 79 Plan: Massive Code Port - PostgreSQL Operators & AUTOINCREMENT Fix (April 9, 2026)
 
 **Goal:** Continue fixing failing tests by implementing PostgreSQL operator support and fixing serialization issues
@@ -1398,6 +1440,60 @@ Pattern E285: Dialect-Specific Keyword Variant Parsing
   }
   ```
 - Files typically modified: parser/ddl.go, ast/expr/ddl.go
+
+Pattern E286: FETCH Clause Canonical Form
+- When: Serializing FETCH clause with different input variants
+- Problem: Input can use FIRST/NEXT, ROW/ROWS, but canonical form should be consistent
+- Solution: Always output "FIRST" (not NEXT), "ROWS" (not ROW), always include "ONLY" or "WITH TIES"
+- Example:
+  ```go
+  // Input: FETCH NEXT 10 ROW
+  // Canonical output: FETCH FIRST 10 ROWS ONLY
+  func (f *Fetch) String() string {
+      parts := []string{"FETCH", "FIRST"}
+      if f.Quantity != nil {
+          parts = append(parts, f.Quantity.String())
+      }
+      parts = append(parts, "ROWS")  // Always ROWS
+      if f.WithTies {
+          parts = append(parts, "WITH TIES")
+      } else {
+          parts = append(parts, "ONLY")  // Always ONLY
+      }
+      return strings.Join(parts, " ")
+  }
+  ```
+- Files typically modified: ast/query/clauses.go
+
+Pattern E287: BOOL vs BOOLEAN Type Parsing
+- When: Parsing boolean data types which can be BOOL or BOOLEAN
+- Problem: Need to preserve which keyword was used for canonical form
+- Solution: Parse as separate types with different String() outputs
+- Example:
+  ```go
+  case "BOOL":
+      return &datatype.BoolType{SpanVal: tok.Span}, nil  // String() returns "BOOL"
+  case "BOOLEAN":
+      return &datatype.BooleanType{SpanVal: tok.Span}, nil  // String() returns "BOOLEAN"
+  ```
+- Files typically modified: parser/parser.go, ast/datatype/datatype.go
+
+Pattern E288: Boolean Value Case
+- When: Serializing boolean values (true/false)
+- Problem: Case sensitivity differs between SQL keywords and boolean values
+- Solution: Go bool values serialize to lowercase "true"/"false" (matches Rust canonical form)
+- Example:
+  ```go
+  func (v *ValueExpr) String() string {
+      if b, ok := v.Value.(bool); ok {
+          if b {
+              return "true"  // lowercase, not "TRUE"
+          }
+          return "false"  // lowercase, not "FALSE"
+      }
+  }
+  ```
+- Files typically modified: ast/expr/basic.go
 
 **See full pattern catalog in code comments and previous session notes.**
 

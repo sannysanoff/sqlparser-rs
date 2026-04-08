@@ -1145,21 +1145,29 @@ func TestSnowflakeAlterSession(t *testing.T) {
 // Reference: tests/sqlparser_snowflake.rs:4717
 func TestSnowflakeFetchClause(t *testing.T) {
 	dialects := snowflakeDialect()
+	canonical := "SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS ONLY"
 
-	testCases := []string{
-		"SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS ONLY",
-		"SELECT c1 FROM fetch_test FETCH 2",
-		"SELECT c1 FROM fetch_test FETCH FIRST 2",
-		"SELECT c1 FROM fetch_test FETCH NEXT 2",
-		"SELECT c1 FROM fetch_test FETCH 2 ROW",
-		"SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS",
-	}
+	// Test canonical form (round-trip)
+	t.Run("canonical form", func(t *testing.T) {
+		dialects.VerifiedStmt(t, canonical)
+	})
 
-	for _, sql := range testCases {
-		t.Run(sql, func(t *testing.T) {
-			dialects.VerifiedStmt(t, sql)
-		})
-	}
+	// Test variants that normalize to canonical form
+	t.Run("FETCH 2", func(t *testing.T) {
+		dialects.OneStatementParsesTo(t, "SELECT c1 FROM fetch_test FETCH 2", canonical)
+	})
+	t.Run("FETCH FIRST 2", func(t *testing.T) {
+		dialects.OneStatementParsesTo(t, "SELECT c1 FROM fetch_test FETCH FIRST 2", canonical)
+	})
+	t.Run("FETCH NEXT 2", func(t *testing.T) {
+		dialects.OneStatementParsesTo(t, "SELECT c1 FROM fetch_test FETCH NEXT 2", canonical)
+	})
+	t.Run("FETCH 2 ROW", func(t *testing.T) {
+		dialects.OneStatementParsesTo(t, "SELECT c1 FROM fetch_test FETCH 2 ROW", canonical)
+	})
+	t.Run("FETCH FIRST 2 ROWS", func(t *testing.T) {
+		dialects.OneStatementParsesTo(t, "SELECT c1 FROM fetch_test FETCH FIRST 2 ROWS", canonical)
+	})
 }
 
 // TestSnowflakeCreateViewCopyGrants tests CREATE VIEW COPY GRANTS
