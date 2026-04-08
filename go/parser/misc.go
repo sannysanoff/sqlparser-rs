@@ -694,9 +694,6 @@ func parseSet(p *Parser) (ast.Statement, error) {
 					return nil, err
 				}
 			}
-			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
-				return nil, err
-			}
 			ep := NewExpressionParser(p)
 			values := []expr.Expr{}
 			for {
@@ -709,12 +706,23 @@ func parseSet(p *Parser) (ast.Statement, error) {
 					break
 				}
 			}
-			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-				return nil, err
+			// Create variables slice
+			variables := make([]*ast.ObjectName, len(vars))
+			for i, v := range vars {
+				variables[i] = &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: v}}}}
 			}
-			setStmt := &statement.Set{Session: session, Local: local, Global: global, HiveVar: hivevar, Values: values}
+			setStmt := &statement.Set{
+				Session:       session,
+				Local:         local,
+				Global:        global,
+				HiveVar:       hivevar,
+				Values:        values,
+				Variables:     variables,
+				Parenthesized: true,
+			}
+			// Also set Variable to the first variable for backwards compatibility
 			if len(vars) > 0 {
-				setStmt.Variable = &ast.ObjectName{Parts: []ast.ObjectNamePart{&ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: vars[0]}}}}
+				setStmt.Variable = variables[0]
 			}
 			return setStmt, nil
 		}

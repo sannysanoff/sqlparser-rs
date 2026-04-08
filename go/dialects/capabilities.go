@@ -670,6 +670,15 @@ func SupportsSetNames(d CoreDialect) bool {
 	return false
 }
 
+// SupportsParenthesizedSetVariables returns true if the dialect supports
+// multiple variable assignment using parentheses in a SET variable declaration.
+func SupportsParenthesizedSetVariables(d CoreDialect) bool {
+	if sd, ok := d.(SetDialect); ok {
+		return sd.SupportsParenthesizedSetVariables()
+	}
+	return false
+}
+
 // ============================================================================
 // Transaction Capability Helpers
 // ============================================================================

@@ -73,6 +73,9 @@ type Set struct {
 	TimeZone bool
 	HiveVar  bool
 	Scope    *expr.SetScope
+	// Variables and Parenthesized are used for SET (a, b, c) = (1, 2, 3) syntax
+	Variables     []*ast.ObjectName
+	Parenthesized bool
 }
 
 func (s *Set) statementNode() {}
@@ -91,12 +94,24 @@ func (s *Set) String() string {
 	}
 	if s.TimeZone {
 		f.WriteString("TIME ZONE ")
+	} else if s.Parenthesized && len(s.Variables) > 0 {
+		// Parenthesized assignment: SET (a, b, c) = (1, 2, 3)
+		f.WriteString("(")
+		for i, v := range s.Variables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(v.String())
+		}
+		f.WriteString(") = ")
+		f.WriteString("(")
+		f.WriteString(formatExprs(s.Values, ", "))
+		f.WriteString(")")
 	} else if s.Variable != nil {
 		f.WriteString(s.Variable.String())
 		f.WriteString(" = ")
+		f.WriteString(formatExprs(s.Values, ", "))
 	}
-
-	f.WriteString(formatExprs(s.Values, ", "))
 
 	return f.String()
 }

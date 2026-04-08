@@ -26,7 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/bigquery"
+	"github.com/user/sqlparser/dialects/ansi"
 	"github.com/user/sqlparser/parser"
 	"github.com/user/sqlparser/tests/utils"
 )
@@ -71,8 +71,9 @@ func TestParseWindowClause(t *testing.T) {
 	stmts := dialects.ParseSQL(t, sql)
 	require.Len(t, stmts, 1)
 
-	// Test error case
-	_, err := parser.ParseSQL(bigquery.NewBigQueryDialect(), "SELECT * from mytable WINDOW window1 AS window2")
+	// Test error case - ANSI dialect doesn't support named window references
+	// so "WINDOW window1 AS window2" (without parens) should fail
+	_, err := parser.ParseSQL(ansi.NewAnsiDialect(), "SELECT * from mytable WINDOW window1 AS window2")
 	require.Error(t, err)
 }
 

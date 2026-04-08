@@ -20,6 +20,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/dialects"
@@ -300,10 +301,12 @@ func (ep *ExpressionParser) isTemporalUnit() bool {
 func (ep *ExpressionParser) parseTemporalUnit() string {
 	tok := ep.parser.NextToken()
 	if word, ok := tok.Token.(token.TokenWord); ok {
-		// Use the original value (not the keyword) to preserve casing
-		// This handles custom identifiers like 'seconds' (lowercase) vs standard keywords like 'SECONDS'
+		// Use the original value (not the keyword) to preserve casing for custom fields
+		// Standard SQL temporal fields are normalized to uppercase
 		if word.Word.Value != "" {
-			return word.Word.Value
+			val := word.Word.Value
+			// Normalize standard temporal units to uppercase
+			return strings.ToUpper(val)
 		}
 		return string(word.Word.Keyword)
 	}

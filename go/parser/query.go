@@ -374,7 +374,10 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 
 		// Check for GROUP BY ALL (Snowflake/DuckDB/ClickHouse)
 		if p.ParseKeyword("ALL") {
-			modifiers := parseGroupByModifiers(p)
+			modifiers, err := parseGroupByModifiers(p)
+			if err != nil {
+				return nil, err
+			}
 			// Check for GROUPING SETS after modifiers
 			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
 				modifiers = append(modifiers, groupingSets)
@@ -388,7 +391,10 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			if err != nil {
 				return nil, err
 			}
-			modifiers := parseGroupByModifiers(p)
+			modifiers, err := parseGroupByModifiers(p)
+			if err != nil {
+				return nil, err
+			}
 			// Check for GROUPING SETS after modifiers
 			if groupingSets := parseGroupingSetsModifier(p); groupingSets != nil {
 				modifiers = append(modifiers, groupingSets)
@@ -2173,7 +2179,7 @@ func parseGroupByExpressions(p *Parser) ([]query.Expr, error) {
 
 // parseGroupByModifiers parses optional WITH ROLLUP, WITH CUBE, WITH TOTALS modifiers
 // Reference: src/ast/query.rs:3666-3694
-func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
+func parseGroupByModifiers(p *Parser) ([]query.GroupByWithModifier, error) {
 	var modifiers []query.GroupByWithModifier
 
 	for {
@@ -2185,15 +2191,15 @@ func parseGroupByModifiers(p *Parser) []query.GroupByWithModifier {
 			} else if p.ParseKeyword("TOTALS") {
 				modifiers = append(modifiers, query.SimpleGroupByModifierTotals)
 			} else {
-				// Unknown WITH clause, backtrack
-				break
+				// WITH not followed by a valid modifier - this is an error
+				return nil, p.Expected("ROLLUP, CUBE, or TOTALS after WITH", p.PeekToken())
 			}
 		} else {
 			break
 		}
 	}
 
-	return modifiers
+	return modifiers, nil
 }
 
 // parseGroupingSetsModifier parses optional GROUPING SETS modifier

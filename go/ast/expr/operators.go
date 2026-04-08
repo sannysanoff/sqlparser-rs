@@ -27,8 +27,8 @@ import (
 
 // UnaryOp represents a unary operation (e.g., NOT, -, +).
 type UnaryOp struct {
-	Op   operator.UnaryOperator
-	Expr Expr
+	Op      operator.UnaryOperator
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -54,9 +54,9 @@ func (u *UnaryOp) String() string {
 
 // BinaryOp represents a binary operation (e.g., +, -, *, /, AND, OR).
 type BinaryOp struct {
-	Left  Expr
-	Op    operator.BinaryOperator
-	Right Expr
+	Left    Expr
+	Op      operator.BinaryOperator
+	Right   Expr
 	SpanVal token.Span
 }
 
@@ -74,7 +74,7 @@ func (b *BinaryOp) String() string {
 
 // IsNull represents an IS NULL expression.
 type IsNull struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -92,7 +92,7 @@ func (i *IsNull) String() string {
 
 // IsNotNull represents an IS NOT NULL expression.
 type IsNotNull struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -110,7 +110,7 @@ func (i *IsNotNull) String() string {
 
 // IsTrue represents an IS TRUE expression.
 type IsTrue struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -128,7 +128,7 @@ func (i *IsTrue) String() string {
 
 // IsNotTrue represents an IS NOT TRUE expression.
 type IsNotTrue struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -146,7 +146,7 @@ func (i *IsNotTrue) String() string {
 
 // IsFalse represents an IS FALSE expression.
 type IsFalse struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -164,7 +164,7 @@ func (i *IsFalse) String() string {
 
 // IsNotFalse represents an IS NOT FALSE expression.
 type IsNotFalse struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -182,7 +182,7 @@ func (i *IsNotFalse) String() string {
 
 // IsUnknown represents an IS UNKNOWN expression.
 type IsUnknown struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -200,7 +200,7 @@ func (i *IsUnknown) String() string {
 
 // IsNotUnknown represents an IS NOT UNKNOWN expression.
 type IsNotUnknown struct {
-	Expr Expr
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -218,8 +218,8 @@ func (i *IsNotUnknown) String() string {
 
 // IsDistinctFrom represents an IS DISTINCT FROM expression.
 type IsDistinctFrom struct {
-	Left  Expr
-	Right Expr
+	Left    Expr
+	Right   Expr
 	SpanVal token.Span
 }
 
@@ -237,8 +237,8 @@ func (i *IsDistinctFrom) String() string {
 
 // IsNotDistinctFrom represents an IS NOT DISTINCT FROM expression.
 type IsNotDistinctFrom struct {
-	Left  Expr
-	Right Expr
+	Left    Expr
+	Right   Expr
 	SpanVal token.Span
 }
 
@@ -287,7 +287,7 @@ type InSubquery struct {
 	Expr     Expr
 	Subquery *QueryExpr
 	Negated  bool
-	SpanVal token.Span
+	SpanVal  token.Span
 }
 
 func (i *InSubquery) exprNode() {}
@@ -310,7 +310,7 @@ type InUnnest struct {
 	Expr      Expr
 	ArrayExpr Expr
 	Negated   bool
-	SpanVal token.Span
+	SpanVal   token.Span
 }
 
 func (i *InUnnest) exprNode() {}
@@ -359,7 +359,7 @@ type Like struct {
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
 
 func (l *Like) exprNode() {}
@@ -395,7 +395,7 @@ type ILike struct {
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
 
 func (i *ILike) exprNode() {}
@@ -430,7 +430,7 @@ type SimilarTo struct {
 	Expr       Expr
 	Pattern    Expr
 	EscapeChar interface{} // ValueWithSpan
-	SpanVal token.Span
+	SpanVal    token.Span
 }
 
 func (s *SimilarTo) exprNode() {}
@@ -515,7 +515,7 @@ type Cast struct {
 	DataType string
 	Array    bool // MySQL-specific: CAST(... AS type ARRAY)
 	Format   *CastFormat
-	SpanVal token.Span
+	SpanVal  token.Span
 }
 
 func (c *Cast) exprNode() {}
@@ -571,7 +571,7 @@ type Convert struct {
 	Charset           *ObjectName
 	TargetBeforeValue bool // MSSQL syntax
 	Styles            []Expr
-	SpanVal token.Span
+	SpanVal           token.Span
 }
 
 func (c *Convert) exprNode() {}
@@ -630,7 +630,7 @@ func (c *Convert) String() string {
 type Collate struct {
 	Expr      Expr
 	Collation *ObjectName
-	SpanVal token.Span
+	SpanVal   token.Span
 }
 
 func (c *Collate) exprNode() {}
@@ -651,7 +651,7 @@ type AnyOp struct {
 	CompareOp operator.BinaryOperator
 	Right     Expr
 	IsSome    bool // ANY and SOME are synonymous
-	SpanVal token.Span
+	SpanVal   token.Span
 }
 
 func (a *AnyOp) exprNode() {}
@@ -681,7 +681,7 @@ type AllOp struct {
 	Left      Expr
 	CompareOp operator.BinaryOperator
 	Right     Expr
-	SpanVal token.Span
+	SpanVal   token.Span
 }
 
 func (a *AllOp) exprNode() {}
@@ -767,9 +767,9 @@ const (
 
 // Extract represents an EXTRACT expression.
 type Extract struct {
-	Field  string // DateTimeField
-	Syntax ExtractSyntax
-	Expr   Expr
+	Field   string // DateTimeField
+	Syntax  ExtractSyntax
+	Expr    Expr
 	SpanVal token.Span
 }
 
@@ -782,10 +782,12 @@ func (e *Extract) Span() token.Span {
 
 // String returns the SQL representation.
 func (e *Extract) String() string {
+	// EXTRACT fields are typically uppercase in standard SQL
+	field := strings.ToUpper(e.Field)
 	if e.Syntax == ExtractFrom {
-		return fmt.Sprintf("EXTRACT(%s FROM %s)", e.Field, e.Expr.String())
+		return fmt.Sprintf("EXTRACT(%s FROM %s)", field, e.Expr.String())
 	}
-	return fmt.Sprintf("EXTRACT(%s, %s)", e.Field, e.Expr.String())
+	return fmt.Sprintf("EXTRACT(%s, %s)", field, e.Expr.String())
 }
 
 // CeilFloorKind represents the kind for CEIL/FLOOR expressions.
@@ -856,8 +858,8 @@ func (f *FloorExpr) String() string {
 
 // PositionExpr represents a POSITION expression.
 type PositionExpr struct {
-	Expr Expr
-	In   Expr
+	Expr    Expr
+	In      Expr
 	SpanVal token.Span
 }
 
@@ -880,7 +882,7 @@ type Substring struct {
 	SubstringFor  *Expr
 	Special       bool // true for SUBSTRING(expr, start, len) syntax
 	Shorthand     bool // true for SUBSTR shorthand
-	SpanVal token.Span
+	SpanVal       token.Span
 }
 
 func (s *Substring) exprNode() {}
@@ -952,7 +954,7 @@ type TrimExpr struct {
 	TrimWhat       *Expr
 	Expr           Expr
 	TrimCharacters []Expr
-	SpanVal token.Span
+	SpanVal        token.Span
 }
 
 func (t *TrimExpr) exprNode() {}
@@ -999,7 +1001,7 @@ type OverlayExpr struct {
 	OverlayWhat Expr
 	OverlayFrom Expr
 	OverlayFor  *Expr
-	SpanVal token.Span
+	SpanVal     token.Span
 }
 
 func (o *OverlayExpr) exprNode() {}
@@ -1032,7 +1034,7 @@ func (o *OverlayExpr) String() string {
 type AtTimeZone struct {
 	Timestamp Expr
 	TimeZone  Expr
-	SpanVal token.Span
+	SpanVal   token.Span
 }
 
 func (a *AtTimeZone) exprNode() {}

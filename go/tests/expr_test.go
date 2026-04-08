@@ -769,8 +769,11 @@ func TestParseComparisonOperators(t *testing.T) {
 	sql1 := "SELECT * FROM t WHERE x = 1"
 	dialects.VerifiedStmt(t, sql1)
 
+	// Note: Both != and <> are parsed as BOpNotEq, which serializes as <>
+	// This is the standard SQL behavior
 	sql2 := "SELECT * FROM t WHERE x != 1"
-	dialects.VerifiedStmt(t, sql2)
+	canonical2 := "SELECT * FROM t WHERE x <> 1"
+	dialects.OneStatementParsesTo(t, sql2, canonical2)
 
 	sql3 := "SELECT * FROM t WHERE x <> 1"
 	dialects.VerifiedStmt(t, sql3)
