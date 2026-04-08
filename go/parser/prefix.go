@@ -375,9 +375,33 @@ func (ep *ExpressionParser) parsePrefix() (expr.Expr, error) {
 
 // parsePrefixFromWord parses a prefix expression starting with a word token
 func (ep *ExpressionParser) parsePrefixFromWord(word token.TokenWord, spanVal token.Span) (expr.Expr, error) {
+	dialect := ep.parser.GetDialect()
+
+	// Save position before attempting special expression parsing
+	// This is needed for fallback to identifier if special parsing fails
+	// Pattern E251: GetCurrentIndex() returns p.index-1, SetCurrentIndex() sets p.index
+	// After AdvanceToken(), use SetCurrentIndex(savedIdx+1) to restore correctly
+	savedIdx := ep.parser.GetCurrentIndex()
+
 	// Check if it's a reserved word with special meaning
 	result, err := ep.tryParseReservedWordPrefix(&word, spanVal)
 	if err != nil {
+		// If parsing as special expression failed, check if the keyword is reserved
+		// If NOT reserved, try to parse it as an identifier instead
+		// This handles cases like "SELECT MAX(interval) FROM tbl" in PostgreSQL/Snowflake
+		// where INTERVAL is not reserved and can be used as an identifier
+		if !dialect.IsReservedForIdentifier(word.Word.Keyword) {
+			// Restore position to before special parsing was attempted
+			// Use savedIdx+1 because SetCurrentIndex sets p.index directly (Pattern E251)
+			ep.parser.SetCurrentIndex(savedIdx + 1)
+			// Try parsing as an unreserved word (identifier)
+			identResult, identErr := ep.parseUnreservedWordPrefix(&word, spanVal)
+			if identErr == nil {
+				return identResult, nil
+			}
+			// Restore position and return original error
+			ep.parser.SetCurrentIndex(savedIdx + 1)
+		}
 		return nil, err
 	}
 	if result != nil {
