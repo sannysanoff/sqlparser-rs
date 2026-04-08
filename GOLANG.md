@@ -1,5 +1,101 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 13 Final):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,252 lines | 119% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **737 passing** / **333 failing** (~69%) | Excluding TPCH fixture issues
+
+**Summary of Session 13:**
+
+1. **Fixed file format keywords being treated as aliases** (4 tests affected)
+   - Added `PARQUET`, `CSV`, `JSON`, `ORC`, `AVRO`, `XML` to `RESERVED_FOR_IDENTIFIER` list in `token/keywords.go`
+   - This prevents file extensions in Snowflake stage paths from being parsed as table aliases
+   - Tests like `COPY INTO my_table FROM @stage/day=18/file.parquet` no longer produce `AS parquet` in output
+
+2. **Identified root cause of remaining Snowflake stage name failures** (5 tests still failing)
+   - The tokenizer treats `23.` in `23.parquet` as a single NUMBER token (with trailing period)
+   - The stage name parser is not correctly handling this - `parquet` token is left in the stream
+   - This is a complex interaction between the tokenizer's number parsing and the stage name parser's loop
+
+3. **Documented architectural issue with AST expression interfaces**
+   - `ast.Expr` and `expr.Expr` are incompatible interfaces despite both representing SQL expressions
+   - This causes issues with type assertions like `condition.(expr.Expr)` in multi-table insert parsing
+   - A fundamental refactoring would be needed to unify these interfaces
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 13 - Status Update and Major Missing Chunks):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,231 lines | 119% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **787 passing** / **374 failing** (~68%) | Excluding TPCH fixture issues
+
+**Major Missing Chunks Identified (April 8, 2026):**
+
+Based on analysis of 374 failing tests, the following major parser chunks need implementation:
+
+1. **Snowflake Multi-Table INSERT** (13+ failing tests)
+   - `INSERT [OVERWRITE] ALL ... SELECT ...` - unconditional multi-table insert
+   - `INSERT [OVERWRITE] FIRST ... WHEN ... THEN INTO ...` - conditional multi-table insert
+   - Missing: `MultiTableInsertType`, `MultiTableInsertIntoClause`, `MultiTableInsertWhenClause` AST types
+   - Missing: `parse_multi_table_insert()` and related parser functions
+   - Reference: `src/dialect/snowflake.rs` lines 370-395, `parse_multi_table_insert()` function
+
+2. **Snowflake FETCH Clause Extensions** (6+ failing tests)
+   - `SELECT ... FETCH NEXT n ROWS ONLY` - standard SQL FETCH clause (partially implemented)
+   - Snowflake-specific FETCH variations need additional work
+   - Test failures: `TestSnowflakeFetchClause`
+
+3. **Snowflake Stage Name Parsing with Special Chars** (5+ failing tests)
+   - Stage paths like `@stage/day=18/23.parquet` - file extensions parsed as aliases
+   - Stage paths like `@stage/0:18:23/23.parquet` - time notation in paths
+   - Root cause: File extensions (parquet) and path segments treated as implicit table aliases
+   - Fix needed: Add file extension keywords to reserved words list in `isReservedForTableAlias()`
+
+4. **ALTER USER SET OPTIONS** (6+ failing tests)
+   - `ALTER USER user_name SET property_name = value`
+   - Missing: Parser support for ALTER USER with SET clause
+   - Reference: `parseAlterUser()` in `src/parser/mod.rs`
+
+5. **SELECT EXCLUDE Qualified Names** (2+ failing tests)
+   - `SELECT t.* EXCLUDE (col) FROM t` - qualified wildcard with EXCLUDE
+   - Currently only supports unqualified `* EXCLUDE (col)`
+   - Missing: `QualifiedWildcard` AST type or extension to existing wildcard
+
+6. **PostgreSQL-Specific Features** (50+ failing tests across multiple categories)
+   - CREATE FUNCTION with various attributes
+   - CREATE TRIGGER with multiple events
+   - DROP variants (FUNCTION, OPERATOR, EXTENSION, etc.)
+   - JSON operations and operators
+   - TRUNCATE with options
+
+**Architectural Issues Discovered:**
+
+1. **AST Expression Interface Mismatch (April 8, 2026)**
+   - **Problem**: The Go port has two separate expression interfaces that are not compatible:
+     - `ast.Expr` (defined in `ast/node.go`) - has `expr()` and `IsExpr()` methods
+     - `expr.Expr` (defined in `ast/expr/expr.go`) - has `exprNode()` method
+   - **Impact**: Code that assumes `ast.Expr` can be type-asserted to `expr.Expr` fails at runtime
+   - **Example**: Snowflake multi-table insert parser calls `parser.ParseExpression()` which returns `ast.Expr`, then tries to type-assert to `expr.Expr` for `MultiTableInsertWhenClause.Condition`. This fails because the interfaces are different.
+   - **Solution Options**:
+     1. Unify the expression interfaces into a single interface
+     2. Create wrapper types that implement both interfaces
+     3. Have dialect parsers use the full expression parser directly and return `expr.Expr` types
+   - **Note**: This is a fundamental design issue that affects multiple areas of the codebase. The Rust code has a single `Expr` type, but the Go port split it and the interfaces diverged.
+
+**Note on TPCH Tests:**
+- 46 TPCH tests are failing due to fixture path issues (not parser problems)
+- The test expects fixtures at `fixtures/tpch/` relative to test execution directory
+- Fixtures exist at `/Users/san/Fun/sqlparser-rs/go/tests/fixtures/tpch/` but path resolution fails when running from subdirectory
+- These should be excluded from parser failure counts
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 12 - FETCH Clause, ORDER BY, and DROP Extensions):**
 
 | Component | Rust | Go | Ratio |

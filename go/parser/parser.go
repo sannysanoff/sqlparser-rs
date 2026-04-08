@@ -1748,21 +1748,25 @@ func (p *Parser) parseRaise() (ast.Statement, error) {
 }
 
 // ParseExpression implements the dialects.ParserAccessor interface.
+// This is a simplified version that handles basic tokens.
+// For full expression parsing, use NewExpressionParser.
 func (p *Parser) ParseExpression() (ast.Expr, error) {
 	// For now, handle the most common cases needed for IDENTIFIER() and similar functions
-	// This is a simplified version that handles string literals
+	// This is a simplified version that handles string literals, numbers, and identifiers
 	tok := p.PeekTokenRef()
 
 	switch v := tok.Token.(type) {
 	case token.TokenSingleQuotedString:
 		p.AdvanceToken()
 		return &ast.EValue{
-			Value: ast.NewSingleQuotedString(v.Value),
+			SpanVal: tok.Span,
+			Value:   ast.NewSingleQuotedString(v.Value),
 		}, nil
 	case token.TokenDoubleQuotedString:
 		p.AdvanceToken()
 		return &ast.EValue{
-			Value: ast.NewDoubleQuotedString(v.Value),
+			SpanVal: tok.Span,
+			Value:   ast.NewDoubleQuotedString(v.Value),
 		}, nil
 	case token.TokenNumber:
 		p.AdvanceToken()
@@ -1771,11 +1775,17 @@ func (p *Parser) ParseExpression() (ast.Expr, error) {
 			return nil, err
 		}
 		return &ast.EValue{
-			Value: num,
+			SpanVal: tok.Span,
+			Value:   num,
+		}, nil
+	case token.TokenWord:
+		// Handle identifiers
+		p.AdvanceToken()
+		return &ast.EIdent{
+			SpanVal: tok.Span,
+			Ident:   &ast.Ident{Value: v.Word.Value},
 		}, nil
 	default:
-		// For now, return an error for unsupported expression types
-		// This can be extended as needed
 		return nil, fmt.Errorf("unsupported expression token: %T", tok.Token)
 	}
 }

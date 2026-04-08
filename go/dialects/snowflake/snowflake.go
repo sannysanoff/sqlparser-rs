@@ -1617,6 +1617,9 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				stageName.WriteRune('.')
 				continue
 			case token.TokenNumber:
+				// Handle numbers with trailing periods (e.g., "23." in "23.parquet")
+				// The tokenizer treats "23." as a single number token, but in stage paths
+				// the period is part of the path separator, so we include it
 				stageName.WriteString(t.Value)
 				continue // Continue to next token
 			case token.TokenChar:
@@ -1653,6 +1656,7 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				stageName.WriteString("'")
 				stageName.WriteString(t.Value)
 				stageName.WriteString("'")
+				continue
 			default:
 				// End of stage name
 				parser.PrevToken()

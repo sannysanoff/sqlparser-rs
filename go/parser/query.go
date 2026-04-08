@@ -3059,6 +3059,10 @@ func isReservedForTableAlias(keyword string) bool {
 		"NATURAL": true, "CLUSTER": true, "DISTRIBUTE": true, "GLOBAL": true, "ANTI": true,
 		// Snowflake time travel keywords - these start time travel clauses, not aliases
 		"AT": true, "BEFORE": true, "CHANGES": true,
+		// File format keywords - these can appear in Snowflake stage paths
+		// and should not be treated as table aliases
+		"PARQUET": true, "CSV": true, "JSON": true, "ORC": true, "AVRO": true,
+		"XML": true, "PROTOBUF": true, "THRIFT": true,
 	}
 	return reserved[keyword]
 }

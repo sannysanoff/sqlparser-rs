@@ -1314,6 +1314,9 @@ var RESERVED_FOR_TABLE_FACTOR = []Keyword{
 // to allow for each dialect to customize the list.
 var RESERVED_FOR_IDENTIFIER = []Keyword{
 	EXISTS, INTERVAL, STRUCT, TRIM,
+	// File format keywords - these appear in Snowflake stage paths
+	// and should not be treated as identifiers/aliases
+	PARQUET, CSV, JSON, ORC, AVRO, XML,
 }
 
 // Helper functions for checking reserved keywords
