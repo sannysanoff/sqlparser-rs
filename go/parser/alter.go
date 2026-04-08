@@ -2068,7 +2068,11 @@ func parseAlterConnector(p *Parser) (ast.Statement, error) {
 // Reference: src/parser/mod.rs:10758
 func parseAlterOperator(p *Parser) (ast.Statement, error) {
 	// ALTER OPERATOR name(left_type, right_type) OWNER TO new_owner | SET SCHEMA new_schema | SET (...)
-	if _, err := p.ExpectKeyword("OPERATOR"); err != nil {
+	// Note: "OPERATOR" keyword was already consumed by the main ALTER parser
+
+	// Parse operator name (can be symbol like @@, <, >, etc.)
+	_, err := p.ParseOperatorName()
+	if err != nil {
 		return nil, err
 	}
 
@@ -2089,9 +2093,7 @@ func parseAlterOperator(p *Parser) (ast.Statement, error) {
 // parseAlterOperatorClass parses ALTER OPERATOR CLASS statements
 func parseAlterOperatorClass(p *Parser) (ast.Statement, error) {
 	// ALTER OPERATOR CLASS name USING index_method RENAME TO new_name | OWNER TO new_owner | SET SCHEMA new_schema
-	if err := p.ExpectKeywords([]string{"OPERATOR", "CLASS"}); err != nil {
-		return nil, err
-	}
+	// Note: "OPERATOR" and "CLASS" keywords were already consumed by the main ALTER parser
 
 	// Skip name and USING clause
 	p.AdvanceToken() // name
@@ -2106,9 +2108,7 @@ func parseAlterOperatorClass(p *Parser) (ast.Statement, error) {
 // parseAlterOperatorFamily parses ALTER OPERATOR FAMILY statements
 func parseAlterOperatorFamily(p *Parser) (ast.Statement, error) {
 	// ALTER OPERATOR FAMILY name USING index_method ...
-	if err := p.ExpectKeywords([]string{"OPERATOR", "FAMILY"}); err != nil {
-		return nil, err
-	}
+	// Note: "OPERATOR" and "FAMILY" keywords were already consumed by the main ALTER parser
 
 	// Skip name and USING clause
 	p.AdvanceToken() // name

@@ -3982,8 +3982,8 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 		return parseCreateOperatorClass(p)
 	}
 
-	// Parse operator name
-	name, err := p.ParseObjectName()
+	// Parse operator name (can be symbol like @@, <, >, etc.)
+	name, err := p.ParseOperatorName()
 	if err != nil {
 		return nil, err
 	}
@@ -4002,6 +4002,9 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 		done := false
 		switch {
 		case p.PeekKeyword("FUNCTION"):
+			if createOp.Function != nil {
+				return nil, fmt.Errorf("Duplicate or unexpected keyword FUNCTION in CREATE OPERATOR")
+			}
 			p.NextToken()
 			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 				return nil, err
@@ -4014,6 +4017,9 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 			createOp.IsProcedure = false
 
 		case p.PeekKeyword("PROCEDURE"):
+			if createOp.Function != nil {
+				return nil, fmt.Errorf("Duplicate or unexpected keyword PROCEDURE in CREATE OPERATOR")
+			}
 			p.NextToken()
 			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
 				return nil, err
@@ -4072,7 +4078,7 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 				if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 					return nil, err
 				}
-				opName, err = p.ParseObjectName()
+				opName, err = p.ParseOperatorName()
 				if err != nil {
 					return nil, err
 				}
@@ -4080,7 +4086,7 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 					return nil, err
 				}
 			} else {
-				opName, err = p.ParseObjectName()
+				opName, err = p.ParseOperatorName()
 				if err != nil {
 					return nil, err
 				}
@@ -4101,7 +4107,7 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 				if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 					return nil, err
 				}
-				opName, err = p.ParseObjectName()
+				opName, err = p.ParseOperatorName()
 				if err != nil {
 					return nil, err
 				}
@@ -4109,7 +4115,7 @@ func parseCreateOperator(p *Parser) (ast.Statement, error) {
 					return nil, err
 				}
 			} else {
-				opName, err = p.ParseObjectName()
+				opName, err = p.ParseOperatorName()
 				if err != nil {
 					return nil, err
 				}
@@ -4294,8 +4300,8 @@ func parseOperatorClassItem(p *Parser) (*expr.OperatorClassItem, error) {
 			return nil, err
 		}
 
-		// Parse operator name
-		opName, err := p.ParseObjectName()
+		// Parse operator name (can be symbol like @@, <, >, etc.)
+		opName, err := p.ParseOperatorName()
 		if err != nil {
 			return nil, err
 		}

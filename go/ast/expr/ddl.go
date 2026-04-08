@@ -3887,7 +3887,7 @@ func (o *OperatorClassItem) String() string {
 		sb.WriteString(" ")
 		sb.WriteString(o.OperatorName.String())
 		if o.OpTypes != nil {
-			sb.WriteString("(")
+			sb.WriteString(" (")
 			sb.WriteString(o.OpTypes.String())
 			sb.WriteString(")")
 		}
@@ -4008,7 +4008,7 @@ func (d *DropOperatorSignature) Span() token.Span { return token.Span{} }
 func (d *DropOperatorSignature) String() string {
 	var f strings.Builder
 	f.WriteString(d.Name.String())
-	f.WriteString("(")
+	f.WriteString(" (")
 	for i, t := range d.ArgTypes {
 		if i > 0 {
 			f.WriteString(", ")

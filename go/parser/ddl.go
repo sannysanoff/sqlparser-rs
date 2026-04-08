@@ -158,15 +158,25 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 
 	// AUTO_INCREMENT/AUTOINCREMENT (MySQL/Snowflake column option)
 	// Supports: AUTO_INCREMENT, AUTOINCREMENT, (seed, increment), START n INCREMENT n [ORDER|NOORDER]
-	if p.ParseKeyword("AUTO_INCREMENT") || p.ParseKeyword("AUTOINCREMENT") {
+	if p.ParseKeyword("AUTO_INCREMENT") {
 		identProp := parseIdentityProperty(p)
 		colIdent := &expr.ColumnIdentity{
 			Kind:             expr.IdentityPropertyKindAutoincrement,
 			Property:         identProp,
-			HasAutoIncrement: true, // Track that original keyword was AUTO_INCREMENT (with underscore)
+			HasAutoIncrement: true, // Track that original keyword was AUTO_INCREMENT (with underscore, MySQL style)
 		}
-		// Store as AUTO_INCREMENT (canonical form with underscore)
+		// Store as AUTO_INCREMENT (canonical form with underscore for MySQL)
 		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "AUTO_INCREMENT", Value: colIdent}, nil
+	}
+	if p.ParseKeyword("AUTOINCREMENT") {
+		identProp := parseIdentityProperty(p)
+		colIdent := &expr.ColumnIdentity{
+			Kind:             expr.IdentityPropertyKindAutoincrement,
+			Property:         identProp,
+			HasAutoIncrement: false, // AUTOINCREMENT without underscore (Snowflake/SQLite style)
+		}
+		// Store as AUTOINCREMENT (canonical form without underscore for Snowflake/SQLite)
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "AUTOINCREMENT", Value: colIdent}, nil
 	}
 
 	// IDENTITY (MSSQL/Snowflake column option)

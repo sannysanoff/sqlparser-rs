@@ -595,28 +595,10 @@ func parseDropOperator(p *Parser) (ast.Statement, error) {
 	// Parse comma-separated operator signatures
 	var signatures []*expr.DropOperatorSignature
 	for {
-		// Parse operator name - can be an identifier or an operator symbol
-		var name *ast.ObjectName
-		tok := p.PeekToken()
-		switch t := tok.Token.(type) {
-		case token.TokenWord:
-			// Regular operator name
-			var err error
-			name, err = p.ParseObjectName()
-			if err != nil {
-				return nil, err
-			}
-		default:
-			// Operator symbol like ~, =, etc.
-			// Consume the token and create an object name from it
-			p.AdvanceToken()
-			name = &ast.ObjectName{
-				Parts: []ast.ObjectNamePart{
-					&ast.ObjectNamePartIdentifier{
-						Ident: &ast.Ident{Value: t.String()},
-					},
-				},
-			}
+		// Parse operator name - can be an identifier or an operator symbol (e.g., @@, <, >, ~)
+		name, err := p.ParseOperatorName()
+		if err != nil {
+			return nil, err
 		}
 
 		// Parse operator signature: (type1 [, type2])

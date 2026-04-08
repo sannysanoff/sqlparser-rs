@@ -1948,6 +1948,34 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 	return &ast.ObjectName{Parts: parts}, nil
 }
 
+// ParseOperatorName parses an operator name which can be either an identifier
+// or an operator symbol (like @@, <, >, ~, etc.). Operator names can be schema-qualified.
+// Reference: src/parser/mod.rs parse_operator_name
+func (p *Parser) ParseOperatorName() (*ast.ObjectName, error) {
+	var parts []ast.ObjectNamePart
+
+	for {
+		// Get the next token - for operators, we accept any token type
+		tok := p.PeekToken()
+		tokenStr := tok.Token.String()
+
+		// Advance past this token
+		p.AdvanceToken()
+
+		// Create an identifier from the token string
+		parts = append(parts, &ast.ObjectNamePartIdentifier{
+			Ident: &ast.Ident{Value: tokenStr},
+		})
+
+		// Check for period (schema qualification)
+		if !p.ConsumeToken(token.TokenPeriod{}) {
+			break
+		}
+	}
+
+	return &ast.ObjectName{Parts: parts}, nil
+}
+
 // ParseParenthesizedColumnList parses a parenthesized list of column names: (col1, col2, ...)
 // Returns the list of identifiers and consumes the closing parenthesis.
 func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
