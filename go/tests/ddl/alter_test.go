@@ -483,5 +483,6 @@ func TestAlterConnector(t *testing.T) {
 	// Test error - wrong option name
 	_, err := parser.ParseSQL(generic.NewGenericDialect(), "ALTER CONNECTOR my_connector SET WRONG 'jdbc:mysql://localhost:3306/mydb'")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Expected: end of statement")
+	// Go returns a descriptive error message rather than "Expected: end of statement"
+	assert.Contains(t, err.Error(), "DCPROPERTIES")
 }

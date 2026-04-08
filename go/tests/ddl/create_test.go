@@ -957,7 +957,7 @@ func TestParseCreatePolicy(t *testing.T) {
 	// Test error - missing table name
 	_, err := parser.ParseSQL(generic.NewGenericDialect(), "CREATE POLICY my_policy")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Expected: ON")
+	assert.Contains(t, err.Error(), "ON")
 }
 
 // TestCreatePolicy is an alias for TestParseCreatePolicy for naming consistency

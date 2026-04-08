@@ -2000,6 +2000,13 @@ func (a *AlterPolicy) String() string {
 	f.WriteString(a.Name.String())
 	f.WriteString(" ON ")
 	f.WriteString(a.TableName.String())
+	if a.Operation != nil {
+		opStr := a.Operation.String()
+		if opStr != "" {
+			f.WriteString(" ")
+			f.WriteString(opStr)
+		}
+	}
 	return f.String()
 }
 
@@ -2022,6 +2029,25 @@ func (a *AlterConnector) String() string {
 	var f strings.Builder
 	f.WriteString("ALTER CONNECTOR ")
 	f.WriteString(a.Name.String())
+	if len(a.Properties) > 0 {
+		f.WriteString(" SET DCPROPERTIES(")
+		for i, prop := range a.Properties {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(prop.String())
+		}
+		f.WriteString(")")
+	}
+	if a.URL != nil {
+		f.WriteString(" SET URL '")
+		f.WriteString(*a.URL)
+		f.WriteString("'")
+	}
+	if a.Owner != nil {
+		f.WriteString(" SET ")
+		f.WriteString(a.Owner.String())
+	}
 	return f.String()
 }
 

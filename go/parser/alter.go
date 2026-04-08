@@ -1657,7 +1657,7 @@ func parseAlterType(p *Parser) (ast.Statement, error) {
 }
 
 // parseAlterPolicy parses ALTER POLICY statements
-// Reference: src/parser/alter.rs:57
+// Reference: src/parser/alter.rs:57-104
 func parseAlterPolicy(p *Parser) (ast.Statement, error) {
 	// Parse policy name
 	name, err := p.ParseIdentifier()
@@ -1685,18 +1685,73 @@ func parseAlterPolicy(p *Parser) (ast.Statement, error) {
 		if err != nil {
 			return nil, fmt.Errorf("expected new policy name: %w", err)
 		}
-		_ = newName
+		return &statement.AlterPolicy{
+			Name:      name,
+			TableName: tableName,
+			Operation: &expr.AlterPolicyOperation{RenameTo: newName},
+		}, nil
+	}
+
+	// Parse optional TO clause (role names)
+	var to []*expr.Owner
+	if p.ParseKeyword("TO") {
+		for {
+			owner, err := parseOwner(p)
+			if err != nil {
+				return nil, err
+			}
+			to = append(to, owner)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+	}
+
+	// Parse optional USING (expression)
+	var usingExpr expr.Expr
+	if p.ParseKeyword("USING") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		ep := NewExpressionParser(p)
+		usingExpr, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse optional WITH CHECK (expression)
+	var withCheckExpr expr.Expr
+	if p.ParseKeywords([]string{"WITH", "CHECK"}) {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		ep := NewExpressionParser(p)
+		withCheckExpr, err = ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
 	}
 
 	return &statement.AlterPolicy{
 		Name:      name,
 		TableName: tableName,
-		Operation: &expr.AlterPolicyOperation{},
+		Operation: &expr.AlterPolicyOperation{
+			To:        to,
+			Using:     usingExpr,
+			WithCheck: withCheckExpr,
+		},
 	}, nil
 }
 
 // parseAlterConnector parses ALTER CONNECTOR statements
-// Reference: src/parser/alter.rs:114
+// Reference: src/parser/alter.rs:114-145
 func parseAlterConnector(p *Parser) (ast.Statement, error) {
 	// Parse connector name
 	name, err := p.ParseIdentifier()
@@ -1710,27 +1765,89 @@ func parseAlterConnector(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse DCPROPERTIES or other options
+	var properties []*expr.SqlOption
+	var url *string
+	var owner *expr.AlterConnectorOwner
+
 	if p.ParseKeyword("DCPROPERTIES") {
 		// Expect parenthesized properties
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
-		// Skip properties for now
+		// Parse properties
 		for {
 			tok := p.PeekToken()
 			if _, isRParen := tok.Token.(token.TokenRParen); isRParen {
 				break
 			}
-			p.NextToken()
+			// Parse property name
+			propName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected property name: %w", err)
+			}
+			// Expect =
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse property value
+			propValue, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, fmt.Errorf("expected property value: %w", err)
+			}
+			properties = append(properties, &expr.SqlOption{
+				Name:  exprFromAstIdent(propName),
+				Value: &expr.ValueExpr{Value: propValue},
+			})
+			// Check for comma
+			tok = p.PeekToken()
+			if _, isComma := tok.Token.(token.TokenComma); isComma {
+				p.NextToken() // consume comma
+			} else {
+				break
+			}
 		}
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
+	} else if p.ParseKeyword("URL") {
+		// SET URL 'value'
+		urlValue, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, fmt.Errorf("expected URL value: %w", err)
+		}
+		url = &urlValue
+	} else if p.ParseKeyword("OWNER") {
+		// SET OWNER [USER|ROLE] name
+		if p.ParseKeyword("USER") {
+			ownerName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected owner name: %w", err)
+			}
+			owner = &expr.AlterConnectorOwner{
+				Kind: expr.AlterConnectorOwnerKindUser,
+				Name: ownerName,
+			}
+		} else if p.ParseKeyword("ROLE") {
+			ownerName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected owner name: %w", err)
+			}
+			owner = &expr.AlterConnectorOwner{
+				Kind: expr.AlterConnectorOwnerKindRole,
+				Name: ownerName,
+			}
+		} else {
+			return nil, fmt.Errorf("expected USER or ROLE after OWNER")
+		}
+	} else {
+		return nil, fmt.Errorf("expected DCPROPERTIES, URL, or OWNER after SET")
 	}
 
 	return &statement.AlterConnector{
-		Name:  name,
-		Owner: nil,
+		Name:       name,
+		Properties: properties,
+		URL:        url,
+		Owner:      owner,
 	}, nil
 }
 

@@ -3521,22 +3521,65 @@ func (o *OperatorClassItem) String() string {
 }
 
 // AlterPolicyOperation represents ALTER POLICY operation.
-type AlterPolicyOperation struct{}
+type AlterPolicyOperation struct {
+	RenameTo  *ast.Ident // If set, this is a RENAME operation
+	To        []*Owner   // Role list for APPLY operation
+	Using     Expr       // USING expression for APPLY operation
+	WithCheck Expr       // WITH CHECK expression for APPLY operation
+}
 
 func (a *AlterPolicyOperation) exprNode()        {}
 func (a *AlterPolicyOperation) expr()            {}
 func (a *AlterPolicyOperation) IsExpr()          {}
 func (a *AlterPolicyOperation) Span() token.Span { return token.Span{} }
-func (a *AlterPolicyOperation) String() string   { return "" }
+
+func (a *AlterPolicyOperation) String() string {
+	if a.RenameTo != nil {
+		return "RENAME TO " + a.RenameTo.String()
+	}
+	var parts []string
+	if len(a.To) > 0 {
+		var toParts []string
+		for _, role := range a.To {
+			toParts = append(toParts, role.String())
+		}
+		parts = append(parts, "TO "+strings.Join(toParts, ", "))
+	}
+	if a.Using != nil {
+		parts = append(parts, "USING ("+a.Using.String()+")")
+	}
+	if a.WithCheck != nil {
+		parts = append(parts, "WITH CHECK ("+a.WithCheck.String()+")")
+	}
+	return strings.Join(parts, " ")
+}
+
+// AlterConnectorOwnerKind represents the kind of ALTER CONNECTOR owner
+type AlterConnectorOwnerKind int
+
+const (
+	AlterConnectorOwnerKindUser AlterConnectorOwnerKind = iota
+	AlterConnectorOwnerKindRole
+)
 
 // AlterConnectorOwner represents ALTER CONNECTOR owner.
-type AlterConnectorOwner struct{}
+type AlterConnectorOwner struct {
+	Kind AlterConnectorOwnerKind
+	Name *ast.Ident
+}
 
 func (a *AlterConnectorOwner) exprNode()        {}
 func (a *AlterConnectorOwner) expr()            {}
 func (a *AlterConnectorOwner) IsExpr()          {}
 func (a *AlterConnectorOwner) Span() token.Span { return token.Span{} }
-func (a *AlterConnectorOwner) String() string   { return "" }
+
+func (a *AlterConnectorOwner) String() string {
+	kind := "USER"
+	if a.Kind == AlterConnectorOwnerKindRole {
+		kind = "ROLE"
+	}
+	return "OWNER " + kind + " " + a.Name.String()
+}
 
 // AttachDuckDBDatabaseOption represents ATTACH DuckDB database option.
 type AttachDuckDBDatabaseOption struct{}
