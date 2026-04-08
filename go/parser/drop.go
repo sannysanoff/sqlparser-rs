@@ -53,6 +53,15 @@ func parseDrop(p *Parser) (ast.Statement, error) {
 	case p.PeekKeyword("TRIGGER"):
 		return parseDropTrigger(p)
 	case p.PeekKeyword("OPERATOR"):
+		// Check if this is DROP OPERATOR FAMILY or DROP OPERATOR CLASS
+		p.NextToken() // consume OPERATOR
+		if p.PeekKeyword("FAMILY") {
+			return parseDropOperatorFamily(p)
+		} else if p.PeekKeyword("CLASS") {
+			return parseDropOperatorClass(p)
+		}
+		// Put back OPERATOR token and parse as regular DROP OPERATOR
+		p.PrevToken()
 		return parseDropOperator(p)
 	case p.PeekKeyword("STAGE"):
 		return parseDropStage(p)
@@ -586,10 +595,28 @@ func parseDropOperator(p *Parser) (ast.Statement, error) {
 	// Parse comma-separated operator signatures
 	var signatures []*expr.DropOperatorSignature
 	for {
-		// Parse operator name
-		name, err := p.ParseObjectName()
-		if err != nil {
-			return nil, err
+		// Parse operator name - can be an identifier or an operator symbol
+		var name *ast.ObjectName
+		tok := p.PeekToken()
+		switch t := tok.Token.(type) {
+		case token.TokenWord:
+			// Regular operator name
+			var err error
+			name, err = p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+		default:
+			// Operator symbol like ~, =, etc.
+			// Consume the token and create an object name from it
+			p.AdvanceToken()
+			name = &ast.ObjectName{
+				Parts: []ast.ObjectNamePart{
+					&ast.ObjectNamePartIdentifier{
+						Ident: &ast.Ident{Value: t.String()},
+					},
+				},
+			}
 		}
 
 		// Parse operator signature: (type1 [, type2])
@@ -640,6 +667,100 @@ func parseDropOperator(p *Parser) (ast.Statement, error) {
 	return &statement.DropOperator{
 		IfExists:     ifExists,
 		Names:        signatures,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropOperatorFamily parses DROP OPERATOR FAMILY
+// Reference: src/parser/mod.rs parse_drop_operator_family
+// DROP OPERATOR FAMILY [ IF EXISTS ] name [, ...] USING index_method [ CASCADE | RESTRICT ]
+func parseDropOperatorFamily(p *Parser) (ast.Statement, error) {
+	// OPERATOR keyword was already consumed
+	if _, err := p.ExpectKeyword("FAMILY"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated operator family names
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect USING keyword
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+
+	// Parse index method (btree, hash, gist, gin, etc.)
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		behavior := expr.DropBehaviorCascade
+		dropBehavior = &behavior
+	} else if p.ParseKeyword("RESTRICT") {
+		behavior := expr.DropBehaviorRestrict
+		dropBehavior = &behavior
+	}
+
+	return &statement.DropOperatorFamily{
+		IfExists:     ifExists,
+		Names:        names,
+		IndexMethod:  indexMethod,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropOperatorClass parses DROP OPERATOR CLASS
+// Reference: src/parser/mod.rs parse_drop_operator_class
+// DROP OPERATOR CLASS [ IF EXISTS ] name [, ...] USING index_method [ CASCADE | RESTRICT ]
+func parseDropOperatorClass(p *Parser) (ast.Statement, error) {
+	// OPERATOR keyword was already consumed
+	if _, err := p.ExpectKeyword("CLASS"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated operator class names
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect USING keyword
+	if _, err := p.ExpectKeyword("USING"); err != nil {
+		return nil, err
+	}
+
+	// Parse index method (btree, hash, gist, gin, etc.)
+	indexMethod, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		behavior := expr.DropBehaviorCascade
+		dropBehavior = &behavior
+	} else if p.ParseKeyword("RESTRICT") {
+		behavior := expr.DropBehaviorRestrict
+		dropBehavior = &behavior
+	}
+
+	return &statement.DropOperatorClass{
+		IfExists:     ifExists,
+		Names:        names,
+		IndexMethod:  indexMethod,
 		DropBehavior: dropBehavior,
 	}, nil
 }

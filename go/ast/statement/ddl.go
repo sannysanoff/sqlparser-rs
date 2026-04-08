@@ -2505,7 +2505,7 @@ func (d *DropOperator) String() string {
 type DropOperatorFamily struct {
 	BaseStatement
 	IfExists     bool
-	Name         *ast.ObjectName
+	Names        []*ast.ObjectName
 	IndexMethod  *ast.Ident
 	DropBehavior *expr.DropBehavior
 }
@@ -2518,9 +2518,18 @@ func (d *DropOperatorFamily) String() string {
 	if d.IfExists {
 		f.WriteString("IF EXISTS ")
 	}
-	f.WriteString(d.Name.String())
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
 	f.WriteString(" USING ")
 	f.WriteString(d.IndexMethod.String())
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
 	return f.String()
 }
 
@@ -2532,7 +2541,7 @@ func (d *DropOperatorFamily) String() string {
 type DropOperatorClass struct {
 	BaseStatement
 	IfExists     bool
-	Name         *ast.ObjectName
+	Names        []*ast.ObjectName
 	IndexMethod  *ast.Ident
 	DropBehavior *expr.DropBehavior
 }
@@ -2545,9 +2554,18 @@ func (d *DropOperatorClass) String() string {
 	if d.IfExists {
 		f.WriteString("IF EXISTS ")
 	}
-	f.WriteString(d.Name.String())
+	for i, name := range d.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
 	f.WriteString(" USING ")
 	f.WriteString(d.IndexMethod.String())
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
 	return f.String()
 }
 
