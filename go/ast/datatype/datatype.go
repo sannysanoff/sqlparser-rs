@@ -1157,9 +1157,9 @@ func (t *IntegerType) Span() token.Span { return t.SpanVal }
 func (t *IntegerType) dataTypeNode()    {}
 func (t *IntegerType) String() string {
 	if t.DisplayWidth != nil {
-		return fmt.Sprintf("INTEGER(%d)", *t.DisplayWidth)
+		return fmt.Sprintf("integer(%d)", *t.DisplayWidth)
 	}
-	return "INTEGER"
+	return "integer"
 }
 
 // IntUnsignedType represents a MySQL unsigned int.
@@ -2021,7 +2021,7 @@ type MysqlGeometryType struct {
 }
 
 func (t *MysqlGeometryType) Span() token.Span { return t.SpanVal }
-func (t *MysqlGeometryType) dataTypeNode()      {}
+func (t *MysqlGeometryType) dataTypeNode()    {}
 func (t *MysqlGeometryType) String() string {
 	if t.Srid != nil {
 		return fmt.Sprintf("%s SRID %d", t.Type, *t.Srid)

@@ -221,6 +221,7 @@ func (i *Insert) String() string {
 // Update represents an UPDATE statement
 type Update struct {
 	BaseStatement
+	OptimizerHints  []*expr.OptimizerHint
 	Table           *ast.ObjectName
 	TableAlias      *ast.Ident
 	Assignments     []*expr.Assignment
@@ -241,6 +242,12 @@ func (u *Update) statementNode() {}
 func (u *Update) String() string {
 	var f strings.Builder
 	f.WriteString("UPDATE")
+
+	// Add optimizer hints
+	for _, hint := range u.OptimizerHints {
+		f.WriteString(" ")
+		f.WriteString(hint.String())
+	}
 
 	// Add OR clause for SQLite (OR REPLACE, OR ROLLBACK, etc.)
 	if u.Or != nil {
@@ -316,20 +323,29 @@ func (u *Update) String() string {
 // Delete represents a DELETE statement
 type Delete struct {
 	BaseStatement
-	Tables    []*ast.ObjectName
-	Using     []*query.TableWithJoins
-	Selection expr.Expr
-	Returning []*query.SelectItem
-	Output    *expr.OutputClause
-	OrderBy   []query.OrderByExpr
-	Limit     query.LimitClause
+	OptimizerHints []*expr.OptimizerHint
+	Tables         []*ast.ObjectName
+	Using          []*query.TableWithJoins
+	Selection      expr.Expr
+	Returning      []*query.SelectItem
+	Output         *expr.OutputClause
+	OrderBy        []query.OrderByExpr
+	Limit          query.LimitClause
 }
 
 func (d *Delete) statementNode() {}
 
 func (d *Delete) String() string {
 	var f strings.Builder
-	f.WriteString("DELETE FROM ")
+	f.WriteString("DELETE")
+
+	// Add optimizer hints
+	for _, hint := range d.OptimizerHints {
+		f.WriteString(" ")
+		f.WriteString(hint.String())
+	}
+
+	f.WriteString(" FROM ")
 
 	for i, table := range d.Tables {
 		if i > 0 {

@@ -48,22 +48,61 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 76 Complete**
+**Latest Update: April 9, 2026 - Session 77 Complete**
 
 **Summary:**
-- **Test Functions:** 730 passing, 81 failing (~90.0% pass rate)
+- **Test Functions:** ~727 passing, ~78 failing (~90.3% pass rate)
 - **Major Areas Needing Implementation:**
   1. **PostgreSQL features** (~30+ failures): CREATE TABLE options, dollar-quoted strings, table functions, triggers
-  2. **MySQL features** (~15+ failures): optimizer hints, quoted identifiers, CREATE TABLE options  
+  2. **MySQL features** (~10+ failures): quoted identifiers, CREATE TABLE options, index characteristics
   3. **DDL features** (~8 failures): ALTER INDEX, CREATE TABLE options, index options
   4. **DML features** (~3 failures): INSERT RETURNING, SQLite OR clause
-- **Recently Fixed (Session 76):**
+- **Recently Fixed (Session 77):**
+  1. **MySQL Optimizer Hints** - Full implementation of `/*+ ... */` style optimizer hints for SELECT, INSERT, UPDATE, DELETE
+  2. **MySQL UNIQUE INDEX syntax** - Fixed UNIQUE INDEX vs UNIQUE constraint serialization with `HasIndexKeyword` field
+- **Previously Fixed (Session 76):**
   1. **TIMESTAMP WITH/WITHOUT TIME ZONE** - Added parsing for `TIMESTAMP WITH TIME ZONE` and `TIMESTAMP WITHOUT TIME ZONE` syntax
   2. **PostgreSQL Custom Operators** - Fixed `OPERATOR(schema.op)` serialization by storing operator name parts in `BinaryOp.PGCustomOperator`
   3. **Escaped String Literals** - Fixed `E'...'` string parsing and serialization with proper escape sequence handling
 - **Line Counts:**
-  - Rust source: 67,345 lines | Go source: 88,115 lines (131%)
-  - Rust tests: 49,886 lines | Go tests: 14,245 lines (29%)
+  - Rust source: 67,345 lines | Go source: 88,255 lines (131%)
+  - Rust tests: 49,886 lines | Go tests: 14,005 lines (28%)
+
+---
+
+## Session 77 Summary: MySQL Optimizer Hints and UNIQUE INDEX Syntax (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented two major features that were causing test failures:
+
+1. **MySQL Optimizer Hints** (`/*+ ... */` style comments)
+   - Files: `token/lexer.go`, `parser/query.go`, `parser/dml.go`, `ast/statement/dml.go`, `ast/query/query.go`
+   - Added `TokenOptimizerHint` token type to represent optimizer hints in the token stream
+   - Updated `tokenizeMultilineComment()` to recognize `/*+` as optimizer hints (not regular comments)
+   - Implemented `maybeParseOptimizerHints()` to collect hint tokens after SELECT/INSERT/UPDATE/DELETE keywords
+   - Added `OptimizerHints` field to `Select`, `Update`, `Delete`, and `Insert` statements
+   - Updated `String()` methods to serialize hints as `/*+hint_text*/`
+   - Tests fixed: TestOptimizerHints (6 subtests passing)
+
+2. **MySQL UNIQUE INDEX vs UNIQUE Constraint Serialization**
+   - Files: `ast/expr/ddl.go`, `parser/ddl.go`
+   - Added `HasIndexKeyword bool` field to `UniqueConstraint` struct
+   - Parser sets this field when `INDEX` or `KEY` keyword is explicitly present after `UNIQUE`
+   - `String()` method only outputs `INDEX` keyword when `HasIndexKeyword` is true
+   - Fixes serialization difference between `UNIQUE index_name` and `UNIQUE INDEX index_name`
+   - Tests fixed: TestParseCreateTablePrimaryAndUniqueKeyWithIndexType
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,255 lines | 131% |
+| Tests | 49,886 lines | 14,005 lines | 28% |
+| **Test Status** | - | **~727 passing, ~78 failing** |
+
+**New Patterns Documented:**
+- **Pattern E277**: Optimizer hints tokenization - Create TokenOptimizerHint for `/*+...*/`, check SupportsCommentOptimizerHint() dialect capability
+- **Pattern E278**: Constraint keyword tracking - Add HasXxxKeyword bool field to track if optional keyword was explicitly present (e.g., UNIQUE INDEX vs UNIQUE)
 
 ---
 
@@ -1004,6 +1043,39 @@ Pattern E276: Escaped String Literal Serialization
   ```
 - Files typically modified: token/token.go (TokenEscapedStringLiteral.String())
 ```
+
+Pattern E277: Optimizer Hints Tokenization
+- When: Parsing MySQL/Oracle optimizer hints in `/*+ hint */` format
+- Problem: Hints are treated as regular comments and discarded by tokenizer
+- Solution: Check for `/*+` prefix in multiline comment tokenizer, create TokenOptimizerHint when dialect supports it
+- Example:
+  ```go
+  func (t *Tokenizer) tokenizeMultilineComment(state *State) (Token, error) {
+      // Check for optimizer hint style comment: /*+ ... */
+      if t.dialect.SupportsCommentOptimizerHint() {
+          if next, ok := state.Peek(); ok && next == '+' {
+              return t.tokenizeOptimizerHint(state, MultiLineCommentStyle)
+          }
+      }
+      // ... rest of comment handling
+  }
+  ```
+- Files typically modified: token/lexer.go (add TokenOptimizerHint, tokenizeOptimizerHint), parser/query.go (maybeParseOptimizerHints)
+
+Pattern E278: Tracking Optional Keywords in Constraints
+- When: Serializing constraints where optional keyword affects output format
+- Problem: Can't distinguish between `UNIQUE index_name` and `UNIQUE INDEX index_name` in output
+- Solution: Add HasXxxKeyword bool field to track if keyword was explicitly present in input
+- Example:
+  ```go
+  type UniqueConstraint struct {
+      HasIndexKeyword bool  // true if INDEX/KEY was explicitly specified
+      IndexName       *ast.Ident
+      // ... other fields
+  }
+  // In String(): if u.HasIndexKeyword && u.IndexName != nil { parts = append(parts, "INDEX") }
+  ```
+- Files typically modified: ast/expr/ddl.go (add field), parser/ddl.go (set field when keyword present)
 
 **See full pattern catalog in code comments and previous session notes.**
 

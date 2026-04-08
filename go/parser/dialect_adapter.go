@@ -101,6 +101,11 @@ func (a *dialectAdapter) SupportsMultilineCommentHints() bool {
 	return a.dialect.SupportsMultilineCommentHints()
 }
 
+// SupportsCommentOptimizerHint implements tokenizer.Dialect
+func (a *dialectAdapter) SupportsCommentOptimizerHint() bool {
+	return a.dialect.SupportsCommentOptimizerHint()
+}
+
 // SupportsQuoteDelimitedString implements tokenizer.Dialect
 func (a *dialectAdapter) SupportsQuoteDelimitedString() bool {
 	return a.dialect.SupportsQuoteDelimitedString()

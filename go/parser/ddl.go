@@ -697,8 +697,9 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Optional INDEX/KEY keyword (MySQL) - for UNIQUE INDEX index_name syntax
-		p.ParseKeyword("INDEX")
-		p.ParseKeyword("KEY")
+		if p.ParseKeyword("INDEX") || p.ParseKeyword("KEY") {
+			uniqueConstraint.HasIndexKeyword = true
+		}
 
 		// Optional index name (MySQL)
 		if !p.PeekKeyword("USING") && !p.PeekKeyword("(") {

@@ -555,6 +555,7 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 	}
 
 	update := &statement.Update{
+		OptimizerHints:  optimizerHints,
 		Table:           mainTable,
 		TableAlias:      tableAlias,
 		Assignments:     assignments,
@@ -567,9 +568,6 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		Or:              orConflict,
 	}
 	update.SetSpan(updateToken.Span)
-
-	// Store optimizer hints if the field exists (it might not yet)
-	_ = optimizerHints // Avoid unused variable error if field doesn't exist yet
 
 	return update, nil
 }
@@ -744,18 +742,16 @@ func parseDeleteInternal(p *Parser, deleteToken token.TokenWithSpan) (ast.Statem
 	// Note: The Go AST doesn't have a separate FromTable type like Rust,
 	// so we store the tables directly in the Tables field
 	delete := &statement.Delete{
-		Tables:    tables,
-		Using:     usingPtrs,
-		Selection: selection,
-		Returning: returning,
-		OrderBy:   orderBy,
-		Limit:     limit,
-		Output:    output,
+		OptimizerHints: optimizerHints,
+		Tables:         tables,
+		Using:          usingPtrs,
+		Selection:      selection,
+		Returning:      returning,
+		OrderBy:        orderBy,
+		Limit:          limit,
+		Output:         output,
 	}
 	delete.SetSpan(deleteToken.Span)
-
-	// Store optimizer hints - they may need to be added to the AST struct
-	_ = optimizerHints
 
 	return delete, nil
 }

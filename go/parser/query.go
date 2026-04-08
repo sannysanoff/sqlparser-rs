@@ -736,7 +736,16 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse optimizer hints (MySQL /*+ ... */ style)
-	// TODO: parse optimizer hints
+	var optimizerHints []*expr.OptimizerHint
+	hintsInterface, err := maybeParseOptimizerHints(p)
+	if err != nil {
+		return nil, err
+	}
+	for _, h := range hintsInterface {
+		if hint, ok := h.(*expr.OptimizerHint); ok {
+			optimizerHints = append(optimizerHints, hint)
+		}
+	}
 
 	// Parse MySQL SELECT modifiers (HIGH_PRIORITY, STRAIGHT_JOIN, etc.)
 	// Also handles DISTINCT/DISTINCTROW/ALL which can appear intermixed with modifiers.
@@ -1139,6 +1148,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 
 	return &SelectStatement{
 		Select: query.Select{
+			OptimizerHints:      convertToQueryOptimizerHints(optimizerHints),
 			SelectModifiers:     selectModifiers,
 			Distinct:            distinct,
 			Top:                 top,
@@ -4726,10 +4736,39 @@ func parseForJson(p *Parser) (*query.ForClause, error) {
 	}, nil
 }
 
+// convertToQueryOptimizerHints converts expr.OptimizerHint to query.OptimizerHint
+func convertToQueryOptimizerHints(hints []*expr.OptimizerHint) []query.OptimizerHint {
+	result := make([]query.OptimizerHint, len(hints))
+	for i, h := range hints {
+		// Create hint using the exported field directly
+		result[i] = query.OptimizerHint{Hint: h.Text}
+	}
+	return result
+}
+
 func maybeParseOptimizerHints(p *Parser) ([]interface{}, error) {
-	// Parse MySQL optimizer hints: /*+ hint1 hint2 */
-	// This is simplified - full implementation would parse comment tokens
-	return nil, nil
+	var hints []interface{}
+
+	for {
+		tok := p.PeekToken()
+		if tok.Token == nil {
+			break
+		}
+
+		if hintTok, ok := tok.Token.(token.TokenOptimizerHint); ok {
+			p.AdvanceToken() // consume the hint token
+			hint := &expr.OptimizerHint{
+				Text:    hintTok.Text,
+				Style:   expr.OptimizerHintStyle(hintTok.Style),
+				SpanVal: tok.Span,
+			}
+			hints = append(hints, hint)
+		} else {
+			break
+		}
+	}
+
+	return hints, nil
 }
 
 func parseOrderByExpr(p *Parser) (interface{}, error) {

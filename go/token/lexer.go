@@ -54,6 +54,8 @@ type Dialect interface {
 	SupportsNestedComments() bool
 	// SupportsMultilineCommentHints returns true if comment hints like /*!...*/ are supported
 	SupportsMultilineCommentHints() bool
+	// SupportsCommentOptimizerHint returns true if optimizer hints like /*+...*/ are supported
+	SupportsCommentOptimizerHint() bool
 	// SupportsQuoteDelimitedString returns true if quote-delimited strings (Oracle-style) are supported
 	SupportsQuoteDelimitedString() bool
 	// SupportsStringEscapeConstant returns true if E'...' escape strings are supported
@@ -138,6 +140,10 @@ func (d *GenericDialect) SupportsNestedComments() bool {
 }
 
 func (d *GenericDialect) SupportsMultilineCommentHints() bool {
+	return false
+}
+
+func (d *GenericDialect) SupportsCommentOptimizerHint() bool {
 	return false
 }
 
@@ -1509,6 +1515,13 @@ func (t *Tokenizer) tokenizeSingleLineComment(state *State) string {
 }
 
 func (t *Tokenizer) tokenizeMultilineComment(state *State) (Token, error) {
+	// Check for optimizer hint style comment: /*+ ... */
+	if t.dialect.SupportsCommentOptimizerHint() {
+		if next, ok := state.Peek(); ok && next == '+' {
+			return t.tokenizeOptimizerHint(state, MultiLineCommentStyle)
+		}
+	}
+
 	var s strings.Builder
 	nested := 1
 
@@ -1533,6 +1546,83 @@ func (t *Tokenizer) tokenizeMultilineComment(state *State) (Token, error) {
 				nested--
 				if nested == 0 {
 					return TokenWhitespace{Whitespace{Type: MultiLineComment, Content: s.String()}}, nil
+				}
+				s.WriteString("*/")
+				continue
+			}
+		}
+
+		s.WriteRune(ch)
+	}
+}
+
+// OptimizerHintStyle represents the style of optimizer hint.
+type OptimizerHintStyle int
+
+const (
+	// MultiLineCommentStyle is for /*+ ... */ hints.
+	MultiLineCommentStyle OptimizerHintStyle = iota
+	// SingleLineCommentStyle is for --+ ... hints.
+	SingleLineCommentStyle
+)
+
+// OptimizerHint represents an optimizer hint token.
+type OptimizerHint struct {
+	Prefix string
+	Text   string
+	Style  OptimizerHintStyle
+}
+
+func (o OptimizerHint) String() string {
+	switch o.Style {
+	case SingleLineCommentStyle:
+		return "--+" + o.Text
+	case MultiLineCommentStyle:
+		return "/*+" + o.Text + "*/"
+	default:
+		return "/*+" + o.Text + "*/"
+	}
+}
+
+// TokenOptimizerHint represents an optimizer hint token.
+type TokenOptimizerHint struct{ OptimizerHint }
+
+func (t TokenOptimizerHint) String() string { return t.OptimizerHint.String() }
+func (t TokenOptimizerHint) Equals(other Token) bool {
+	if o, ok := other.(TokenOptimizerHint); ok {
+		return t.Prefix == o.Prefix && t.Text == o.Text && t.Style == o.Style
+	}
+	return false
+}
+
+func (t *Tokenizer) tokenizeOptimizerHint(state *State, style OptimizerHintStyle) (Token, error) {
+	// Consume the '+' that we already peeked
+	state.Next()
+
+	var s strings.Builder
+	depth := 1 // Track nesting for /*+ ... */ style
+
+	for {
+		ch, ok := state.Next()
+		if !ok {
+			return nil, NewTokenizerError("Unexpected EOF while in an optimizer hint", state.Location())
+		}
+
+		if ch == '/' && style == MultiLineCommentStyle {
+			if next, ok := state.Peek(); ok && next == '*' && t.dialect.SupportsNestedComments() {
+				state.Next()
+				s.WriteString("/*")
+				depth++
+				continue
+			}
+		}
+
+		if ch == '*' && style == MultiLineCommentStyle {
+			if next, ok := state.Peek(); ok && next == '/' {
+				state.Next()
+				depth--
+				if depth == 0 {
+					return TokenOptimizerHint{OptimizerHint{Text: s.String(), Style: style}}, nil
 				}
 				s.WriteString("*/")
 				continue

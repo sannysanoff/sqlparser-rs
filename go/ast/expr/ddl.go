@@ -156,6 +156,7 @@ func (p *PrimaryKeyConstraint) String() string {
 // [CONSTRAINT [name]] UNIQUE [NULLS [NOT] DISTINCT] [INDEX|KEY] [index_name] [USING index_type] (columns) [index_options] [characteristics]
 type UniqueConstraint struct {
 	NullsDistinct   NullsDistinctOption
+	HasIndexKeyword bool // true if INDEX/KEY keyword was explicitly specified (MySQL style)
 	IndexName       *ast.Ident
 	IndexType       *IndexType
 	Columns         []*IndexColumn
@@ -169,9 +170,11 @@ func (u *UniqueConstraint) String() string {
 	if u.NullsDistinct != NullsDistinctOptionNone {
 		parts = append(parts, u.NullsDistinct.String())
 	}
-	// Include INDEX keyword before index name (MySQL style: UNIQUE INDEX index_name)
-	if u.IndexName != nil {
+	// Include INDEX keyword before index name only if explicitly specified (MySQL style)
+	if u.HasIndexKeyword && u.IndexName != nil {
 		parts = append(parts, "INDEX")
+	}
+	if u.IndexName != nil {
 		parts = append(parts, u.IndexName.String())
 	}
 	if u.IndexType != nil {
@@ -4035,14 +4038,39 @@ func (o *OperatorClassOperation) IsExpr()          {}
 func (o *OperatorClassOperation) Span() token.Span { return token.Span{} }
 func (o *OperatorClassOperation) String() string   { return "" }
 
-// OptimizerHint represents optimizer hint.
-type OptimizerHint struct{}
+// OptimizerHintStyle represents the style of an optimizer hint.
+type OptimizerHintStyle int
+
+const (
+	// OptimizerHintStyleMultiLine is for /*+ ... */ style hints.
+	OptimizerHintStyleMultiLine OptimizerHintStyle = iota
+	// OptimizerHintStyleSingleLine is for --+ ... style hints.
+	OptimizerHintStyleSingleLine
+)
+
+// OptimizerHint represents an optimizer hint (e.g., /*+ SET_VAR(...) */).
+type OptimizerHint struct {
+	Prefix  string             // Optional prefix before the + (e.g., "abc" in /*abc+...*/)
+	Text    string             // The hint content without markers
+	Style   OptimizerHintStyle // The style of the hint (multiline or single line)
+	SpanVal token.Span
+}
 
 func (o *OptimizerHint) exprNode()        {}
 func (o *OptimizerHint) expr()            {}
 func (o *OptimizerHint) IsExpr()          {}
-func (o *OptimizerHint) Span() token.Span { return token.Span{} }
-func (o *OptimizerHint) String() string   { return "" }
+func (o *OptimizerHint) Span() token.Span { return o.SpanVal }
+
+func (o *OptimizerHint) String() string {
+	switch o.Style {
+	case OptimizerHintStyleSingleLine:
+		return "--" + o.Prefix + "+" + o.Text
+	case OptimizerHintStyleMultiLine:
+		return "/*" + o.Prefix + "+" + o.Text + "*/"
+	default:
+		return "/*+" + o.Text + "*/"
+	}
+}
 
 // SqliteOnConflict represents SQLite ON CONFLICT clause.
 type SqliteOnConflict int

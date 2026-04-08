@@ -430,7 +430,7 @@ type OptimizerHint struct {
 }
 
 func (o *OptimizerHint) Span() token.Span { return o.span }
-func (o *OptimizerHint) String() string   { return o.Hint }
+func (o *OptimizerHint) String() string   { return "/*+" + o.Hint + "*/" }
 
 // SelectItem represents one item of the comma-separated list following SELECT
 type SelectItem interface {
