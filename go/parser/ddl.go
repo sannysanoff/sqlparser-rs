@@ -672,8 +672,35 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		constraint.Name = name
 	}
 
-	// PRIMARY KEY (columns)
+	// PRIMARY KEY (columns) OR PRIMARY KEY USING INDEX index_name (PostgreSQL)
 	if p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
+		// Check for PostgreSQL USING INDEX syntax: PRIMARY KEY USING INDEX index_name
+		if p.PeekKeyword("USING") {
+			// Save position to check if it's USING INDEX or USING index_type
+			savedIdx := p.GetCurrentIndex()
+			p.ParseKeyword("USING") // consume USING
+			if p.ParseKeyword("INDEX") {
+				// PostgreSQL: PRIMARY KEY USING INDEX index_name
+				usingIndex := &expr.ConstraintUsingIndex{}
+				indexName, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected index name after PRIMARY KEY USING INDEX: %w", err)
+				}
+				usingIndex.IndexName = indexName
+				// Parse optional characteristics
+				characteristics, err := parseConstraintCharacteristics(p)
+				if err != nil {
+					return nil, err
+				}
+				usingIndex.Characteristics = characteristics
+				constraint.Constraint = &expr.PrimaryKeyUsingIndexConstraint{UsingIndex: usingIndex}
+				return constraint, nil
+			} else {
+				// Not USING INDEX, restore position for regular USING index_type parsing
+				p.SetCurrentIndex(savedIdx)
+			}
+		}
+
 		pkConstraint := &expr.PrimaryKeyConstraint{}
 
 		// Optional index name (MySQL)
@@ -721,8 +748,35 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		return constraint, nil
 	}
 
-	// UNIQUE (columns)
+	// UNIQUE (columns) OR UNIQUE USING INDEX index_name (PostgreSQL)
 	if p.ParseKeyword("UNIQUE") {
+		// Check for PostgreSQL USING INDEX syntax: UNIQUE USING INDEX index_name
+		if p.PeekKeyword("USING") {
+			// Save position to check if it's USING INDEX or USING index_type
+			savedIdx := p.GetCurrentIndex()
+			p.ParseKeyword("USING") // consume USING
+			if p.ParseKeyword("INDEX") {
+				// PostgreSQL: UNIQUE USING INDEX index_name
+				usingIndex := &expr.ConstraintUsingIndex{}
+				indexName, err := p.ParseIdentifier()
+				if err != nil {
+					return nil, fmt.Errorf("expected index name after UNIQUE USING INDEX: %w", err)
+				}
+				usingIndex.IndexName = indexName
+				// Parse optional characteristics
+				characteristics, err := parseConstraintCharacteristics(p)
+				if err != nil {
+					return nil, err
+				}
+				usingIndex.Characteristics = characteristics
+				constraint.Constraint = &expr.UniqueUsingIndexConstraint{UsingIndex: usingIndex}
+				return constraint, nil
+			} else {
+				// Not USING INDEX, restore position for regular parsing
+				p.SetCurrentIndex(savedIdx)
+			}
+		}
+
 		uniqueConstraint := &expr.UniqueConstraint{}
 
 		// Optional NULLS [NOT] DISTINCT (PostgreSQL)

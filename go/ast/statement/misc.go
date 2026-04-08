@@ -809,11 +809,9 @@ func (s *ShowVariable) statementNode() {}
 
 func (s *ShowVariable) String() string {
 	var f strings.Builder
-	f.WriteString("SHOW ")
-	for i, v := range s.Variable {
-		if i > 0 {
-			f.WriteString(".")
-		}
+	f.WriteString("SHOW")
+	for _, v := range s.Variable {
+		f.WriteString(" ")
 		f.WriteString(v.String())
 	}
 	return f.String()

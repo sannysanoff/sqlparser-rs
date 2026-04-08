@@ -98,6 +98,10 @@ func (t *TableConstraint) String() string {
 			parts = append(parts, c.String())
 		case *UniqueConstraint:
 			parts = append(parts, c.String())
+		case *PrimaryKeyUsingIndexConstraint:
+			parts = append(parts, c.String())
+		case *UniqueUsingIndexConstraint:
+			parts = append(parts, c.String())
 		case *ForeignKeyConstraint:
 			parts = append(parts, c.String())
 		case *CheckConstraint:
@@ -192,6 +196,56 @@ func (u *UniqueConstraint) String() string {
 	}
 	if u.Characteristics != nil {
 		parts = append(parts, u.Characteristics.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// ConstraintUsingIndex represents a PostgreSQL constraint that promotes an existing
+// unique index to a table constraint.
+// [CONSTRAINT name] {UNIQUE | PRIMARY KEY} USING INDEX index_name [characteristics]
+type ConstraintUsingIndex struct {
+	IndexName       *ast.Ident
+	Characteristics *ConstraintCharacteristics
+}
+
+// PrimaryKeyUsingIndexConstraint represents a PostgreSQL PRIMARY KEY USING INDEX constraint.
+// This promotes an existing unique index to a PRIMARY KEY constraint.
+type PrimaryKeyUsingIndexConstraint struct {
+	UsingIndex *ConstraintUsingIndex
+}
+
+func (p *PrimaryKeyUsingIndexConstraint) String() string {
+	var parts []string
+	parts = append(parts, "PRIMARY KEY")
+	if p.UsingIndex != nil {
+		parts = append(parts, p.UsingIndex.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+// UniqueUsingIndexConstraint represents a PostgreSQL UNIQUE USING INDEX constraint.
+// This promotes an existing unique index to a UNIQUE constraint.
+type UniqueUsingIndexConstraint struct {
+	UsingIndex *ConstraintUsingIndex
+}
+
+func (u *UniqueUsingIndexConstraint) String() string {
+	var parts []string
+	parts = append(parts, "UNIQUE")
+	if u.UsingIndex != nil {
+		parts = append(parts, u.UsingIndex.String())
+	}
+	return strings.Join(parts, " ")
+}
+
+func (c *ConstraintUsingIndex) String() string {
+	var parts []string
+	parts = append(parts, "USING INDEX")
+	if c.IndexName != nil {
+		parts = append(parts, c.IndexName.String())
+	}
+	if c.Characteristics != nil {
+		parts = append(parts, c.Characteristics.String())
 	}
 	return strings.Join(parts, " ")
 }

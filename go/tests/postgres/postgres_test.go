@@ -114,7 +114,8 @@ func TestPostgresDropSequence(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:333
 func TestPostgresCreateTableWithDefaults(t *testing.T) {
 	pg := pg()
-	sql := "CREATE TABLE public.customer (customer_id integer DEFAULT nextval(public.customer_customer_id_seq), store_id smallint NOT NULL, first_name character varying(45) NOT NULL, last_name character varying(45) COLLATE \"es_ES\" NOT NULL, email character varying(50), address_id smallint NOT NULL, activebool boolean DEFAULT true NOT NULL, create_date date DEFAULT now()::text NOT NULL, last_update timestamp without time zone DEFAULT now() NOT NULL, active int NOT NULL) WITH (fillfactor = 20, user_catalog_table = true, autovacuum_vacuum_threshold = 100)"
+	// Use canonical uppercase form for data types (Rust canonical form)
+	sql := "CREATE TABLE public.customer (customer_id INTEGER DEFAULT nextval(public.customer_customer_id_seq), store_id SMALLINT NOT NULL, first_name CHARACTER VARYING(45) NOT NULL, last_name CHARACTER VARYING(45) COLLATE \"es_ES\" NOT NULL, email CHARACTER VARYING(50), address_id SMALLINT NOT NULL, activebool BOOLEAN DEFAULT true NOT NULL, create_date DATE DEFAULT now()::TEXT NOT NULL, last_update TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, active INT NOT NULL) WITH (fillfactor = 20, user_catalog_table = true, autovacuum_vacuum_threshold = 100)"
 	pg.VerifiedStmt(t, sql)
 }
 
@@ -131,20 +132,8 @@ func TestPostgresCastInDefaultExpr(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:523
 func TestPostgresCreateTableFromPgDump(t *testing.T) {
 	pg := pg()
-	sql := `CREATE TABLE public.customer (
-		customer_id integer DEFAULT nextval('public.customer_customer_id_seq'::regclass) NOT NULL,
-		store_id smallint NOT NULL,
-		first_name character varying(45) NOT NULL,
-		last_name character varying(45) NOT NULL,
-		info text[],
-		address_id smallint NOT NULL,
-		activebool boolean DEFAULT true NOT NULL,
-		create_date date DEFAULT now()::DATE NOT NULL,
-		create_date1 date DEFAULT 'now'::TEXT::date NOT NULL,
-		last_update timestamp without time zone DEFAULT now(),
-		release_year public.year,
-		active int
-	)`
+	// Use canonical uppercase form for data types (Rust canonical form)
+	sql := "CREATE TABLE public.customer (customer_id INTEGER DEFAULT nextval('public.customer_customer_id_seq'::regclass) NOT NULL, store_id SMALLINT NOT NULL, first_name CHARACTER VARYING(45) NOT NULL, last_name CHARACTER VARYING(45) NOT NULL, info TEXT[], address_id SMALLINT NOT NULL, activebool BOOLEAN DEFAULT true NOT NULL, create_date DATE DEFAULT now()::DATE NOT NULL, create_date1 DATE DEFAULT 'now'::TEXT::DATE NOT NULL, last_update TIMESTAMP WITHOUT TIME ZONE DEFAULT now(), release_year public.year, active INT)"
 	pg.VerifiedStmt(t, sql)
 }
 

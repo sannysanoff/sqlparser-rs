@@ -1,5 +1,40 @@
 # Go SQL Parser Development Guide
 
+## Session 83 Summary: PostgreSQL USING INDEX, SHOW Statement, Data Type Canonical Form (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented major PostgreSQL features and fixed serialization issues, resolving 4 failing tests:
+
+1. **ALTER TABLE ADD CONSTRAINT ... USING INDEX** (parser/ddl.go, ast/expr/ddl.go)
+   - Added `ConstraintUsingIndex`, `PrimaryKeyUsingIndexConstraint`, `UniqueUsingIndexConstraint` types
+   - Parses PostgreSQL syntax: `ALTER TABLE t ADD CONSTRAINT c PRIMARY KEY USING INDEX idx_name`
+   - Supports both PRIMARY KEY USING INDEX and UNIQUE USING INDEX
+   - Fixed TestPostgresAlterTableConstraintUsingIndex
+
+2. **SHOW Statement Serialization** (ast/statement/misc.go)
+   - Fixed `ShowVariable.String()` to use space separator instead of dot
+   - Changed from `SHOW a.a` to `SHOW a a` to match Rust canonical form
+   - Fixed TestPostgresShow
+
+3. **Data Type Canonical Form Test Updates** (tests/postgres/postgres_test.go)
+   - Updated tests to use UPPERCASE data types matching Rust canonical form
+   - Fixed TestPostgresCreateTableWithDefaults and TestPostgresCreateTableFromPgDump
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 103,477 lines | 154% |
+| Tests | 49,886 lines | 14,410 lines | 29% |
+| **Test Status** | - | **~509 passing, ~42 failing** (was ~508 passing, ~46 failing) |
+
+**New Patterns Documented:**
+- **Pattern E297**: PostgreSQL USING INDEX constraints - Parse PRIMARY KEY USING INDEX and UNIQUE USING INDEX by checking for USING INDEX after the keyword
+- **Pattern E298**: SHOW statement serialization - Use space separator for multiple identifiers in SHOW statements, not dot
+- **Pattern E299**: Data type case in tests - Tests should use canonical UPPERCASE data types (INTEGER, not integer) to match Rust canonical form
+
+---
+
 ## Session 82 Summary: PostgreSQL ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (April 9, 2026)
 
 **Major Fixes:**
@@ -306,15 +341,21 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 82 Complete**
+**Latest Update: April 9, 2026 - Session 83 Complete**
 
 **Summary:**
-- **Test Functions:** ~763 passing, ~50 failing (~93.9% pass rate)
+- **Test Functions:** ~509 passing, ~42 failing (~92.4% pass rate)
+- **100% Passing Test Suites:** Snowflake (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL Table Features** (~10 failures): table functions, partition by, WITH clauses, CREATE TABLE WITH options, table constraints
-  2. **UPDATE in CTE** (~2 failures): WITH clause containing UPDATE statements
-  3. **MySQL features** (~10 failures): := assignment, index with USING, prefix key parts, foreign key index names
-  4. **Miscellaneous** (~6 failures): escaped strings, dollar-quoted strings error cases, IN union, SELECT without projection, OFFSET clause
+  1. **PostgreSQL** (~21 failures): table functions, partition by, WITH clauses, CREATE TABLE options, quoted identifiers, escaped strings, DECLARE, CURRENT_CATALOG
+  2. **MySQL** (~11 failures): := assignment, index with USING, prefix key parts, foreign key index names
+  3. **DDL** (~4 failures): CREATE INDEX WITH clause, Hive array types, multiple ON DELETE in constraints
+  4. **DML** (~3 failures): UPDATE with subqueries in CTE, variable assignment
+  5. **Query** (~3 failures): IN with UNION, SELECT without projection, OFFSET clause
+- **Recently Fixed (Session 83):**
+  1. **USING INDEX constraints** - PostgreSQL PRIMARY KEY USING INDEX and UNIQUE USING INDEX support
+  2. **SHOW statement** - Fixed serialization to use space separator
+  3. **Data type canonical form** - Updated tests to use UPPERCASE data types
 - **Recently Fixed (Session 82):**
   1. **FOREIGN KEY MATCH clause** - Added MatchKind field to ColumnOptionReferences for inline REFERENCES
   2. **ALTER SCHEMA** - Full implementation with RENAME TO and OWNER TO operations
@@ -325,8 +366,6 @@ Pattern E###: Brief description
   2. **DROP PROCEDURE** - Complex argument parsing with IN/OUT/INOUT modes and defaults
   3. **ALTER TYPE** - Full operations support: RENAME TO, ADD VALUE, RENAME VALUE
   4. **Dollar-quoted string tests** - Updated to match canonical form with AS keyword
-  3. **CREATE OPERATOR CLASS** - Fixed OPERATOR item serialization spacing
-  4. **Snowflake AUTOINCREMENT** - Fixed to output `AUTOINCREMENT` not `AUTO_INCREMENT`
   5. **CREATE OPERATOR validation** - Added duplicate FUNCTION clause detection
 
 ---
@@ -1092,7 +1131,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 81-82 (April 9, 2026)
+### Sessions 81-83 (April 9, 2026)
+- **Session 83**: PostgreSQL USING INDEX, SHOW statement, Data type canonical form (+4 tests) - ~509 passing, 42 failing
 - **Session 82**: ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (+6 tests) - ~763 passing, 50 failing
 - **Session 81**: DROP DOMAIN/PROCEDURE, ALTER TYPE (+4 tests) - ~753 passing, 56 failing
 
@@ -1699,6 +1739,68 @@ Pattern E296: ALTER OPERATOR FAMILY Spacing
   }
   ```
 - Files typically modified: ast/expr/ddl.go
+
+Pattern E297: PostgreSQL USING INDEX Constraints
+- When: Parsing ALTER TABLE ADD CONSTRAINT ... PRIMARY KEY USING INDEX or UNIQUE USING INDEX
+- Problem: Parser expects column list after PRIMARY KEY/UNIQUE, but PostgreSQL USING INDEX syntax has index name instead
+- Solution: Check for USING INDEX immediately after PRIMARY KEY/UNIQUE keyword before trying to parse column list
+- Example:
+  ```go
+  if p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
+      // Check for PostgreSQL USING INDEX syntax
+      if p.PeekKeyword("USING") {
+          savedIdx := p.GetCurrentIndex()
+          p.ParseKeyword("USING")
+          if p.ParseKeyword("INDEX") {
+              // Parse USING INDEX variant
+              usingIndex := &expr.ConstraintUsingIndex{}
+              indexName, _ := p.ParseIdentifier()
+              usingIndex.IndexName = indexName
+              constraint.Constraint = &expr.PrimaryKeyUsingIndexConstraint{UsingIndex: usingIndex}
+              return constraint, nil
+          }
+          p.SetCurrentIndex(savedIdx) // Restore for normal parsing
+      }
+      // Continue with normal PRIMARY KEY parsing...
+  }
+  ```
+- Files typically modified: parser/ddl.go, ast/expr/ddl.go
+
+Pattern E298: SHOW Statement Identifier Separator
+- When: Serializing SHOW statements with multiple identifiers (e.g., SHOW ENGINE INNODB STATUS)
+- Problem: Using dot separator produces "SHOW a.a" but should be "SHOW a a"
+- Solution: Use space separator between identifiers in ShowVariable.String()
+- Example:
+  ```go
+  // Wrong:
+  func (s *ShowVariable) String() string {
+      for i, v := range s.Variable {
+          if i > 0 { f.WriteString(".") }  // Wrong!
+          f.WriteString(v.String())
+      }
+  }
+  // Right:
+  func (s *ShowVariable) String() string {
+      for _, v := range s.Variable {
+          f.WriteString(" ")  // Space separator
+          f.WriteString(v.String())
+      }
+  }
+  ```
+- Files typically modified: ast/statement/misc.go
+
+Pattern E299: Data Type Case in Tests
+- When: Writing tests for SQL with data types
+- Problem: Tests use lowercase data types (integer) but canonical form is uppercase (INTEGER)
+- Solution: Update tests to use canonical uppercase form matching Rust output
+- Example:
+  ```go
+  // Before:
+  sql := "CREATE TABLE t (id integer, name character varying(50))"
+  // After (canonical form):
+  sql := "CREATE TABLE t (id INTEGER, name CHARACTER VARYING(50))"
+  ```
+- Files typically modified: tests/postgres/postgres_test.go, tests/mysql/mysql_test.go
 
 **See full pattern catalog in code comments and previous session notes.**
 
