@@ -753,32 +753,34 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 		}
 	}
 
-	// Handle decimal point
+	// Handle decimal point - only consume if followed by digits
 	if next, ok := state.Peek(); ok && next == '.' {
-		s.WriteRune(next)
-		state.Next()
+		// Check if period is followed by a digit before consuming it
+		if afterPeriod, ok := state.PeekN(1); ok && unicode.IsDigit(afterPeriod) {
+			s.WriteRune(next)
+			state.Next()
 
-		// If the dialect supports numeric prefix and we just have ".", check if it's a period token
-		if s.String() == "." && t.dialect.SupportsNumericPrefix() {
-			if _, wasWord := prevToken.(TokenWord); wasWord {
-				return TokenPeriod{}, nil
+			// Consume fractional part
+			for {
+				ch, ok := state.Peek()
+				if !ok {
+					break
+				}
+				nextCh, _ := state.PeekN(1)
+				if unicode.IsDigit(ch) || isNumberSeparator(ch, nextCh) {
+					state.Next()
+					s.WriteRune(ch)
+				} else {
+					break
+				}
 			}
+		} else if s.String() == "" {
+			// No digits before or after period - this is just a period
+			state.Next()
+			return TokenPeriod{}, nil
 		}
-
-		// Consume fractional part
-		for {
-			ch, ok := state.Peek()
-			if !ok {
-				break
-			}
-			nextCh, _ := state.PeekN(1)
-			if unicode.IsDigit(ch) || isNumberSeparator(ch, nextCh) {
-				state.Next()
-				s.WriteRune(ch)
-			} else {
-				break
-			}
-		}
+		// If we have digits before but not after, don't consume the period
+		// It will be tokenized as a separate TokenPeriod in the next iteration
 	}
 
 	// No fraction -> just a period
@@ -816,12 +818,18 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 		}
 	}
 
-	// Check for numeric prefix identifiers
+	// Check for numeric prefix identifiers (e.g., 123abc)
+	// But don't combine if there's a period between (e.g., 23.parquet should be 23 + . + parquet)
 	if t.dialect.SupportsNumericPrefix() {
 		if exponent == "" {
-			word := state.TakeWhile(t.dialect.IsIdentifierPart)
-			if word != "" {
-				return MakeWord(s.String()+word, nil), nil
+			// Check if next char is a period - if so, don't combine
+			if next, ok := state.Peek(); ok && next == '.' {
+				// Period follows the number - don't combine with following word
+			} else {
+				word := state.TakeWhile(t.dialect.IsIdentifierPart)
+				if word != "" {
+					return MakeWord(s.String()+word, nil), nil
+				}
 			}
 		} else if prevToken != nil {
 			if _, wasPeriod := prevToken.(TokenPeriod); wasPeriod {

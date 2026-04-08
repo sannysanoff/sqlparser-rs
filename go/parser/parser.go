@@ -1785,6 +1785,13 @@ func (p *Parser) ParseExpression() (ast.Expr, error) {
 			SpanVal: tok.Span,
 			Ident:   &ast.Ident{Value: v.Word.Value},
 		}, nil
+	case token.TokenPlaceholder:
+		// Handle placeholders like $1, $2, etc.
+		p.AdvanceToken()
+		return &ast.EValue{
+			SpanVal: tok.Span,
+			Value:   ast.NewPlaceholder(v.Value),
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported expression token: %T", tok.Token)
 	}

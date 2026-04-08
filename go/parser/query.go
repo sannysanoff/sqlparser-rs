@@ -848,6 +848,22 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 		return &query.Wildcard{AdditionalOptions: opts}, nil
 	}
 
+	// Check for parenthesized wildcard (*) - should be normalized to just *
+	if p.ConsumeToken(token.TokenLParen{}) {
+		if p.ConsumeToken(token.TokenMul{}) {
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			opts, err := parseWildcardAdditionalOptions(p)
+			if err != nil {
+				return nil, err
+			}
+			return &query.Wildcard{AdditionalOptions: opts}, nil
+		}
+		// Not a parenthesized wildcard, put back the LParen and continue
+		p.PrevToken()
+	}
+
 	// Check for qualified wildcard (table.*)
 	// Look ahead: identifier followed by . *
 	if isQualifiedWildcard(p) {
@@ -1075,6 +1091,18 @@ func parseWildcardAdditionalOptions(p *Parser) (query.WildcardAdditionalOptions,
 					},
 				}
 			}
+		}
+	}
+
+	// Parse AS alias for wildcard (e.g., SELECT * AS all_cols, SELECT t.* AS t_cols)
+	if dialects.SupportsSelectWildcardWithAlias(dialect) {
+		if p.ParseKeyword("AS") {
+			alias, err := p.ParseIdentifier()
+			if err != nil {
+				return opts, fmt.Errorf("expected identifier after AS in wildcard alias: %w", err)
+			}
+			aliasQuery := astIdentToQuery(alias)
+			opts.OptAlias = &aliasQuery
 		}
 	}
 

@@ -771,6 +771,7 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 
 	return &expr.Subscript{
 		SpanVal:    mergeSpans(index.Span(), upperBound.Span()),
+		LowerBound: &index,
 		UpperBound: &upperBound,
 		Stride:     &stride,
 	}, nil

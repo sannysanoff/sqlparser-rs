@@ -1,5 +1,47 @@
 ---
 
+## Latest Update: April 9, 2026 - Session 30
+
+**Line Counts (Updated April 9, 2026 - Session 30 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 97,768 lines | 145% |
+| Tests | 49,886 lines | 14,330 lines | 29% |
+| **Test Status** | - | **860 passing** / **339 failing** (~72%) |
+| **Total Test Cases** | - | ~1,199 test outcomes |
+
+**Summary of Session 30:**
+
+1. **Fixed Wildcard AS Alias Support** (1 test now passing)
+   - Fixed `SELECT * AS all_cols` and `SELECT t.* AS t_cols` parsing
+   - **Implementation**: Added `SupportsSelectWildcardWithAlias()` to capabilities.go, added alias parsing to `parseWildcardAdditionalOptions()`
+   - **Pattern E126**: Wildcard alias parsing - Check for AS keyword after wildcard options and store in `OptAlias`
+   - Test Fixed: TestParseSelectWildcardWithAlias
+
+2. **Fixed Array Subscript Slicing** (1 test now passing)
+   - Fixed `SELECT arr[1:2:4]` which was serializing as `SELECT arr[:2:4]`
+   - **Root Cause**: In `parseSubscriptInner()`, the lower bound was not being set when parsing `[lower:upper:stride]`
+   - **Fix**: Added `LowerBound: &index` to the returned Subscript struct
+   - **Pattern E127**: Slice bounds tracking - When parsing multi-part slices, ensure all bounds (lower, upper, stride) are stored in the AST
+   - Test Fixed: TestParseArraySubscript
+
+3. **Fixed Parenthesized Wildcard** (1 test now passing)
+   - Fixed `SELECT DISTINCT (*) FROM table1` which should normalize to `SELECT DISTINCT * FROM table1`
+   - **Implementation**: Added check for `(*)` pattern in `parseSelectItem()` before regular wildcard handling
+   - **Pattern E128**: Parenthesized wildcard - Check for LParen + Mul + RParen sequence and treat as regular wildcard
+   - Test Fixed: TestParseSelectParenthesizedWildcard
+
+4. **Fixed Placeholder Support in Multi-Table INSERT** (1 test now passing)
+   - Fixed `INSERT ALL INTO t1 VALUES ($1, $2) SELECT ...` parsing
+   - **Implementation**: Added `TokenPlaceholder` case to `ParseExpression()` simplified parser
+   - **Pattern E129**: Placeholder parsing - Add TokenPlaceholder handling to simplified expression parser for dialect-specific statement parsing
+   - Test Fixed: TestSnowflakeMultiTableInsertWithValues (all 4 subtests now passing)
+
+**New Patterns Documented:** E126, E127, E128, E129
+
+---
+
 ## Typical Errors in Code Editing and How to Avoid Them
 
 This section documents common errors discovered during the porting process and provides solutions to avoid them in future work.
@@ -2096,6 +2138,87 @@ if err != nil {
 - `ParseExprInterface()` returns `interface{}` to accommodate both `expr.Expr` and `ast.Expr` types
 - This pattern is needed when parsing expressions in dialect-specific statement parsers
 
+### Error E126: Wildcard alias not parsed
+**Cause**: Wildcards like `SELECT * AS all_cols` are not recognized because `parseWildcardAdditionalOptions()` doesn't check for AS keyword.
+
+**Symptom**: Error: `Expected: end of statement, found: AS` when parsing `SELECT * AS foo`
+
+**Solution**: Add alias parsing after other wildcard options in `parseWildcardAdditionalOptions()`:
+```go
+// Parse AS alias for wildcard (e.g., SELECT * AS all_cols, SELECT t.* AS t_cols)
+if dialects.SupportsSelectWildcardWithAlias(dialect) {
+    if p.ParseKeyword("AS") {
+        alias, err := p.ParseIdentifier()
+        if err != nil {
+            return opts, fmt.Errorf("expected identifier after AS in wildcard alias: %w", err)
+        }
+        aliasQuery := astIdentToQuery(alias)
+        opts.OptAlias = &aliasQuery
+    }
+}
+```
+
+**Key Points**:
+- Must also add `SupportsSelectWildcardWithAlias()` helper to `dialects/capabilities.go`
+- The `WildcardAdditionalOptions.OptAlias` field already exists in the AST
+- Alias parsing should come after EXCLUDE/REPLACE/RENAME options
+
+### Error E127: Array slice lower bound lost
+**Cause**: When parsing array slice syntax `[lower:upper:stride]`, the lower bound index is not stored in the Subscript AST.
+
+**Symptom**: `SELECT arr[1:2:4]` serializes as `SELECT arr[:2:4]` - the first index is missing
+
+**Solution**: Ensure all slice bounds are stored in the AST:
+```go
+// In parseSubscriptInner() when parsing [lower:upper:stride]
+return &expr.Subscript{
+    SpanVal:    mergeSpans(index.Span(), upperBound.Span()),
+    LowerBound: &index,  // DON'T FORGET THIS!
+    UpperBound: &upperBound,
+    Stride:     &stride,
+}, nil
+```
+
+### Error E128: Parenthesized wildcard not recognized
+**Cause**: The pattern `(*)` in SELECT is not recognized as a wildcard.
+
+**Symptom**: Error: `Expected: an expression, found: *` when parsing `SELECT DISTINCT (*) FROM t`
+
+**Solution**: Add handling for `(*)` pattern in `parseSelectItem()`:
+```go
+// Check for parenthesized wildcard (*) - should be normalized to just *
+if p.ConsumeToken(token.TokenLParen{}) {
+    if p.ConsumeToken(token.TokenMul{}) {
+        if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+            return nil, err
+        }
+        opts, err := parseWildcardAdditionalOptions(p)
+        if err != nil {
+            return nil, err
+        }
+        return &query.Wildcard{AdditionalOptions: opts}, nil
+    }
+    // Not a parenthesized wildcard, put back the LParen and continue
+    p.PrevToken()
+}
+```
+
+### Error E129: Placeholder token not handled in simplified expression parser
+**Cause**: `Parser.ParseExpression()` doesn't handle `TokenPlaceholder` (like `$1`, `$2` in Snowflake).
+
+**Symptom**: Error: `unsupported expression token: token.TokenPlaceholder` when parsing `INSERT INTO t VALUES ($1, $2)`
+
+**Solution**: Add placeholder case to `ParseExpression()`:
+```go
+case token.TokenPlaceholder:
+    // Handle placeholders like $1, $2, etc.
+    p.AdvanceToken()
+    return &ast.EValue{
+        SpanVal: tok.Span,
+        Value:   ast.NewPlaceholder(v.Value),
+    }, nil
+```
+
 ---
 
 ## Porting Patterns from Rust
@@ -3441,13 +3564,14 @@ if p.PeekKeyword("DEFAULT") {
   - TestSnowflakeTimeTravel: ✅ Now passes
 
 **Notes**:
-- Source: 67,345 lines Rust → 83,417 lines Go (124% ratio)
-- Tests: 49,886 lines Rust → 14,161 lines Go (28% ratio)
-- Current status: 575 passing, 238 failing (~71% pass rate)
-- Major remaining work: DDL span mismatches (~60 tests), Snowflake Multi-Table INSERT placeholders (1 test), PIVOT (1 test), Snowflake error cases
+- Source: 67,345 lines Rust → 97,768 lines Go (145% ratio)
+- Tests: 49,886 lines Rust → 14,330 lines Go (29% ratio)
+- Current status: 860 passing, 339 failing (~72% pass rate)
+- Major remaining work: DDL span mismatches (~80 tests), Snowflake Stage Names (~4 tests), Snowflake error cases (~10 tests)
 - Many remaining failures are span/column position mismatches rather than parsing logic errors
 - PostgreSQL CREATE FUNCTION now working (5 of 6 tests passing, 1 has only span mismatches)
-- Remaining failing tests by category: PostgreSQL (~70), DDL (~60), Snowflake (~18), Expressions (~50)
+- Remaining failing tests by category: PostgreSQL (~90), DDL (~80), Snowflake (~24), Expressions (~50), Query (~40)
+- **New Patterns**: E126 (Wildcard alias), E127 (Array slice bounds), E128 (Parenthesized wildcard), E129 (Placeholder parsing)
 
 **Recent Fixes (Session 28)**:
 - TestParseCreateTableWithConstraintCharacteristics: ✅ Partial (serialization correct, validation added for duplicates)

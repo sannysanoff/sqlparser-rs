@@ -65,6 +65,15 @@ func SupportsSelectWildcardIlike(d CoreDialect) bool {
 	return false
 }
 
+// SupportsSelectWildcardWithAlias returns true if the dialect supports
+// aliasing wildcards like SELECT * AS all_cols.
+func SupportsSelectWildcardWithAlias(d CoreDialect) bool {
+	if sd, ok := d.(SelectDialect); ok {
+		return sd.SupportsSelectWildcardWithAlias()
+	}
+	return false
+}
+
 // SupportsSelectExprStar returns true if the dialect supports wildcard expansion
 // on arbitrary expressions like IDENTIFIER('name').* (Snowflake-specific).
 func SupportsSelectExprStar(d CoreDialect) bool {
