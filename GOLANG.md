@@ -1,5 +1,43 @@
 # Go SQL Parser Development Guide
 
+## Session 85 Summary: DECLARE Cursor, DML in CTEs, OFFSET Clause Fix (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented three major features fixing parsing and serialization issues, resolving 4+ failing tests:
+
+1. **DECLARE Cursor LIMIT Serialization** (parser/misc.go, parser/query.go)
+   - Fixed `extractQueryFromStatement()` to handle `*statement.Query` type (was missing case)
+   - Added transfer of LimitClause, OrderBy, FetchClause from SelectStatement to Query wrapper
+   - Fixed TestPostgresDeclare - cursor FOR query now properly includes LIMIT clause
+   - Reference: parser/misc.go:2036, parser/query.go:220-240
+
+2. **DML Statements in CTEs** (parser/query.go)
+   - Added parsing support for UPDATE, INSERT, DELETE in CTEs (PostgreSQL feature)
+   - Enables syntax: `WITH x AS (UPDATE ... RETURNING *) SELECT * FROM x`
+   - Fixed TestPostgresUpdateInWithSubquery
+   - Reference: src/parser/mod.rs:14064-14126
+
+3. **OFFSET Clause Parsing** (parser/query.go)
+   - Root cause: OFFSET was treated as implicit column alias in `parseSelectItem()`
+   - Added "OFFSET" to `isReservedForColumnAlias()` reserved keywords map
+   - Fixed TestParseOffset - `SELECT 'foo' OFFSET 0 ROWS` now parses correctly
+   - Reference: parser/query.go:1692-1707
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,379 lines | 131% |
+| Tests | 49,886 lines | 14,243 lines | 29% |
+| **Test Status** | - | **~780 passing, ~42 failing** (was ~777 passing, ~45 failing) |
+
+**New Patterns Documented:**
+- **Pattern E304**: DECLARE cursor query extraction - Ensure `extractQueryFromStatement()` handles all query wrapper types including `*statement.Query`
+- **Pattern E305**: DML in CTEs - Add UPDATE/INSERT/DELETE cases to `parseQuery()` alongside existing MERGE support
+- **Pattern E306**: OFFSET as reserved keyword - Add OFFSET to `isReservedForColumnAlias()` to prevent it being parsed as column alias
+
+---
+
 ## Session 84 Summary: Massive Code Port - WITH ORDINALITY, CREATE INDEX WITH, PARTITION BY (April 9, 2026)
 
 **Major Fixes:**
@@ -381,26 +419,29 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 83 Complete**
+**Latest Update: April 9, 2026 - Session 85 Complete**
 
 **Summary:**
-- **Test Functions:** ~509 passing, ~42 failing (~92.4% pass rate)
-- **100% Passing Test Suites:** Snowflake (all tests passing!)
+- **Test Functions:** ~780 passing, ~42 failing (~94.9% pass rate)
+- **100% Passing Test Suites:** Snowflake, Regression (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~21 failures): table functions, partition by, WITH clauses, CREATE TABLE options, quoted identifiers, escaped strings, DECLARE, CURRENT_CATALOG
-  2. **MySQL** (~11 failures): := assignment, index with USING, prefix key parts, foreign key index names
-  3. **DDL** (~4 failures): CREATE INDEX WITH clause, Hive array types, multiple ON DELETE in constraints
-  4. **DML** (~3 failures): UPDATE with subqueries in CTE, variable assignment
-  5. **Query** (~3 failures): IN with UNION, SELECT without projection, OFFSET clause
+  1. **PostgreSQL** (~22 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, fetch, copy from error handling
+  2. **MySQL** (~12 failures): foreign key with index name, prefix key parts, show extended full, variable assignment, optimizer hints edge cases
+  3. **DDL** (~3 failures): CREATE INDEX USING positions, Hive array types, multiple ON DELETE in constraints
+  4. **DML** (~3 failures): INSERT with RETURNING, SQLite INSERT variants
+  5. **Query** (~2 failures): SELECT without projection, IN with UNION
+- **Recently Fixed (Session 85):**
+  1. **DECLARE cursor LIMIT** - Fixed query extraction to properly include LIMIT clause in DECLARE FOR statements
+  2. **DML in CTEs** - Added support for UPDATE/INSERT/DELETE in WITH clause (PostgreSQL feature)
+  3. **OFFSET clause** - Fixed OFFSET being treated as column alias, added to reserved keywords
+- **Recently Fixed (Session 84):**
+  1. **WITH ORDINALITY** - PostgreSQL table function syntax support
+  2. **CREATE INDEX WITH clause** - Storage parameters parsing with proper spacing
+  3. **PARTITION BY** - CREATE TABLE partitioning for PostgreSQL/BigQuery
 - **Recently Fixed (Session 83):**
   1. **USING INDEX constraints** - PostgreSQL PRIMARY KEY USING INDEX and UNIQUE USING INDEX support
   2. **SHOW statement** - Fixed serialization to use space separator
   3. **Data type canonical form** - Updated tests to use UPPERCASE data types
-- **Recently Fixed (Session 82):**
-  1. **FOREIGN KEY MATCH clause** - Added MatchKind field to ColumnOptionReferences for inline REFERENCES
-  2. **ALTER SCHEMA** - Full implementation with RENAME TO and OWNER TO operations
-  3. **ALTER OPERATOR** - Full implementation with OWNER TO, SET SCHEMA, and SET operations
-  4. **ALTER OPERATOR FAMILY** - Full implementation with ADD/DROP for OPERATOR and FUNCTION
 - **Recently Fixed (Session 81):**
   1. **DROP DOMAIN** - Full implementation with CASCADE/RESTRICT support
   2. **DROP PROCEDURE** - Complex argument parsing with IN/OUT/INOUT modes and defaults
@@ -1171,7 +1212,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 81-84 (April 9, 2026)
+### Sessions 81-85 (April 9, 2026)
+- **Session 85**: DECLARE cursor, DML in CTEs, OFFSET clause fix (+3 features) - ~780 passing, 42 failing
 - **Session 84**: WITH ORDINALITY, CREATE INDEX WITH, PARTITION BY (+3 major features) - ~768 passing, 45 failing
 - **Session 83**: PostgreSQL USING INDEX, SHOW statement, Data type canonical form (+4 tests) - ~509 passing, 42 failing
 - **Session 82**: ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (+6 tests) - ~763 passing, 50 failing
@@ -1906,6 +1948,55 @@ Pattern E303: PARTITION BY for CREATE TABLE
   }
   ```
 - Files typically modified: parser/create.go, ast/statement/ddl.go
+
+Pattern E304: DECLARE Cursor Query Extraction
+- When: Parsing DECLARE ... CURSOR FOR SELECT ... LIMIT
+- Problem: `extractQueryFromStatement()` doesn't handle `*statement.Query` wrapper type
+- Solution: Add case for `*statement.Query` and transfer LimitClause/OrderBy/Fetch from SelectStatement
+- Example:
+  ```go
+  func extractQueryFromStatement(stmt ast.Statement) *query.Query {
+      switch s := stmt.(type) {
+      // ... other cases
+      case *statement.Query:
+          return s.Query
+      }
+  }
+  ```
+- Files typically modified: parser/misc.go, parser/query.go
+
+Pattern E305: DML Statements in CTEs (UPDATE/INSERT/DELETE)
+- When: Parsing WITH x AS (UPDATE ... RETURNING *) - PostgreSQL feature
+- Problem: Parser only supports SELECT/VALUES/MERGE in CTEs
+- Solution: Add UPDATE, INSERT, DELETE cases to `parseQuery()` alongside MERGE
+- Example:
+  ```go
+  } else if p.PeekKeyword("UPDATE") {
+      tok := p.NextToken()
+      body, err = parseUpdate(p, tok)
+  } else if p.PeekKeyword("DELETE") {
+      tok := p.NextToken()
+      body, err = parseDelete(p, tok)
+  } else if p.PeekKeyword("INSERT") {
+      tok := p.NextToken()
+      body, err = parseInsert(p, tok)
+  }
+  ```
+- Files typically modified: parser/query.go
+
+Pattern E306: OFFSET as Reserved Column Alias
+- When: Parsing SELECT without FROM: `SELECT 'foo' OFFSET 0 ROWS`
+- Problem: OFFSET treated as implicit column alias in `parseSelectItem()`
+- Solution: Add OFFSET to `isReservedForColumnAlias()` reserved keywords map
+- Example:
+  ```go
+  reserved := map[string]bool{
+      "FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
+      "ORDER": true, "LIMIT": true, "OFFSET": true,  // Add this
+      // ...
+  }
+  ```
+- Files typically modified: parser/query.go
 
 **See full pattern catalog in code comments and previous session notes.**
 

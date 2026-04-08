@@ -2043,7 +2043,23 @@ func extractQueryFromStatement(stmt ast.Statement) *query.Query {
 	case *ValuesStatement:
 		return s.Query
 	case *SelectStatement:
-		return &query.Query{Body: &s.Select}
+		// Convert []OrderByExpr to *OrderBy for query.Query
+		var orderByPtr *query.OrderBy
+		if len(s.OrderBy) > 0 {
+			orderByPtr = &query.OrderBy{
+				Kind: &query.OrderByExpressions{Exprs: s.OrderBy},
+			}
+		}
+		return &query.Query{
+			Body:        &s.Select,
+			OrderBy:     orderByPtr,
+			LimitClause: s.LimitClause,
+			Fetch:       s.FetchClause,
+			Locks:       s.Select.Locks,
+			ForClause:   s.ForClause,
+		}
+	case *statement.Query:
+		return s.Query
 	default:
 		return nil
 	}

@@ -160,6 +160,18 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		// MERGE in CTE: WITH x AS (MERGE INTO ... RETURNING *)
 		tok := p.NextToken()
 		body, err = parseMerge(p, tok)
+	} else if p.PeekKeyword("UPDATE") {
+		// UPDATE in CTE: WITH x AS (UPDATE ... RETURNING *) - PostgreSQL feature
+		tok := p.NextToken()
+		body, err = parseUpdate(p, tok)
+	} else if p.PeekKeyword("DELETE") {
+		// DELETE in CTE: WITH x AS (DELETE ... RETURNING *) - PostgreSQL feature
+		tok := p.NextToken()
+		body, err = parseDelete(p, tok)
+	} else if p.PeekKeyword("INSERT") {
+		// INSERT in CTE: WITH x AS (INSERT ... RETURNING *) - PostgreSQL feature
+		tok := p.NextToken()
+		body, err = parseInsert(p, tok)
 	} else if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		// Parenthesized subquery: (SELECT ...) or nested parens for recursion testing
 		p.AdvanceToken() // consume (
@@ -206,12 +218,22 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 	// Create a Query statement if needed
 	if needsQueryWrapper {
 		if selStmt, ok := body.(*SelectStatement); ok {
+			// Convert []OrderByExpr to *OrderBy for query.Query
+			var orderByPtr *query.OrderBy
+			if len(selStmt.OrderBy) > 0 {
+				orderByPtr = &query.OrderBy{
+					Kind: &query.OrderByExpressions{Exprs: selStmt.OrderBy},
+				}
+			}
 			return &statement.Query{
 				Query: &query.Query{
 					With: withClause,
 					Body: &query.SelectSetExpr{
 						Select: &selStmt.Select,
 					},
+					OrderBy:       orderByPtr,
+					LimitClause:   selStmt.LimitClause,
+					Fetch:         selStmt.FetchClause,
 					Locks:         locks,
 					ForClause:     forClause,
 					PipeOperators: pipeOperators,
@@ -1640,7 +1662,7 @@ func isClauseKeyword(keyword string) bool {
 	keyword = strings.ToUpper(keyword)
 	clauseKeywords := map[string]bool{
 		"FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
-		"ORDER": true, "LIMIT": true, "UNION": true, "INTERSECT": true,
+		"ORDER": true, "LIMIT": true, "OFFSET": true, "UNION": true, "INTERSECT": true,
 		"EXCEPT": true, "WINDOW": true, "QUALIFY": true, "INTO": true,
 		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, or lock clauses
 	}
@@ -1652,7 +1674,7 @@ func isReservedForColumnAlias(keyword string) bool {
 	keyword = strings.ToUpper(keyword)
 	reserved := map[string]bool{
 		"FROM": true, "WHERE": true, "GROUP": true, "HAVING": true,
-		"ORDER": true, "LIMIT": true, "UNION": true, "INTERSECT": true,
+		"ORDER": true, "LIMIT": true, "OFFSET": true, "UNION": true, "INTERSECT": true,
 		"EXCEPT": true, "SELECT": true, "INSERT": true, "UPDATE": true,
 		"DELETE": true, "CREATE": true, "DROP": true, "ALTER": true,
 		"AND": true, "OR": true, "NOT": true, "IN": true,
