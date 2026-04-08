@@ -1254,15 +1254,19 @@ func (ep *ExpressionParser) parseSubqueryWithSetOps() (expr.Expr, error) {
 
 		// Check if inside is another parenthesis - could be ((SELECT ...) UNION ...)
 		if _, ok := inner.Token.(token.TokenLParen); ok {
-			// Double-parenthesized subquery - parse it
-			// This looks like a subquery. Let's parse it properly.
-			// Reset and parse as a full query with set operations
+			// Double-parenthesized - could be ((SELECT ...)) or ((expr))
+			// Reset and try to parse as a subquery with set operations
 			ep.parser.SetCurrentIndex(savedIdx)
 
 			// Use ParseQueryWithSetOps to parse the full query including set operations
 			query, err := ep.parser.ParseQueryWithSetOps()
 			if err != nil {
-				return nil, err
+				// Failed to parse as subquery. The inner parse consumed the opening paren,
+				// so we need to restore position to indicate we're not a subquery.
+				// Note: GetCurrentIndex returns p.index-1, but SetCurrentIndex sets p.index directly
+				// So we need to add 1 to get back to the correct position
+				ep.parser.SetCurrentIndex(savedIdx + 1)
+				return nil, nil
 			}
 
 			return &expr.Subquery{
@@ -1275,7 +1279,9 @@ func (ep *ExpressionParser) parseSubqueryWithSetOps() (expr.Expr, error) {
 		}
 
 		// Not a subquery, restore position
-		ep.parser.SetCurrentIndex(savedIdx)
+		// Note: GetCurrentIndex returns p.index-1, but SetCurrentIndex sets p.index directly
+		// So we need to add 1 to get back to the correct position
+		ep.parser.SetCurrentIndex(savedIdx + 1)
 		return nil, nil
 	}
 

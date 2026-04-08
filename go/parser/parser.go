@@ -39,7 +39,10 @@ import (
 var _ parseriface.Parser = (*Parser)(nil)
 
 // DefaultRemainingDepth is the default maximum recursion depth
-const DefaultRemainingDepth = 50
+// Set to 128 to allow for deeply nested expressions (each level of nesting
+// may decrement the counter multiple times due to checks in statement,
+// query, and expression parsing)
+const DefaultRemainingDepth = 128
 
 // eofToken is a constant EOF token that can be referenced.
 var eofToken = token.TokenWithSpan{

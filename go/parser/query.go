@@ -519,6 +519,8 @@ func parseQueryWithSetOps(p *Parser) (ast.Statement, error) {
 			p.SetCurrentIndex(savedIdx) // restore and parse properly
 			setExpr, err := parseParenthesizedSetExpr(p, 0)
 			if err != nil {
+				// Restore position before returning error
+				p.SetCurrentIndex(savedIdx)
 				return nil, err
 			}
 			left = setExpr

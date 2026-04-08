@@ -29,6 +29,15 @@ import (
 	"github.com/user/sqlparser/token"
 )
 
+// subqueryAttemptedPositions tracks positions where subquery parsing was attempted
+// to prevent infinite recursion when parsing expressions like ((1))
+var subqueryAttemptedPositions = make(map[int]bool)
+
+// ResetSubqueryAttemptedPositions resets the tracking map (for testing)
+func ResetSubqueryAttemptedPositions() {
+	subqueryAttemptedPositions = make(map[int]bool)
+}
+
 // parsePrefix parses a prefix expression (the left-hand side of an expression).
 // This includes literals, identifiers, function calls, parenthesized expressions,
 // and various special expressions like CASE, CAST, etc.
@@ -987,6 +996,8 @@ func (ep *ExpressionParser) parseLiteralString() (string, error) {
 
 // parseParenthesizedPrefix parses a parenthesized expression or tuple
 func (ep *ExpressionParser) parseParenthesizedPrefix() (expr.Expr, error) {
+	currentIdx := ep.parser.GetCurrentIndex()
+
 	// Check for subquery first
 	if ep.peekSubquery() {
 		return ep.parseSubqueryExpr()
@@ -994,10 +1005,14 @@ func (ep *ExpressionParser) parseParenthesizedPrefix() (expr.Expr, error) {
 
 	// Check for double-parenthesized subquery with set operations
 	// e.g., ((SELECT ...) UNION (SELECT ...))
+	// But only if we haven't already tried at this position
 	if _, ok := ep.parser.PeekToken().Token.(token.TokenLParen); ok {
-		subq, err := ep.parseSubqueryWithSetOps()
-		if err == nil && subq != nil {
-			return subq, nil
+		if !subqueryAttemptedPositions[currentIdx] {
+			subqueryAttemptedPositions[currentIdx] = true
+			subq, err := ep.parseSubqueryWithSetOps()
+			if err == nil && subq != nil {
+				return subq, nil
+			}
 		}
 	}
 

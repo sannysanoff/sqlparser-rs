@@ -109,8 +109,9 @@ func TestParseDeeplyNestedUnaryOpHitsRecursionLimits(t *testing.T) {
 // Reference: tests/sqlparser_common.rs:11096
 func TestParseDeeplyNestedExprHitsRecursionLimits(t *testing.T) {
 	// Build a deeply nested WHERE clause
+	// Note: Default recursion limit is 128, so we need >128 nesting levels
 	whereClause := "1=1"
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		whereClause = fmt.Sprintf("(%s) AND (1=1)", whereClause)
 	}
 	sql := fmt.Sprintf("SELECT id, user_id FROM test WHERE %s", whereClause)
@@ -125,8 +126,9 @@ func TestParseDeeplyNestedExprHitsRecursionLimits(t *testing.T) {
 // Reference: tests/sqlparser_common.rs:11111
 func TestParseDeeplyNestedSubqueryExprHitsRecursionLimits(t *testing.T) {
 	// Build a deeply nested WHERE clause
+	// Note: Default recursion limit is 128, so we need >128 nesting levels
 	whereClause := "1=1"
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 200; i++ {
 		whereClause = fmt.Sprintf("(%s) AND (1=1)", whereClause)
 	}
 	sql := fmt.Sprintf("SELECT id, user_id where id IN (select id from t WHERE %s)", whereClause)
