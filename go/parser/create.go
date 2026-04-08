@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/user/sqlparser/ast"
@@ -76,10 +77,13 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 	// Check for ICEBERG (Snowflake) - can appear after DYNAMIC
 	iceberg := p.ParseKeyword("ICEBERG")
 
+	// Check for EXTERNAL (Hive/Spark style: CREATE EXTERNAL TABLE)
+	external := p.ParseKeyword("EXTERNAL")
+
 	// Try various CREATE targets
 	switch {
 	case p.PeekKeyword("TABLE"):
-		return parseCreateTable(p, orReplace, temporary, globalOpt, transient, volatile, iceberg, dynamic)
+		return parseCreateTable(p, orReplace, temporary, globalOpt, transient, volatile, iceberg, dynamic, external)
 	case p.PeekKeyword("VIEW"):
 		return parseCreateView(p, orReplace, temporary, false)
 	case p.PeekKeyword("ALGORITHM"), p.PeekKeyword("DEFINER"), p.PeekKeyword("SQL"):
@@ -155,7 +159,7 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 
 // parseCreateTable parses CREATE TABLE
 // Reference: src/parser/mod.rs:8339
-func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transient bool, volatile bool, iceberg bool, dynamic bool) (ast.Statement, error) {
+func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transient bool, volatile bool, iceberg bool, dynamic bool, external bool) (ast.Statement, error) {
 	// Consume TABLE keyword
 	if _, err := p.ExpectKeyword("TABLE"); err != nil {
 		return nil, err
@@ -530,6 +534,40 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 	}
 
+	// Extract FileFormat and Location from hiveFormats for top-level access
+	var fileFormat *expr.FileFormat
+	var location *string
+	if hiveFormats != nil {
+		if hiveFormats.Storage != nil {
+			// Map storage format to FileFormat enum
+			formatStr := hiveFormats.Storage.InputFormat
+			switch strings.ToUpper(formatStr) {
+			case "TEXTFILE":
+				ff := expr.FileFormatTEXTFILE
+				fileFormat = &ff
+			case "PARQUET":
+				ff := expr.FileFormatPARQUET
+				fileFormat = &ff
+			case "ORC":
+				ff := expr.FileFormatORC
+				fileFormat = &ff
+			case "AVRO":
+				ff := expr.FileFormatAVRO
+				fileFormat = &ff
+			case "JSONFILE":
+				ff := expr.FileFormatJSONFILE
+				fileFormat = &ff
+			case "SEQUENCEFILE":
+				ff := expr.FileFormatSEQUENCEFILE
+				fileFormat = &ff
+			case "RCFILE":
+				ff := expr.FileFormatRCFILE
+				fileFormat = &ff
+			}
+		}
+		location = hiveFormats.Location
+	}
+
 	// For Snowflake DYNAMIC tables, AS query comes after all options
 	// Check if we haven't parsed AS query yet and there's one now
 	if asQuery == nil && p.PeekKeyword("AS") {
@@ -552,6 +590,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 	return &statement.CreateTable{
 		OrReplace:        orReplace,
 		Temporary:        temporary,
+		External:         external,
 		Global:           global,
 		Transient:        transient,
 		Volatile:         volatile,
@@ -581,6 +620,9 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Diststyle:        diststyle,
 		Distkey:          distkey,
 		Sortkey:          sortkey,
+		// Hive external table fields
+		FileFormat: fileFormat,
+		Location:   location,
 		// PostgreSQL-specific fields
 		Inherits: inherits,
 		// Snowflake-specific fields
@@ -964,13 +1006,83 @@ func isTableConstraint(p *Parser) bool {
 	return false
 }
 
-// parseCreateTableOptions parses optional MySQL table options after the column list.
+// parseCreateTableOptions parses optional table options after the column list.
 // Reference: src/parser/mod.rs:8690-8693, parse_plain_options
-// Format: [ENGINE=InnoDB] [DEFAULT CHARSET=utf8] [COLLATE=utf8mb4_unicode_ci] [COMMENT='text'] [AUTO_INCREMENT=123] ...
+// Format: [ENGINE=InnoDB] [DEFAULT CHARSET=utf8] ... or WITH (foo = 'bar', a = 123)
 // Options can be space-separated or comma-separated.
 func parseCreateTableOptions(p *Parser) (*expr.CreateTableOptions, error) {
-	var options []*expr.SqlOption
+	// Check for WITH options first (PostgreSQL/Hive style)
+	if p.PeekKeyword("WITH") {
+		p.NextToken() // consume WITH
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
 
+		var options []*expr.SqlOption
+		for {
+			// Check for closing paren
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.NextToken() // consume )
+				break
+			}
+
+			// Parse option name
+			name, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+
+			// Expect =
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+
+			// Parse value - can be string literal, number, or identifier
+			tok := p.NextToken()
+			var value expr.Expr
+			switch t := tok.Token.(type) {
+			case token.TokenSingleQuotedString:
+				value = &expr.ValueExpr{Value: t.Value}
+			case token.TokenDoubleQuotedString:
+				value = &expr.ValueExpr{Value: t.Value}
+			case token.TokenNumber:
+				// Try to parse as integer first, then float
+				if intVal, err := strconv.ParseInt(t.Value, 10, 64); err == nil {
+					value = &expr.ValueExpr{Value: intVal}
+				} else if floatVal, err := strconv.ParseFloat(t.Value, 64); err == nil {
+					value = &expr.ValueExpr{Value: floatVal}
+				} else {
+					value = &expr.ValueExpr{Value: t.Value}
+				}
+			case token.TokenWord:
+				value = &expr.Ident{Value: t.Value}
+			default:
+				return nil, p.ExpectedRef("string literal, number, or identifier", &tok)
+			}
+
+			options = append(options, &expr.SqlOption{
+				Name:  &expr.Ident{Value: name.Value},
+				Value: value,
+			})
+
+			// Check for comma or closing paren
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			}
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.NextToken() // consume )
+				break
+			}
+		}
+
+		return &expr.CreateTableOptions{
+			Type:    expr.CreateTableOptionsWith,
+			Options: options,
+		}, nil
+	}
+
+	// Parse plain options (MySQL style)
+	var options []*expr.SqlOption
 	for {
 		opt, err := parsePlainTableOption(p)
 		if err != nil {

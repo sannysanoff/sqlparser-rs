@@ -196,6 +196,23 @@ func (c *CreateTable) String() string {
 		}
 	}
 
+	// Hive formats: STORED AS and LOCATION
+	if c.HiveFormats != nil {
+		if c.HiveFormats.Storage != nil {
+			if c.HiveFormats.Storage.InputFormat == c.HiveFormats.Storage.OutputFormat {
+				// Simple format like TEXTFILE, PARQUET - use uppercase
+				f.WriteString(fmt.Sprintf(" STORED AS %s", strings.ToUpper(c.HiveFormats.Storage.InputFormat)))
+			} else {
+				// Complex format with INPUTFORMAT/OUTPUTFORMAT
+				f.WriteString(fmt.Sprintf(" STORED AS INPUTFORMAT '%s' OUTPUTFORMAT '%s'",
+					c.HiveFormats.Storage.InputFormat, c.HiveFormats.Storage.OutputFormat))
+			}
+		}
+		if c.HiveFormats.Location != nil {
+			f.WriteString(fmt.Sprintf(" LOCATION '%s'", *c.HiveFormats.Location))
+		}
+	}
+
 	// Snowflake-specific: COPY GRANTS
 	if c.CopyGrants {
 		f.WriteString(" COPY GRANTS")
@@ -276,6 +293,24 @@ func (c *CreateTable) String() string {
 	}
 	if c.RequireUser {
 		f.WriteString(" REQUIRE USER")
+	}
+
+	// CLONE clause (Snowflake)
+	if c.Clone != nil {
+		f.WriteString(" CLONE ")
+		f.WriteString(c.Clone.String())
+	}
+
+	// WITH options (PostgreSQL/Hive style)
+	if c.TableOptions != nil && c.TableOptions.Type == expr.CreateTableOptionsWith {
+		f.WriteString(" WITH (")
+		for i, opt := range c.TableOptions.Options {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
+		f.WriteString(")")
 	}
 
 	if c.AsTable != nil {

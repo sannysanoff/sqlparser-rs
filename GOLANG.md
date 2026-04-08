@@ -1,6 +1,64 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 51 (5 Critical Fixes, 14 Tests Remaining)
+## Latest Update: April 8, 2026 - Session 52 (Massive Code Port: CREATE TABLE Options, EXTERNAL, WITH, CLONE)
+
+**Line Counts (Updated April 8, 2026 - Session 52):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 87,193 lines | 129% |
+| Tests | 49,886 lines | 14,259 lines | 29% |
+| **Test Status** | - | **~180 tests passing** / **~180 tests failing** (~50%) |
+| **Total Test Cases** | - | ~360 test functions |
+
+### Session 52 Summary: Massive Code Port - CREATE TABLE Features
+
+**Fixed 6 Key Parser Issues:**
+
+1. **CREATE EXTERNAL TABLE** (TestParseCreateExternalTable partially passing)
+   - **Implementation**: Added `external` parameter to `parseCreateTable()` function
+   - **Fix**: Updated `parseCreate()` to check for EXTERNAL keyword before TABLE
+   - **Files Modified**: `parser/create.go`
+   - **Pattern**: EXTERNAL is a modifier that appears before TABLE keyword
+
+2. **CREATE TABLE WITH Options** (TestParseCreateTableWithOptions now passing)
+   - **Implementation**: Added parsing for `WITH (key = value, ...)` syntax
+   - **Fix**: Extended `parseCreateTableOptions()` to handle WITH clause with parenthesized options
+   - **Serialization**: Updated `CreateTable.String()` to output `WITH (key = value)` format
+   - **Files Modified**: `parser/create.go`, `ast/statement/ddl.go`
+
+3. **CREATE TABLE CLONE** (TestParseCreateTableClone now passing)
+   - **Root Cause**: CLONE clause was parsed but not serialized
+   - **Fix**: Added CLONE serialization to `CreateTable.String()` method
+   - **Files Modified**: `ast/statement/ddl.go`
+   - **Lines Added**: ~6 lines in String() method
+
+4. **Hive STORED AS and LOCATION** (Partial - serialization format)
+   - **Implementation**: Extended `parseHiveFormatClause()` already existed, added proper extraction
+   - **Fix**: Added `FileFormat` and `Location` extraction from `hiveFormats` in parser
+   - **Serialization**: Updated `CreateTable.String()` to output `STORED AS FORMAT` and `LOCATION 'path'`
+   - **Files Modified**: `parser/create.go`, `ast/statement/ddl.go`
+
+5. **Number Value Parsing in WITH Options** (Fixed value type handling)
+   - **Root Cause**: Numbers were stored as strings, causing them to be quoted in output
+   - **Fix**: Parse numbers as actual int64/float64 types using strconv
+   - **Files Modified**: `parser/create.go`
+   - **Import Added**: strconv
+
+6. **Case Normalization for File Formats** (Fixed PARQUET vs parquet)
+   - **Root Cause**: File format names preserved input case, but tests expected uppercase
+   - **Fix**: Use `strings.ToUpper()` when serializing storage format names
+   - **Files Modified**: `ast/statement/ddl.go`
+
+**New Patterns Documented:**
+- **Pattern E190**: EXTERNAL TABLE parsing - Check for EXTERNAL keyword in `parseCreate()` before dispatching to `parseCreateTable()`, pass as parameter
+- **Pattern E191**: WITH options parsing - When parsing CREATE TABLE options, check for WITH keyword first, then parse parenthesized key=value pairs
+- **Pattern E192**: Number value storage - Parse numeric values as int64/float64 using strconv, not as strings, to avoid unwanted quoting in serialization
+- **Pattern E193**: Case normalization in serialization - Use strings.ToUpper() for canonical output of identifiers like file formats (TEXTFILE, PARQUET)
+
+---
+
+## Previous Update: April 8, 2026 - Session 51 (5 Critical Fixes, 14 Tests Remaining)
 
 **Line Counts (Updated April 8, 2026 - Session 51):**
 
@@ -1595,6 +1653,127 @@ if p.ConsumeToken(token.TokenComma{}) {
 ```
 
 **Solution**: In list parsing functions, check `SupportsColumnDefinitionTrailingCommas()` before accepting `)` immediately after `,`; return explicit error for unsupported dialects.
+
+### E190: EXTERNAL Keyword Handling
+**Error**: CREATE EXTERNAL TABLE fails because EXTERNAL keyword is not recognized.
+
+**Example**:
+```go
+// WRONG - EXTERNAL not handled
+switch {
+case p.PeekKeyword("TABLE"):
+    return parseCreateTable(p, orReplace, temporary, ...)
+}
+
+// CORRECT - check for EXTERNAL before TABLE
+external := p.ParseKeyword("EXTERNAL")
+switch {
+case p.PeekKeyword("TABLE"):
+    return parseCreateTable(p, orReplace, temporary, ..., external)
+}
+```
+
+**Solution**: Check for EXTERNAL keyword in `parseCreate()` before dispatching to specific parsers, and pass it as a parameter.
+
+### E191: WITH Options Parsing
+**Error**: CREATE TABLE t (c INT) WITH (foo = 'bar') fails to parse.
+
+**Example**:
+```go
+// Parse WITH options
+if p.PeekKeyword("WITH") {
+    p.NextToken() // consume WITH
+    p.ExpectToken(token.TokenLParen{})
+    
+    var options []*expr.SqlOption
+    for {
+        // Check for closing paren
+        if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+            p.NextToken()
+            break
+        }
+        
+        // Parse name = value
+        name, _ := p.ParseIdentifier()
+        p.ExpectToken(token.TokenEq{})
+        
+        // Parse value based on token type
+        tok := p.NextToken()
+        var value expr.Expr
+        switch t := tok.Token.(type) {
+        case token.TokenSingleQuotedString:
+            value = &expr.ValueExpr{Value: t.Value}
+        case token.TokenNumber:
+            // Parse as actual number, not string
+            if intVal, err := strconv.ParseInt(t.Value, 10, 64); err == nil {
+                value = &expr.ValueExpr{Value: intVal}
+            }
+        }
+        
+        options = append(options, &expr.SqlOption{
+            Name:  &expr.Ident{Value: name.Value},
+            Value: value,
+        })
+    }
+}
+```
+
+**Solution**: Check for WITH keyword, then parse parenthesized key=value pairs. Parse numbers as actual numeric types to avoid unwanted quoting in serialization.
+
+### E192: Missing CLAUSE in String() Method
+**Error**: Parsed CLONE clause is not serialized back to SQL.
+
+**Example**:
+```go
+// WRONG - Clone field not serialized
+func (c *CreateTable) String() string {
+    // ... other clauses ...
+    if c.Query != nil {
+        f.WriteString(" AS ")
+        f.WriteString(c.Query.String())
+    }
+    return f.String()
+}
+
+// CORRECT - include CLONE clause
+func (c *CreateTable) String() string {
+    // ... other clauses ...
+    if c.Clone != nil {
+        f.WriteString(" CLONE ")
+        f.WriteString(c.Clone.String())
+    }
+    // ... rest of serialization ...
+}
+```
+
+**Solution**: When adding new fields to AST structs, always update the String() method to serialize them.
+
+### E193: Case Sensitivity in Serialization
+**Error**: File format names serialized in wrong case (parquet vs PARQUET).
+
+**Example**:
+```go
+// WRONG - preserves input case
+f.WriteString(fmt.Sprintf(" STORED AS %s", c.HiveFormats.Storage.InputFormat))
+// Input: "parquet" -> Output: "STORED AS parquet"
+
+// CORRECT - normalize to uppercase
+f.WriteString(fmt.Sprintf(" STORED AS %s", strings.ToUpper(c.HiveFormats.Storage.InputFormat)))
+// Input: "parquet" -> Output: "STORED AS PARQUET"
+```
+
+**Solution**: Use `strings.ToUpper()` for canonical output of identifiers like file formats, keywords, and type names.
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 52 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 87,193 lines | 129% |
+| Tests | 49,886 lines | 14,259 lines | 29% |
+| **Test Status** | - | **~180 tests passing** / **~180 tests failing** (~50%) |
+| **Total Test Cases** | - | ~360 test functions |
 
 ---
 
