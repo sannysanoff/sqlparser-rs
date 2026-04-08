@@ -528,6 +528,12 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		}
 	}
 
+	// Extract joins from the parsed table (MySQL-style UPDATE with JOINs)
+	var joins []query.Join
+	if table != nil {
+		joins = table.Joins
+	}
+
 	update := &statement.Update{
 		Table:           mainTable,
 		TableAlias:      tableAlias,
@@ -537,6 +543,7 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		Returning:       returning,
 		Output:          output,
 		IsFromStatement: false,
+		Joins:           joins,
 	}
 	update.SetSpan(updateToken.Span)
 

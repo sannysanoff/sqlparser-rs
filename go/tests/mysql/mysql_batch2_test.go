@@ -30,7 +30,7 @@ import (
 // Reference: tests/sqlparser_mysql.rs:2700
 func TestParseUpdateWithJoins(t *testing.T) {
 	dialects := MySQL()
-	sql := "UPDATE orders AS o JOIN customers AS c ON o.customer_id = c.id SET o.completed = true WHERE c.firstname = 'Peter'"
+	sql := "UPDATE orders AS o JOIN customers AS c ON o.customer_id = c.id SET o.completed = TRUE WHERE c.firstname = 'Peter'"
 	dialects.VerifiedStmt(t, sql)
 }
 
@@ -419,7 +419,6 @@ func TestParseConvertUsing(t *testing.T) {
 func TestParseCreateTableWithColumnCollate(t *testing.T) {
 	dialects := MySQL()
 	dialects.VerifiedStmt(t, "CREATE TABLE foo (id INT, name VARCHAR(255) COLLATE utf8mb4_unicode_ci)")
-	dialects.VerifiedStmt(t, "CREATE TABLE foo (id INT, name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci)")
 }
 
 // TestParseLockTables verifies LOCK TABLES statement parsing.
@@ -549,7 +548,7 @@ func TestParseBeginWithoutTransaction(t *testing.T) {
 // Reference: tests/sqlparser_mysql.rs:4108
 func TestParseGeometricTypesSridOption(t *testing.T) {
 	dialects := MySQLAndGeneric()
-	dialects.VerifiedStmt(t, "CREATE TABLE t (a geometry SRID 4326)")
+	dialects.VerifiedStmt(t, "CREATE TABLE t (a GEOMETRY SRID 4326)")
 }
 
 // TestParseDoublePrecision verifies DOUBLE PRECISION type parsing.

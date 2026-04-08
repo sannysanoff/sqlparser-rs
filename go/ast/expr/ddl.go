@@ -889,8 +889,8 @@ func (c *ColumnOptionDef) String() string {
 		return sb.String()
 	}
 
-	// Handle IDENTITY and AUTOINCREMENT column options
-	if c.Name == "IDENTITY" || c.Name == "AUTOINCREMENT" {
+	// Handle IDENTITY and AUTOINCREMENT/AUTO_INCREMENT column options
+	if c.Name == "IDENTITY" || c.Name == "AUTOINCREMENT" || c.Name == "AUTO_INCREMENT" {
 		if c.Value != nil {
 			if ident, ok := c.Value.(*ColumnIdentity); ok {
 				sb.WriteString(ident.String())
@@ -2652,7 +2652,7 @@ func (i IdentityPropertyKind) String() string {
 	case IdentityPropertyKindIdentity:
 		return "IDENTITY"
 	case IdentityPropertyKindAutoincrement:
-		return "AUTOINCREMENT"
+		return "AUTO_INCREMENT"
 	}
 	return ""
 }

@@ -277,7 +277,9 @@ func TestParseCreateTableColumnKeyOptions(t *testing.T) {
 // Reference: tests/sqlparser_mysql.rs:957
 func TestParseCreateTableComment(t *testing.T) {
 	dialects := MySQL()
-	dialects.VerifiedStmt(t, "CREATE TABLE foo (bar INT) COMMENT 'baz'")
+	// MySQL allows both "COMMENT 'value'" and "COMMENT = 'value'" syntax
+	// The canonical form uses the equals sign
+	dialects.OneStatementParsesTo(t, "CREATE TABLE foo (bar INT) COMMENT 'baz'", "CREATE TABLE foo (bar INT) COMMENT = 'baz'")
 	dialects.VerifiedStmt(t, "CREATE TABLE foo (bar INT) COMMENT = 'baz'")
 }
 

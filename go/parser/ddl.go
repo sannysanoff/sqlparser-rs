@@ -149,7 +149,8 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			Kind:     expr.IdentityPropertyKindAutoincrement,
 			Property: identProp,
 		}
-		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "AUTOINCREMENT", Value: colIdent}, nil
+		// Store as AUTO_INCREMENT (canonical form with underscore)
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "AUTO_INCREMENT", Value: colIdent}, nil
 	}
 
 	// IDENTITY (MSSQL/Snowflake column option)

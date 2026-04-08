@@ -116,12 +116,12 @@ func (v *ValueExpr) String() string {
 	if v.Value == nil {
 		return "NULL"
 	}
-	// Handle Go bool types (TRUE/FALSE must be lowercase to match Rust)
+	// Handle Go bool types (TRUE/FALSE must be uppercase to match Rust canonical form)
 	if b, ok := v.Value.(bool); ok {
 		if b {
-			return "true"
+			return "TRUE"
 		}
-		return "false"
+		return "FALSE"
 	}
 	if s, ok := v.Value.(fmt.Stringer); ok {
 		return s.String()

@@ -232,6 +232,7 @@ type Update struct {
 	Limit           query.LimitClause
 	IsFromStatement bool
 	Setting         []*expr.Setting
+	Joins           []query.Join // MySQL-style UPDATE with JOINs
 }
 
 func (u *Update) statementNode() {}
@@ -254,6 +255,12 @@ func (u *Update) String() string {
 	if u.TableAlias != nil {
 		f.WriteString(" AS ")
 		f.WriteString(u.TableAlias.String())
+	}
+
+	// Serialize JOINs (MySQL-style UPDATE with JOINs)
+	for _, join := range u.Joins {
+		f.WriteString(" ")
+		f.WriteString(join.String())
 	}
 
 	if len(u.Assignments) > 0 {
