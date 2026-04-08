@@ -242,9 +242,40 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 
 	// Parse LIKE clause (before column list, parenthesized or plain)
 	var like *expr.CreateTableLikeKind
-	like, err = parseCreateTableLike(p)
-	if err != nil {
-		return nil, err
+
+	// Check for parenthesized LIKE first (e.g., CREATE TABLE new (LIKE old))
+	// This must be done before checking for plain LIKE and before column list parsing
+	if p.GetDialect().SupportsCreateTableLikeParenthesized() {
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+			// Look ahead to see if this is (LIKE ...)
+			// We need to consume the (, check for LIKE, then either continue or put it back
+			p.AdvanceToken() // consume (
+			if p.PeekKeyword("LIKE") {
+				// This is (LIKE ...), parse the parenthesized LIKE
+				like, err = parseCreateTableLike(p)
+				if err != nil {
+					return nil, err
+				}
+				if like != nil {
+					// Set the kind to parenthesized and consume the closing )
+					like.Kind = expr.CreateTableLikeParenthesized
+					if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+						return nil, err
+					}
+				}
+			} else {
+				// Not a LIKE clause, put the ( back for column list parsing
+				p.PrevToken()
+			}
+		}
+	}
+
+	// If no parenthesized LIKE, try plain LIKE
+	if like == nil {
+		like, err = parseCreateTableLike(p)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Parse CLONE clause (Snowflake)

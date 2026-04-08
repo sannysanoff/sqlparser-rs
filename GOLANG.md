@@ -1,5 +1,33 @@
 ---
 
+**Line Counts (Updated April 9, 2026 - Session 24 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 82,755 lines | 123% |
+| Tests | 49,886 lines | 13,923 lines | 28% |
+| **Test Status** | - | **562 passing** / **251 failing** (~69%) |
+
+**Summary of Session 24:**
+
+1. **Implemented CREATE TABLE LIKE** (Major feature - 3 tests now passing)
+   - Fixed `CREATE TABLE new LIKE old` syntax (plain LIKE)
+   - Fixed `CREATE TABLE new (LIKE old)` syntax (parenthesized LIKE)
+   - Fixed `CREATE TABLE new (LIKE old INCLUDING DEFAULTS)` and `EXCLUDING DEFAULTS`
+   - **Implementation**: 
+     - Modified `parseCreateTable()` in `go/parser/create.go` to check for parenthesized LIKE before column list parsing
+     - Updated `parseCreateTableLike()` to handle INCLUDING/EXCLUDING DEFAULTS
+     - Fixed `CreateTableLikeKind.String()` to serialize parenthesized format and defaults
+     - Fixed `CreateTable.String()` to include LIKE clause in output
+   - **Pattern E108**: Parenthesized LIKE parsing - When dialect supports parenthesized LIKE, check for `(LIKE` pattern before treating as column list. Use `PrevToken()` to put back `(` if it's not a LIKE clause.
+   - Tests Fixed: TestParseCreateTableLike, TestParseCreateTableLikeWithDefaults
+
+2. **Updated Test Framework** for dialect-specific features
+   - Fixed test to use `NewTestedDialectsWithFilter()` with `SupportsCreateTableLikeParenthesized()` predicate
+   - Matches Rust test structure: `all_dialects_except()` for plain LIKE, `all_dialects_where()` for parenthesized LIKE
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 23 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -2492,6 +2520,79 @@ func astExprToExpr(e ast.Expr) expr.Expr {
 }
 ```
 
+### Error E108: Parenthesized LIKE clause parsed as column list
+**Cause**: `CREATE TABLE new (LIKE old)` is incorrectly parsed as a column list because the `(` triggers column list parsing before checking for LIKE.
+
+**Solution**: Check for parenthesized LIKE before column list parsing:
+```go
+// Check for parenthesized LIKE first
+if p.GetDialect().SupportsCreateTableLikeParenthesized() {
+    if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+        p.AdvanceToken() // consume (
+        if p.PeekKeyword("LIKE") {
+            // This is (LIKE ...), parse it
+            like, err = parseCreateTableLike(p)
+            if like != nil {
+                like.Kind = expr.CreateTableLikeParenthesized
+                p.ExpectToken(token.TokenRParen{})
+            }
+        } else {
+            // Not a LIKE clause, put the ( back
+            p.PrevToken()
+        }
+    }
+}
+```
+
+### Error E109: LIKE clause not serialized in CREATE TABLE
+**Cause**: The `CreateTable.String()` method doesn't include the `Like` field, so `CREATE TABLE new LIKE old` serializes as just `CREATE TABLE new`.
+
+**Solution**: Add LIKE serialization after the table name:
+```go
+func (c *CreateTable) String() string {
+    // ... other serialization code ...
+    f.WriteString(c.Name.String())
+    
+    // LIKE clause
+    if c.Like != nil {
+        f.WriteString(" ")
+        f.WriteString(c.Like.String())
+    }
+    // ... rest of serialization ...
+}
+```
+
+### Error E110: Parenthesized LIKE not serialized with parentheses
+**Cause**: The `CreateTableLikeKind.String()` method doesn't check the `Kind` field to determine if it should wrap in parentheses.
+
+**Solution**: Check the Kind field and include INCLUDING/EXCLUDING DEFAULTS:
+```go
+func (c *CreateTableLikeKind) String() string {
+    var sb strings.Builder
+    if c.Kind == CreateTableLikeParenthesized {
+        sb.WriteString("(")
+    }
+    sb.WriteString("LIKE")
+    if c.Name != nil {
+        sb.WriteString(" ")
+        sb.WriteString(c.Name.String())
+    }
+    if c.Defaults != nil {
+        sb.WriteString(" ")
+        switch *c.Defaults {
+        case CreateTableLikeDefaultsIncluding:
+            sb.WriteString("INCLUDING DEFAULTS")
+        case CreateTableLikeDefaultsExcluding:
+            sb.WriteString("EXCLUDING DEFAULTS")
+        }
+    }
+    if c.Kind == CreateTableLikeParenthesized {
+        sb.WriteString(")")
+    }
+    return sb.String()
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -2522,6 +2623,15 @@ func astExprToExpr(e ast.Expr) expr.Expr {
 5. **Snowflake Stage Names** - Special characters in stage paths
 
 **Recent Fixes**:
+- **Session 24 (April 9, 2026)**:
+  - Implemented CREATE TABLE LIKE: 3 tests now passing
+    - Plain LIKE: `CREATE TABLE new LIKE old`
+    - Parenthesized LIKE: `CREATE TABLE new (LIKE old)`
+    - With defaults: `CREATE TABLE new (LIKE old INCLUDING DEFAULTS)`
+  - Fixed parenthesized LIKE parsing, serialization, and test dialect filtering
+  - Tests Fixed: TestParseCreateTableLike, TestParseCreateTableLikeWithDefaults
+  - Line counts: Rust 67,345 → Go 82,412 (122%), Tests: Rust 45,672 → Go 13,912 (30%)
+
 - **Session 23 (April 8, 2026)**:
   - Fixed dollar-quoted string support: Added `SupportsDollarQuotedString()` to all 15 dialects
   - Fixed `dialectAdapter` delegation bug that blocked PostgreSQL CREATE FUNCTION tests

@@ -138,6 +138,12 @@ func (c *CreateTable) String() string {
 	}
 	f.WriteString(c.Name.String())
 
+	// LIKE clause (Snowflake/BigQuery style: CREATE TABLE new LIKE old)
+	if c.Like != nil {
+		f.WriteString(" ")
+		f.WriteString(c.Like.String())
+	}
+
 	// PostgreSQL PARTITION OF
 	if c.PartitionOf != nil {
 		f.WriteString(" PARTITION OF ")

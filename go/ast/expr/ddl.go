@@ -643,10 +643,35 @@ func (c *CreateTableLikeKind) Span() token.Span {
 
 // String returns the SQL representation.
 func (c *CreateTableLikeKind) String() string {
-	if c.Name != nil {
-		return fmt.Sprintf("LIKE %s", c.Name.String())
+	var sb strings.Builder
+
+	// For parenthesized format, wrap in parentheses
+	if c.Kind == CreateTableLikeParenthesized {
+		sb.WriteString("(")
 	}
-	return "LIKE"
+
+	sb.WriteString("LIKE")
+	if c.Name != nil {
+		sb.WriteString(" ")
+		sb.WriteString(c.Name.String())
+	}
+
+	// Add INCLUDING/EXCLUDING DEFAULTS if present
+	if c.Defaults != nil {
+		sb.WriteString(" ")
+		switch *c.Defaults {
+		case CreateTableLikeDefaultsIncluding:
+			sb.WriteString("INCLUDING DEFAULTS")
+		case CreateTableLikeDefaultsExcluding:
+			sb.WriteString("EXCLUDING DEFAULTS")
+		}
+	}
+
+	if c.Kind == CreateTableLikeParenthesized {
+		sb.WriteString(")")
+	}
+
+	return sb.String()
 }
 
 // ============================================================================

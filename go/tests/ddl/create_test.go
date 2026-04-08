@@ -1039,18 +1039,26 @@ func TestParseCreateTableWithEnumTypes(t *testing.T) {
 // TestParseCreateTableLike verifies CREATE TABLE LIKE syntax.
 // Reference: tests/sqlparser_common.rs:17816
 func TestParseCreateTableLike(t *testing.T) {
-	// Test basic CREATE TABLE LIKE (non-parenthesized)
+	// Test basic CREATE TABLE LIKE (non-parenthesized) - with dialects that DON'T support parenthesized LIKE
+	// This matches Rust: all_dialects_except(|d| d.supports_create_table_like_parenthesized())
 	sql1 := "CREATE TABLE new LIKE old"
-	stmt1 := utils.NewTestedDialects().VerifiedStmt(t, sql1)
+	dialectsExceptParenthesized := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return !d.SupportsCreateTableLikeParenthesized()
+	})
+	stmt1 := dialectsExceptParenthesized.VerifiedStmt(t, sql1)
 
 	createTable1, ok := stmt1.(*statement.CreateTable)
 	require.True(t, ok, "Expected CreateTable statement, got %T", stmt1)
 	assert.Equal(t, "new", createTable1.Name.String())
 	require.NotNil(t, createTable1.Like, "Expected LIKE clause")
 
-	// Test CREATE TABLE with parenthesized LIKE
+	// Test CREATE TABLE with parenthesized LIKE - with dialects that DO support it
+	// This matches Rust: all_dialects_where(|d| d.supports_create_table_like_parenthesized())
 	sql2 := "CREATE TABLE new (LIKE old)"
-	stmt2 := utils.NewTestedDialects().VerifiedStmt(t, sql2)
+	dialectsWithParenthesized := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return d.SupportsCreateTableLikeParenthesized()
+	})
+	stmt2 := dialectsWithParenthesized.VerifiedStmt(t, sql2)
 
 	createTable2, ok := stmt2.(*statement.CreateTable)
 	require.True(t, ok, "Expected CreateTable statement, got %T", stmt2)
@@ -1061,7 +1069,10 @@ func TestParseCreateTableLike(t *testing.T) {
 // TestParseCreateTableLikeWithDefaults verifies CREATE TABLE LIKE with INCLUDING/EXCLUDING DEFAULTS.
 // Reference: tests/sqlparser_common.rs:17816 (additional tests)
 func TestParseCreateTableLikeWithDefaults(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	// Only test with dialects that support parenthesized LIKE
+	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return d.SupportsCreateTableLikeParenthesized()
+	})
 
 	// Test LIKE with INCLUDING DEFAULTS
 	sql1 := "CREATE TABLE new (LIKE old INCLUDING DEFAULTS)"
