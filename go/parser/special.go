@@ -92,15 +92,11 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		SpanVal: mergeSpans(name.Span(), ep.parser.GetCurrentToken().Span),
 	}
 
-	// Extract null treatment from clauses and set on FunctionExpr
-	// This matches Rust behavior where null treatment is a FunctionArgumentClause
-	// but also needs to be accessible as a field on Function for the String() output
-	for _, clause := range clauses {
-		if nullClause, ok := clause.(*expr.IgnoreOrRespectNullsClause); ok {
-			fnExpr.NullTreatment = nullClause.Treatment
-			break
-		}
-	}
+	// Note: Null treatment is handled differently based on dialect:
+	// - For dialects that support window_function_null_treatment_arg(), it's parsed as a
+	//   FunctionArgumentClause inside the args list (e.g., FIRST_VALUE(a IGNORE NULLS))
+	// - For other dialects, it's parsed after the function call (e.g., FIRST_VALUE(a) IGNORE NULLS)
+	// We keep the clause in the clauses list for inside-parens dialects, so no extraction needed here.
 
 	// Parse WITHIN GROUP for ordered set aggregates
 	// This must be parsed BEFORE null treatment and OVER
@@ -151,7 +147,19 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 	// where it appears after the function call but before OVER: fn(args) IGNORE NULLS OVER (...)
 	// Reference: src/parser/mod.rs:2467-2475 - parse_null_treatment() is called after
 	// parse_function_argument_list() and filter, but before parse_keyword(OVER).
-	if fnExpr.NullTreatment == expr.NullTreatmentNone {
+	//
+	// IMPORTANT: Only parse null treatment here if it wasn't already parsed as a clause
+	// inside the function argument list (for dialects that support window_function_null_treatment_arg).
+	// This prevents double parsing and produces proper error for duplicate IGNORE NULLS.
+	hasNullTreatmentClause := false
+	for _, clause := range fnExpr.Args.List.Clauses {
+		if _, ok := clause.(*expr.IgnoreOrRespectNullsClause); ok {
+			hasNullTreatmentClause = true
+			break
+		}
+	}
+
+	if fnExpr.NullTreatment == expr.NullTreatmentNone && !hasNullTreatmentClause {
 		if ep.parser.ParseKeyword("IGNORE") {
 			if ep.parser.ParseKeyword("NULLS") {
 				fnExpr.NullTreatment = expr.NullTreatmentIgnore

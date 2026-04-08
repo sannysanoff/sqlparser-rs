@@ -1,5 +1,35 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 9 - IGNORE NULLS and EXTRACT Fixes):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 79,825 lines | 119% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **751 passing** / **448 failing** (~63%) | +2 tests passing
+
+**Today's Major Fixes (Session 9):**
+
+1. **Window Function IGNORE NULLS / RESPECT NULLS** - Fixed double serialization issue:
+   - **Problem**: `FIRST_VALUE(a IGNORE NULLS) OVER ()` was serializing as `FIRST_VALUE(a) IGNORE NULLS OVER ()`
+   - **Root Cause**: When IGNORE NULLS was parsed as a FunctionArgumentClause (for inside-parens dialects like PostgreSQL), it was ALSO being extracted and set on FunctionExpr.NullTreatment, causing double serialization
+   - **Fix**: 
+     - Removed the extraction logic that moved null treatment from clauses to FunctionExpr.NullTreatment for inside-parens dialects
+     - Added check to prevent parsing null treatment after function call if it was already parsed as a clause (prevents double parsing error)
+   - **Tests Fixed**: `TestParseWindowFunctionNullTreatmentArg`
+
+2. **EXTRACT with String Literal Field** - Fixed missing field in EXTRACT with quoted temporal unit:
+   - **Problem**: `EXTRACT('seconds' FROM ...)` was serializing as `EXTRACT( FROM ...)` - the field was missing
+   - **Root Cause**: `parseTemporalUnit()` only accepted `TokenWord`, not `TokenSingleQuotedString`
+   - **Fix**: Extended `parseTemporalUnit()` to handle single-quoted string literals as custom date/time fields
+   - **Tests Fixed**: `TestExtractSecondsOk`
+
+**New Patterns Documented:**
+- **Pattern E63**: Window function null treatment positioning - For dialects that support `window_function_null_treatment_arg()`, null treatment is parsed inside parens as a FunctionArgumentClause and should NOT be extracted to FunctionExpr.NullTreatment. Only parse null treatment after function call if it wasn't already parsed as a clause.
+- **Pattern E64**: EXTRACT field parsing with string literals - `parseTemporalUnit()` must accept both `TokenWord` (standard keywords like YEAR, MONTH) and `TokenSingleQuotedString` (custom fields like 'seconds') for dialects that support `allow_extract_single_quotes()`.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 8 - Double-Dot Notation Investigation):**
 
 | Component | Rust | Go | Ratio |
@@ -22,8 +52,6 @@ The parser fix detects double-dot and adds an empty `ObjectNamePartIdentifier{Va
 - Empty part not being added correctly
 - Serialization dropping empty parts  
 - AST comparison failing for different reason
-
----
 
 **New Patterns Documented:**
 - **Pattern E61**: Double-dot notation tokenization - When lexing `..` for Snowflake double-dot notation, the lexer must produce two separate `TokenPeriod` tokens, not consume both as part of a number pattern.

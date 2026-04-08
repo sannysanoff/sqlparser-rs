@@ -294,11 +294,23 @@ func (ep *ExpressionParser) isTemporalUnit() bool {
 	return false
 }
 
-// parseTemporalUnit parses a temporal unit keyword
+// parseTemporalUnit parses a temporal unit keyword or identifier
+// Supports standard keywords (YEAR, MONTH, etc.) and custom identifiers
+// For dialects that support allow_extract_single_quotes(), also supports string literals
 func (ep *ExpressionParser) parseTemporalUnit() string {
 	tok := ep.parser.NextToken()
 	if word, ok := tok.Token.(token.TokenWord); ok {
+		// Use the original value (not the keyword) to preserve casing
+		// This handles custom identifiers like 'seconds' (lowercase) vs standard keywords like 'SECONDS'
+		if word.Word.Value != "" {
+			return word.Word.Value
+		}
 		return string(word.Word.Keyword)
+	}
+	// Handle string literals as custom date/time fields (e.g., EXTRACT('seconds' FROM ...))
+	// This is supported by dialects like DuckDB via allow_extract_single_quotes()
+	if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+		return str.Value
 	}
 	return ""
 }
