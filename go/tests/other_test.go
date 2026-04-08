@@ -149,8 +149,9 @@ func TestParseColumnDefinitionTrailingCommas(t *testing.T) {
 	dialects.OneStatementParsesTo(t, "CREATE VIEW T (x, y, ) AS SELECT 1", "CREATE VIEW T (x, y) AS SELECT 1")
 
 	// Test unsupported dialects get an error
+	// Trailing commas are allowed if either SupportsTrailingCommas() or SupportsColumnDefinitionTrailingCommas() is true
 	unsupportedDialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
-		return !d.SupportsProjectionTrailingCommas() && !d.SupportsTrailingCommas()
+		return !d.SupportsTrailingCommas() && !d.SupportsColumnDefinitionTrailingCommas()
 	})
 
 	_, err := utils.ParseSQLWithDialects(unsupportedDialects.Dialects, "CREATE TABLE employees (name text, age int,)")

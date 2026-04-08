@@ -122,7 +122,9 @@ func (td *TestedDialects) OneStatementParsesTo(t *testing.T, sql, canonical stri
 
 	if canonical != "" && sql != canonical {
 		canonicalStmts := td.ParseSQL(t, canonical)
-		assert.Equal(t, canonicalStmts, statements,
+		// Compare String() representations to avoid span differences
+		require.Len(t, canonicalStmts, 1, "Expected exactly one statement for canonical")
+		assert.Equal(t, canonicalStmts[0].String(), statements[0].String(),
 			"Canonical SQL produced different result for: %s", sql)
 	}
 

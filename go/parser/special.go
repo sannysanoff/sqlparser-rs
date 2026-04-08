@@ -89,8 +89,16 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 	duplicateTreatment := expr.DuplicateNone
 	if ep.parser.ParseKeyword("DISTINCT") {
 		duplicateTreatment = expr.DuplicateDistinct
+		// Check for ALL after DISTINCT - this is an error
+		if ep.parser.PeekKeyword("ALL") {
+			return nil, fmt.Errorf("Cannot specify both ALL and DISTINCT")
+		}
 	} else if ep.parser.ParseKeyword("ALL") {
 		duplicateTreatment = expr.DuplicateAll
+		// Check for DISTINCT after ALL - this is an error
+		if ep.parser.PeekKeyword("DISTINCT") {
+			return nil, fmt.Errorf("Cannot specify both ALL and DISTINCT")
+		}
 	}
 
 	// Parse arguments

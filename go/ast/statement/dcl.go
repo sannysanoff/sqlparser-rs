@@ -230,6 +230,7 @@ func (d *DenyStatement) String() string {
 // CreateUser represents a CREATE USER statement
 type CreateUser struct {
 	BaseStatement
+	OrReplace    bool
 	IfNotExists  bool
 	Name         *ast.Ident
 	IdentifiedBy *ast.Ident
@@ -242,11 +243,28 @@ func (c *CreateUser) statementNode() {}
 
 func (c *CreateUser) String() string {
 	var f strings.Builder
-	f.WriteString("CREATE USER ")
+	f.WriteString("CREATE ")
+	if c.OrReplace {
+		f.WriteString("OR REPLACE ")
+	}
+	f.WriteString("USER ")
 	if c.IfNotExists {
 		f.WriteString("IF NOT EXISTS ")
 	}
 	f.WriteString(c.Name.String())
+	for _, opt := range c.Options {
+		f.WriteString(" ")
+		f.WriteString(opt.Name.String())
+		f.WriteString("=")
+		// Format value - add quotes for string literals
+		valueStr := opt.Value.String()
+		if valExpr, ok := opt.Value.(*expr.ValueExpr); ok {
+			if _, isString := valExpr.Value.(string); isString {
+				valueStr = fmt.Sprintf("'%s'", valueStr)
+			}
+		}
+		f.WriteString(valueStr)
+	}
 	return f.String()
 }
 

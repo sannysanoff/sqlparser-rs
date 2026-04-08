@@ -1,6 +1,53 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 50 (INHERITS Clause, NOT NULL Fix, SET TRANSACTION Test Fix, 185 Tests Failing)
+## Latest Update: April 8, 2026 - Session 51 (5 Critical Fixes, 14 Tests Remaining)
+
+**Line Counts (Updated April 8, 2026 - Session 51):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 66,842 lines | 84,373 lines | 126% |
+| Tests | 49,886 lines | 14,250 lines | 29% |
+| **Test Status** | - | **246 tests passing** / **14 tests failing** (~94.6%) |
+| **Total Test Cases** | - | 260 test functions |
+
+### Session 51 Summary: 5 Critical Test Fixes
+
+**Fixed 5 Key Test Issues:**
+
+1. **&& Operator Test Fix** (TestParseOverlapAsBoolAnd now passing)
+   - **Root Cause**: Test used all dialects but PostgreSQL/Redshift parse `&&` as PGOverlap, others as boolean AND
+   - **Fix**: Updated test to use `NewTestedDialectsWithFilter()` with `SupportsDoubleAmpersandOperator()` predicate
+   - **Pattern**: Always filter dialects when testing dialect-specific operators that produce different ASTs
+
+2. **COUNT DISTINCT Validation** (TestParseCountDistinct now passing)
+   - **Root Cause**: Parser accepted `COUNT(ALL DISTINCT x)` without error
+   - **Fix**: Added validation in `parseFunctionArgs()` to reject ALL + DISTINCT combination
+   - **Implementation**: Check for second keyword after parsing first, return error "Cannot specify both ALL and DISTINCT"
+
+3. **Wildcard EXCLUDE in Function Args** (TestWildcardFuncArg now passing)
+   - **Root Cause**: Test used all dialects but EXCLUDE is dialect-specific (Snowflake, BigQuery, etc.)
+   - **Fix**: Updated test to use `NewTestedDialectsWithFilter()` with `SupportsSelectWildcardExclude()` predicate
+   - **Pattern**: Wildcard modifiers like EXCLUDE are dialect-specific and need filtered test sets
+
+4. **CREATE USER Semicolon Handling** (TestParseKeyValueOptionsTrailingSemicolon now passing)
+   - **Root Cause**: `parseCreateUser()` was not consuming semicolons correctly after options
+   - **Fix**: Added proper USER keyword consumption, fixed PrevToken() usage in options loop, added WITH clause support
+   - **Files Modified**: `parser/create.go`, `ast/statement/dcl.go`
+
+5. **Column Definition Trailing Commas** (TestParseColumnDefinitionTrailingCommas now passing)
+   - **Root Cause**: `ParseParenthesizedColumnList()` didn't check dialect support for trailing commas
+   - **Fix**: Added dialect capability check and proper error for unsupported dialects
+   - **Implementation**: Check `SupportsColumnDefinitionTrailingCommas()` before accepting trailing comma
+
+**New Patterns Documented:**
+- **Pattern E187**: Dialect-specific operator testing - Use `NewTestedDialectsWithFilter()` with capability predicates for operators that produce different ASTs across dialects (e.g., `&&` as PGOverlap vs boolean AND)
+- **Pattern E188**: Function argument validation - After parsing DISTINCT/ALL, use `PeekKeyword()` to check for conflicting keywords and return explicit errors
+- **Pattern E189**: Trailing comma validation - In list parsing functions, check dialect support before accepting `)` immediately after `,`; return error for unsupported dialects
+
+---
+
+## Previous Update: April 8, 2026 - Session 50 (INHERITS Clause, NOT NULL Fix, SET TRANSACTION Test Fix, 185 Tests Failing)
 
 **Line Counts (Updated April 8, 2026 - Session 50):**
 
@@ -1477,6 +1524,77 @@ case p.PeekKeyword("NOT") && p.PeekNthKeyword(1, "VALID"):
 **Solution**: Never use `ParseKeyword()` inside a boolean condition that might short-circuit. Use `PeekKeyword()` for lookahead checks, then consume tokens only after the full condition is verified.
 
 **Impact**: This bug caused `NOT NULL` constraints to be serialized as just `NULL` because the `NOT` was accidentally consumed by the `NOT VALID` check in `parseConstraintCharacteristics()`.
+
+### E187: Dialect-Specific Operator Testing
+**Error**: Test fails when using `NewTestedDialects()` with SQL that produces different AST structures across dialects (e.g., `&&` operator is PGOverlap in PostgreSQL but boolean AND in MySQL).
+
+**Example**:
+```go
+// WRONG - tests all dialects expecting same AST
+sql := "SELECT x && y"
+dialects := utils.NewTestedDialects()  // All 14 dialects
+stmts := dialects.ParseSQL(t, sql)  // FAILS - PGOverlap vs BOpAnd
+
+// CORRECT - filter dialects that treat operator the same way
+dialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
+    return d.SupportsDoubleAmpersandOperator()  // Only dialects using && as AND
+})
+stmts := dialects.ParseSQL(t, sql)  // PASS
+```
+
+**Solution**: Use `NewTestedDialectsWithFilter()` with capability predicates when testing operators that have dialect-specific semantics.
+
+### E188: Function Argument Validation (ALL/DISTINCT)
+**Error**: Function accepts conflicting arguments like `COUNT(ALL DISTINCT x)` without error.
+
+**Example**:
+```go
+// WRONG - accepts ALL DISTINCT without validation
+if ep.parser.ParseKeyword("DISTINCT") {
+    duplicateTreatment = expr.DuplicateDistinct
+} else if ep.parser.ParseKeyword("ALL") {
+    duplicateTreatment = expr.DuplicateAll
+}
+
+// CORRECT - validate no conflicting keywords
+if ep.parser.ParseKeyword("DISTINCT") {
+    duplicateTreatment = expr.DuplicateDistinct
+    if ep.parser.PeekKeyword("ALL") {
+        return nil, fmt.Errorf("Cannot specify both ALL and DISTINCT")
+    }
+} else if ep.parser.ParseKeyword("ALL") {
+    duplicateTreatment = expr.DuplicateAll
+    if ep.parser.PeekKeyword("DISTINCT") {
+        return nil, fmt.Errorf("Cannot specify both ALL and DISTINCT")
+    }
+}
+```
+
+**Solution**: After parsing one keyword, use `PeekKeyword()` to check for conflicting keywords and return explicit errors.
+
+### E189: Trailing Comma Validation
+**Error**: Parser accepts trailing commas in column lists for dialects that don't support them (e.g., `CREATE TABLE t (a INT,)` in PostgreSQL).
+
+**Example**:
+```go
+// WRONG - accepts trailing comma for all dialects
+if p.ConsumeToken(token.TokenComma{}) {
+    continue
+}
+
+// CORRECT - check dialect support
+if p.ConsumeToken(token.TokenComma{}) {
+    // If dialect doesn't support trailing commas, check if next token is )
+    if !p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
+        if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+            return nil, fmt.Errorf("trailing comma not allowed in column list")
+        }
+    }
+    continue
+}
+```
+
+**Solution**: In list parsing functions, check `SupportsColumnDefinitionTrailingCommas()` before accepting `)` immediately after `,`; return explicit error for unsupported dialects.
 
 ---
 

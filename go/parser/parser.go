@@ -1935,6 +1935,14 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 
 	var columns []*ast.Ident
 	for {
+		// Check for trailing comma (column list ends with comma then paren)
+		if p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken() // consume )
+				break
+			}
+		}
+
 		ident, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, err
@@ -1943,6 +1951,12 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 
 		// Check for comma or closing parenthesis
 		if p.ConsumeToken(token.TokenComma{}) {
+			// If dialect doesn't support trailing commas, check if next token is )
+			if !p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
+				if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+					return nil, fmt.Errorf("trailing comma not allowed in column list")
+				}
+			}
 			continue
 		}
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {

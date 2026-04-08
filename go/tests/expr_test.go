@@ -1546,7 +1546,10 @@ func TestParseSubquery(t *testing.T) {
 
 // TestWildcardFuncArg verifies wildcard with EXCLUDE as a function argument.
 func TestWildcardFuncArg(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	// Only test dialects that support SELECT wildcard EXCLUDE
+	dialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
+		return d.SupportsSelectWildcardExclude()
+	})
 
 	sql1 := "SELECT HASH(* EXCLUDE(col1)) FROM t"
 	canonical1 := "SELECT HASH(* EXCLUDE (col1)) FROM t"
@@ -1720,7 +1723,10 @@ func TestExtractSecondsSingleQuoteOk(t *testing.T) {
 
 // TestParseOverlapAsBoolAnd verifies && operator parsing.
 func TestParseOverlapAsBoolAnd(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	// Only test dialects that support && as boolean AND (not PostgreSQL overlap)
+	dialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
+		return d.SupportsDoubleAmpersandOperator()
+	})
 
 	sql := "SELECT x && y"
 	stmts := dialects.ParseSQL(t, sql)

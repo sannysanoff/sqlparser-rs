@@ -878,13 +878,20 @@ func parseCreateTableColumns(p *Parser) ([]*expr.ColumnDef, []*expr.TableConstra
 
 	var columns []*expr.ColumnDef
 	var constraints []*expr.TableConstraint
+	commaConsumed := false
 
 	for {
 		// Check for end of list
 		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			// If we just consumed a comma and dialect doesn't support trailing commas, error
+			if commaConsumed && !p.GetDialect().SupportsTrailingCommas() && !p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
+				return nil, nil, fmt.Errorf("trailing comma not allowed in column list")
+			}
 			p.NextToken() // consume )
 			break
 		}
+
+		commaConsumed = false
 
 		// Check if this is a table constraint (starts with CONSTRAINT or a constraint keyword)
 		if isTableConstraint(p) {
@@ -910,6 +917,8 @@ func parseCreateTableColumns(p *Parser) ([]*expr.ColumnDef, []*expr.TableConstra
 			}
 			break
 		}
+
+		commaConsumed = true
 
 		// Handle trailing comma (BigQuery, DuckDB, ClickHouse style)
 		if p.GetDialect().SupportsTrailingCommas() || p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
@@ -4092,6 +4101,11 @@ func parseLiteralUint(p *Parser) (uint64, error) {
 }
 
 func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
+	// USER keyword is expected (already checked by caller)
+	if _, err := p.ExpectKeyword("USER"); err != nil {
+		return nil, err
+	}
+
 	// Parse optional IF NOT EXISTS
 	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 
@@ -4110,17 +4124,17 @@ func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
 		// Try to parse key=value option
 		key, err := p.ParseIdentifier()
 		if err != nil {
-			p.PrevToken()
+			// ParseIdentifier doesn't advance on failure, so no need for PrevToken
 			break
 		}
 		if !p.ConsumeToken(token.TokenEq{}) {
-			p.PrevToken()
+			p.PrevToken() // Undo the identifier parse
 			break
 		}
 		value, err := NewExpressionParser(p).ParseExpr()
 		if err != nil {
-			p.PrevToken()
-			p.PrevToken()
+			p.PrevToken() // Undo the = consume
+			p.PrevToken() // Undo the identifier parse
 			break
 		}
 		// Convert ast.Ident to expr.Ident
@@ -4135,12 +4149,43 @@ func parseCreateUser(p *Parser, orReplace bool) (ast.Statement, error) {
 		})
 	}
 
-	// Parse optional WITH TAG
+	// Parse optional WITH options (e.g., WITH PASSWORD='secret')
 	if p.ParseKeyword("WITH") {
+		// Consume optional TAG keyword if present (Snowflake style)
 		p.ParseKeyword("TAG")
-	}
 
+		// Parse WITH options (space-separated key=value pairs)
+		for {
+			// Try to parse key=value option
+			key, err := p.ParseIdentifier()
+			if err != nil {
+				// ParseIdentifier doesn't advance on failure, so no need for PrevToken
+				break
+			}
+			if !p.ConsumeToken(token.TokenEq{}) {
+				p.PrevToken() // Undo the identifier parse
+				break
+			}
+			value, err := NewExpressionParser(p).ParseExpr()
+			if err != nil {
+				p.PrevToken() // Undo the = consume
+				p.PrevToken() // Undo the identifier parse
+				break
+			}
+			// Convert ast.Ident to expr.Ident
+			exprKey := &expr.Ident{
+				SpanVal:    key.Span(),
+				Value:      key.Value,
+				QuoteStyle: key.QuoteStyle,
+			}
+			options = append(options, &expr.SqlOption{
+				Name:  exprKey,
+				Value: value,
+			})
+		}
+	}
 	return &statement.CreateUser{
+		OrReplace:   orReplace,
 		IfNotExists: ifNotExists,
 		Name:        name,
 		Options:     options,
