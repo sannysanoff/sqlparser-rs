@@ -753,10 +753,13 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 		}
 	}
 
-	// Handle decimal point - only consume if followed by digits
+	// Handle decimal point
 	if next, ok := state.Peek(); ok && next == '.' {
-		// Check if period is followed by a digit before consuming it
-		if afterPeriod, ok := state.PeekN(1); ok && unicode.IsDigit(afterPeriod) {
+		// Check if period is followed by a digit
+		afterPeriod, _ := state.PeekN(1)
+
+		if unicode.IsDigit(afterPeriod) {
+			// Period followed by digits - consume period and fractional part
 			s.WriteRune(next)
 			state.Next()
 
@@ -778,9 +781,13 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 			// No digits before or after period - this is just a period
 			state.Next()
 			return TokenPeriod{}, nil
+		} else {
+			// We have digits before the period but not after (e.g., "0.")
+			// Consume the period to include it in the number token
+			s.WriteRune(next)
+			state.Next()
+			// No fractional digits to consume, but that's OK - "0." is a valid number
 		}
-		// If we have digits before but not after, don't consume the period
-		// It will be tokenized as a separate TokenPeriod in the next iteration
 	}
 
 	// No fraction -> just a period

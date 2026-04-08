@@ -1,6 +1,39 @@
 ---
 
-## Latest Update: April 10, 2026 - Session 36 (FROM-first SELECT Syntax)
+## Latest Update: April 15, 2026 - Session 37 (Tokenizer Fix, IF Statement Validation, PIVOT Serialization)
+
+**Line Counts (Updated April 15, 2026 - Session 37):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 83,995 lines | 125% |
+| Tests | 49,847 lines | 14,163 lines | 28% |
+| **Test Status** | - | **595 tests passing** / **218 tests failing** (~73%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 37 Summary:
+
+**Fixed Number Tokenizer Trailing Period** (1 test now passing - Critical fix!)
+- Fixed `TestDoubleValue` - `SELECT 0.` now properly parses
+- **Implementation**: Modified `tokenizeNumberOrPeriod()` in `token/lexer.go` to consume the trailing period even when no digits follow
+- **Root Cause**: The Go tokenizer didn't consume the period when no fractional digits followed, causing it to be tokenized as a separate TokenPeriod
+- **Pattern E146**: Number trailing period tokenization - When tokenizing numbers like "0.", consume the period into the number token even if no digits follow. The number "0." should be a single Number token, not "0" + "."
+
+**Fixed IF Statement END IF Validation** (1 test now passing)
+- Fixed `TestParseIfStatement` - `IF 1 THEN SELECT 1; ELSEIF 1 THEN SELECT 2; END` now properly errors (missing `IF` after `END`)
+- **Implementation**: Modified `parseIfStatement()` in `parser/misc.go` to properly check and return errors from `ExpectKeyword("END")` and `ExpectKeyword("IF")`
+- **Root Cause**: Errors from ExpectKeyword calls were being silently ignored instead of being returned
+- **Pattern E147**: IF statement END IF validation - Must properly check for and return errors when END IF keywords are missing or incorrect
+
+**Fixed PIVOT Serialization Format** (3 tests now passing)
+- Fixed `TestParsePivotTable`, `TestParseUnpivotTable`, `TestParsePivotUnpivotTable` - PIVOT now serializes with space after keyword
+- **Implementation**: Modified `PivotTableFactor.String()` in `ast/query/table.go` to add space after PIVOT keyword
+- **Before**: `PIVOT(...)` - **After**: `PIVOT (...)` (matches Rust output)
+- **Pattern E148**: PIVOT serialization format - Output `PIVOT (...)` with space after PIVOT keyword, not `PIVOT(...)`
+
+---
+
+## Previous Update: April 10, 2026 - Session 36 (FROM-first SELECT Syntax)
 
 **Line Counts (Updated April 10, 2026 - Session 36):**
 
@@ -299,6 +332,16 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
   3. In `parseSelect()`, detect FROM-first at the start and parse FROM clause before checking for SELECT
   4. Set `Flavor` field in `query.Select` to `SelectFlavorFromFirst` or `SelectFlavorFromFirstNoSelect` for proper serialization
   5. The AST `Select` struct must have `Flavor SelectFlavor` field with `String()` method handling all three flavors
+
+---
+
+### Session 37 Patterns (New):
+
+- **Pattern E146**: Number trailing period tokenization - When tokenizing numbers ending with a period (like "0."), the period should be consumed into the number token even if no fractional digits follow. In `tokenizeNumberOrPeriod()`, after consuming the integer part and finding a period, check if there are digits after the period. If yes, consume them as the fractional part. If no digits follow but we have digits before, still consume the period into the number token (e.g., "0." becomes a single Number token, not "0" + ".").
+
+- **Pattern E147**: IF statement END IF validation - In `parseIfStatement()`, always capture and return errors from `ExpectKeyword()` calls. The pattern `p.ExpectKeyword("END")` silently ignores errors; instead use `if _, err := p.ExpectKeyword("END"); err != nil { return nil, err }` to properly propagate parsing errors when the END IF syntax is incomplete.
+
+- **Pattern E148**: PIVOT serialization format - The PIVOT keyword should be followed by a space before the opening parenthesis: `PIVOT (...)` not `PIVOT(...)`. In `PivotTableFactor.String()`, use `"%s PIVOT (%s FOR %s IN (%s)%s)"` format string with space after PIVOT.
 
 ---
 

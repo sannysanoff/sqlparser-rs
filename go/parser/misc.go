@@ -2215,8 +2215,12 @@ func parseIfStatement(p *Parser) (ast.Statement, error) {
 		}
 		elseClause = &expr.IfStatementElse{Statements: elseStmts}
 	}
-	p.ExpectKeyword("END")
-	p.ExpectKeyword("IF")
+	if _, err := p.ExpectKeyword("END"); err != nil {
+		return nil, err
+	}
+	if _, err := p.ExpectKeyword("IF"); err != nil {
+		return nil, err
+	}
 	return &statement.IfStatement{Conditions: conditions, Else: elseClause}, nil
 }
 
