@@ -875,10 +875,26 @@ func (ep *ExpressionParser) parseValue() (expr.Expr, error) {
 		}
 
 	case token.TokenColon, token.TokenAtSign:
-		// Named or positional placeholder
+		// Named or positional placeholder (e.g., :1, :name, @1, @name)
+		// Reference: src/parser/mod.rs:11660-11676
+		// Get the next token without skipping - it should be a word or number
+		nextTok := ep.parser.NextToken()
+		prefix := ":"
+		if _, ok := t.(token.TokenAtSign); ok {
+			prefix = "@"
+		}
+		var placeholderValue string
+		switch n := nextTok.Token.(type) {
+		case token.TokenWord:
+			placeholderValue = prefix + n.Word.Value
+		case token.TokenNumber:
+			placeholderValue = prefix + n.Value
+		default:
+			return nil, ep.parser.Expected("placeholder identifier or number", nextTok)
+		}
 		return &expr.ValueExpr{
-			SpanVal: tok.Span,
-			Value:   t,
+			SpanVal: mergeSpans(tok.Span, nextTok.Span),
+			Value:   token.TokenPlaceholder{Value: placeholderValue},
 		}, nil
 	}
 

@@ -1,6 +1,44 @@
 ---
 
-## Latest Update: April 9, 2026 - Session 33 (CREATE DATABASE Fix, Line Counts Update)
+## Latest Update: April 9, 2026 - Session 34 (Major Parser Chunks: Trailing Commas, Double-Dot, Subqueries)
+
+**Line Counts (Updated April 9, 2026 - Session 34):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 98,079 lines | 146% |
+| Tests | 49,886 lines | 14,161 lines | 28% |
+| **Test Status** | - | **297 subtests passing** / **49 subtests failing** (~86%) | Snowflake dialect only |
+| **Total Test Cases** | - | 346 subtest outcomes (78 test functions) |
+
+### Session 34 Summary:
+
+**Fixed Trailing Commas in SELECT** (1 test now passing)
+- Fixed `SELECT 1, 2, FROM t` - now properly parses and normalizes to `SELECT 1, 2 FROM t`
+- **Implementation**: Modified `parseProjection()` in `parser/query.go` to check `SupportsProjectionTrailingCommas()` before putting back the comma
+- **Pattern E136**: Trailing comma projection parsing - Use dialect capability check to decide whether to consume or preserve comma before clause keywords
+
+**Fixed Double-Dot Notation** (2 tests now passing - Major feature!)
+- Fixed `SELECT * FROM db_name..table_name` - now properly parses and serializes with empty schema
+- Fixed serialization to preserve `..` notation instead of collapsing to single `.`
+- **Implementation**: Modified `ParseObjectName()` in `parser/parser.go` to properly detect `..` pattern after first period is consumed
+- **Root Cause**: Original code consumed first period at end of iteration, then double-dot check in next iteration was checking wrong position
+- **Pattern E137**: Double-dot notation parsing - After consuming period separator, check if current position is at second period of `..` by looking ahead to next token
+
+**Implemented Subquery as Function Argument** (3 tests now passing - Major feature!)
+- Fixed `SELECT parse_json(SELECT '{}')` - now properly parses subquery as function argument
+- Fixed `SELECT func(SELECT 1, 2)` - multiple column subquery as argument
+- **Implementation**: Added check in `parseFunctionWithName()` in `parser/special.go` for `SupportsSubqueryAsFunctionArg()` and `peekSubquery()`
+- **Pattern E138**: Subquery function arguments - Check dialect capability and peek for SELECT/WITH keyword before parsing regular function arguments
+
+**Fixed Number Placeholder Parsing** (1 test now passing)
+- Fixed `SELECT :1` - now properly parses `:1` as a placeholder
+- **Implementation**: Modified `parseValue()` in `parser/prefix.go` to consume word or number after `:` or `@` to create a placeholder
+- **Pattern E139**: Colon/At placeholders - When token is `:` or `@`, consume following word or number token to construct placeholder value
+
+---
+
+## Previous Update: April 9, 2026 - Session 33 (CREATE DATABASE Fix, Line Counts Update)
 
 **Line Counts (Updated April 9, 2026 - Session 33):**
 
@@ -143,6 +181,18 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 - **Pattern E134**: CREATE DATABASE with modifiers - Always pass `orReplace` and `transient` parameters from `parseCreate()` to specific create statement parsers. These modifiers are parsed at the top level in `parseCreate()` before dispatching to specific parsers like `parseCreateDatabase()`.
 
 - **Pattern E135**: Snowflake option parsing - Use a loop to parse Snowflake-specific options like `DATA_RETENTION_TIME_IN_DAYS = value` after the main clause parsing. The options can appear in any order and should be stored in the AST with their corresponding fields for proper serialization.
+
+---
+
+### Session 34 Patterns (New):
+
+- **Pattern E136**: Trailing comma projection parsing - Use `SupportsProjectionTrailingCommas()` dialect capability to decide whether to consume or preserve comma before clause keywords like FROM, WHERE. When enabled, the comma is consumed; when disabled, it must be put back with `PrevToken()`.
+
+- **Pattern E137**: Double-dot notation parsing - After consuming period separator at the end of an iteration, the next iteration starts at the second period of `..`. Check if current token is period AND next token is an identifier (not another period) to detect the `..ident` pattern. This indicates an empty schema part between database and table names.
+
+- **Pattern E138**: Subquery function arguments - Check `SupportsSubqueryAsFunctionArg()` dialect capability before parsing function arguments. If enabled and the next token is SELECT or WITH (peek via `peekSubquery()`), parse the subquery directly as the function argument using `ParseQuery()`.
+
+- **Pattern E139**: Colon/At-sign placeholder parsing - When encountering `TokenColon` or `TokenAtSign` in `parseValue()`, immediately consume the following token (which should be `TokenWord` or `TokenNumber`) and combine them into a `TokenPlaceholder`. Use `mergeSpans()` to create correct span covering both tokens.
 
 ---
 

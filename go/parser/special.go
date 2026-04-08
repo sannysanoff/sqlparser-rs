@@ -41,6 +41,29 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		return nil, err
 	}
 
+	// Snowflake permits a subquery to be passed as an argument without
+	// an enclosing set of parens if it's the only argument.
+	// Reference: src/parser/mod.rs:2417-2430
+	if dialects.SupportsSubqueryAsFunctionArg(dialect) && ep.peekSubquery() {
+		stmt, err := ep.parser.ParseQuery()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		// Convert the statement to a QueryExpr
+		queryExpr := &expr.QueryExpr{
+			Statement: stmt,
+			SpanVal:   stmt.Span(),
+		}
+		return &expr.FunctionExpr{
+			Name:    name,
+			Args:    &expr.FunctionArguments{Subquery: queryExpr},
+			SpanVal: name.Span(),
+		}, nil
+	}
+
 	// Check for empty args
 	if ep.parser.ConsumeToken(token.TokenRParen{}) {
 		fnExpr := &expr.FunctionExpr{

@@ -1833,20 +1833,29 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 	for {
 		// Check for double-dot notation (empty schema name)
 		// This happens when we have "db_name..table_name" in Snowflake
+		// The tokenizer produces two separate TokenPeriod tokens for ".."
+		// The first period is consumed at the end of the previous iteration (line ~1896)
+		// So when we enter this iteration, we're at the SECOND period of ".."
 		if len(parts) > 0 && dialects.SupportsObjectNameDoubleDotNotation(p.GetDialect()) {
-			// Check if next token is a period
+			// Check if current token is a period (this is the second period of "..")
+			// and the NEXT token is an identifier (table name after "..")
 			if _, isPeriod := p.PeekTokenRef().Token.(token.TokenPeriod); isPeriod {
-				// Peek at the token after the period
-				p.AdvanceToken() // consume the first period
-				if _, isSecondPeriod := p.PeekTokenRef().Token.(token.TokenPeriod); isSecondPeriod {
-					// Double-dot notation detected: add an empty part for the schema
-					// and consume the second period
+				// Peek ahead to see what follows this period
+				nextTok := p.PeekNthToken(1)
+				_, nextIsPeriod := nextTok.Token.(token.TokenPeriod)
+				_, nextIsWord := nextTok.Token.(token.TokenWord)
+
+				// If next is NOT a period but IS a word, we have "..table_name" pattern
+				// (current=second_period, next=table_name)
+				if !nextIsPeriod && nextIsWord {
+					// Double-dot notation detected: current token is the second period
+					// Consume this period and add an empty part for the schema
 					p.AdvanceToken() // consume the second period
 					parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: ""}})
 					continue
 				}
-				// Single period - we already consumed it, so just continue to parse next identifier
-				// No need to put it back since we already consumed it
+				// If next is also a period, we have "..." which is unusual but handle it
+				// If next is neither period nor word, fall through to error handling
 			}
 		}
 

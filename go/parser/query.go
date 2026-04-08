@@ -827,8 +827,13 @@ func parseProjection(p *Parser) ([]query.SelectItem, error) {
 		if isWordToken(nextTok.Token) {
 			word := getWordValue(nextTok.Token)
 			if word != "" && isClauseKeyword(word) {
-				// Put back the comma - it's not a separator but part of the next clause
-				p.PrevToken()
+				// Check if dialect supports trailing commas in projection
+				// If so, we can consume the comma and end the list
+				// Otherwise, put back the comma and end the list
+				if !dialects.SupportsProjectionTrailingCommas(p.GetDialect()) {
+					// Put back the comma - it's not a separator but part of the next clause
+					p.PrevToken()
+				}
 				break
 			}
 		}
