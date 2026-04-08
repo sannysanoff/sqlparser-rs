@@ -21,6 +21,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -543,7 +544,11 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Parse constraint characteristics
-		pkConstraint.Characteristics = parseConstraintCharacteristics(p)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		pkConstraint.Characteristics = characteristics
 		constraint.Constraint = pkConstraint
 		return constraint, nil
 	}
@@ -598,7 +603,11 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Parse constraint characteristics
-		uniqueConstraint.Characteristics = parseConstraintCharacteristics(p)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		uniqueConstraint.Characteristics = characteristics
 		constraint.Constraint = uniqueConstraint
 		return constraint, nil
 	}
@@ -659,7 +668,11 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Parse constraint characteristics
-		fkConstraint.Characteristics = parseConstraintCharacteristics(p)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		fkConstraint.Characteristics = characteristics
 		constraint.Constraint = fkConstraint
 		return constraint, nil
 	}
@@ -683,7 +696,10 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Parse constraint characteristics (includes ENFORCED/NOT ENFORCED for MySQL)
-		characteristics := parseConstraintCharacteristics(p)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
 		if characteristics != nil && characteristics.Enforced != nil {
 			checkConstraint.Enforced = characteristics.Enforced
 		}
@@ -787,22 +803,38 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 }
 
 // parseConstraintCharacteristics parses optional DEFERRABLE, INITIALLY DEFERRED/IMMEDIATE, ENFORCED/NOT ENFORCED
-func parseConstraintCharacteristics(p *Parser) *expr.ConstraintCharacteristics {
+func parseConstraintCharacteristics(p *Parser) (*expr.ConstraintCharacteristics, error) {
 	characteristics := &expr.ConstraintCharacteristics{}
 	hasCharacteristics := false
+	// Track what we've already parsed to detect duplicates
+	deferrableSet := false
+	initiallySet := false
+	enforcedSet := false
 
 	for {
 		switch {
 		case p.ParseKeywords([]string{"NOT", "DEFERRABLE"}):
+			if deferrableSet {
+				return nil, errors.New("duplicate DEFERRABLE specification")
+			}
+			deferrableSet = true
 			notDeferrable := false
 			characteristics.Deferrable = &notDeferrable
 			hasCharacteristics = true
 		case p.ParseKeyword("DEFERRABLE"):
+			if deferrableSet {
+				return nil, errors.New("duplicate DEFERRABLE specification")
+			}
+			deferrableSet = true
 			deferrable := true
 			characteristics.Deferrable = &deferrable
 			hasCharacteristics = true
 			// Check for INITIALLY DEFERRED/IMMEDIATE
 			if p.ParseKeyword("INITIALLY") {
+				if initiallySet {
+					return nil, errors.New("duplicate INITIALLY specification")
+				}
+				initiallySet = true
 				if p.ParseKeyword("DEFERRED") {
 					initially := expr.ConstraintInitiallyOptionDeferred
 					characteristics.Initially = &initially
@@ -812,6 +844,10 @@ func parseConstraintCharacteristics(p *Parser) *expr.ConstraintCharacteristics {
 				}
 			}
 		case p.ParseKeyword("INITIALLY"):
+			if initiallySet {
+				return nil, errors.New("duplicate INITIALLY specification")
+			}
+			initiallySet = true
 			hasCharacteristics = true
 			if p.ParseKeyword("DEFERRED") {
 				initially := expr.ConstraintInitiallyOptionDeferred
@@ -821,10 +857,18 @@ func parseConstraintCharacteristics(p *Parser) *expr.ConstraintCharacteristics {
 				characteristics.Initially = &initially
 			}
 		case p.ParseKeywords([]string{"NOT", "ENFORCED"}):
+			if enforcedSet {
+				return nil, errors.New("duplicate ENFORCED specification")
+			}
+			enforcedSet = true
 			notEnforced := false
 			characteristics.Enforced = &notEnforced
 			hasCharacteristics = true
 		case p.ParseKeyword("ENFORCED"):
+			if enforcedSet {
+				return nil, errors.New("duplicate ENFORCED specification")
+			}
+			enforcedSet = true
 			enforced := true
 			characteristics.Enforced = &enforced
 			hasCharacteristics = true
@@ -835,9 +879,9 @@ func parseConstraintCharacteristics(p *Parser) *expr.ConstraintCharacteristics {
 			hasCharacteristics = true
 		default:
 			if hasCharacteristics {
-				return characteristics
+				return characteristics, nil
 			}
-			return nil
+			return nil, nil
 		}
 	}
 }

@@ -1,5 +1,40 @@
 ---
 
+**Line Counts (Updated April 9, 2026 - Session 26 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 83,251 lines | 124% |
+| Tests | 49,886 lines | 14,330 lines | 29% |
+| **Test Status** | - | **841 passing** / **366 failing** (~70%) |
+
+**Summary of Session 26:**
+
+1. **Implemented Constraint Characteristics ENFORCED/NOT ENFORCED Serialization** (Multiple DDL tests improved)
+   - Fixed `ConstraintCharacteristics.String()` to include ENFORCED/NOT ENFORCED fields
+   - Added validation to `parseConstraintCharacteristics()` to reject duplicate/conflicting characteristics
+   - Tests now properly reject: DEFERRABLE NOT DEFERRABLE, NOT ENFORCED ENFORCED, INITIALLY DEFERRED INITIALLY IMMEDIATE
+   - **Pattern E115**: Constraint Characteristics validation - Track parsed characteristics with flags and return errors for duplicates
+
+2. **Implemented BigQuery Non-Latin Unicode Identifier Support** (1 test now passing)
+   - Fixed BigQuery dialect to support Unicode characters like Japanese (説明), German (hühnervögel), French (garçon), Russian (Москва), Chinese (東京)
+   - **Implementation**: Added `unicode.IsLetter(ch)` check to both `IsIdentifierStart()` and `IsIdentifierPart()` in BigQuery dialect
+   - **Pattern E116**: Unicode identifier support - Use `unicode.IsLetter()` in addition to ASCII ranges for dialects that support non-Latin identifiers
+   - Test Fixed: TestParseNonLatinIdentifiers
+
+3. **Implemented PostgreSQL CREATE SERVER Statement** (1 test now passing - 3 subtests)
+   - Fixed `CREATE SERVER myserver FOREIGN DATA WRAPPER postgres_fdw` syntax
+   - Fixed `CREATE SERVER IF NOT EXISTS myserver TYPE 'type' VERSION 'ver' FOREIGN DATA WRAPPER fdw`
+   - Fixed `CREATE SERVER myserver FOREIGN DATA WRAPPER fdw OPTIONS (key 'value', ...)`
+   - **Implementation**:
+     - Added `parseCreateServer()` function in `go/parser/create.go`
+     - Added `IfNotExists` field to `CreateServerStatement` AST
+     - Updated `String()` method for proper serialization including IF NOT EXISTS and OPTIONS
+   - **Pattern E117**: CREATE SERVER parsing - Parse optional IF NOT EXISTS, TYPE, VERSION, required FOREIGN DATA WRAPPER, and optional OPTIONS
+   - Tests Fixed: TestPostgresCreateServer (all 3 subtests)
+
+---
+
 **Line Counts (Updated April 9, 2026 - Session 25 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -2741,23 +2776,105 @@ case token.TokenMul:
         goto done
     }
     // ... normal wildcard handling
+```
 
-// In parseSelectItem() - after parsing expression:
-if dialects.SupportsSelectExprStar(p.GetDialect()) {
-    if _, ok := p.PeekToken().Token.(token.TokenPeriod); ok {
-        if _, ok := p.PeekNthToken(1).Token.(token.TokenMul); ok {
-            p.AdvanceToken() // consume .
-            p.AdvanceToken() // consume *
-            opts, err := parseWildcardAdditionalOptions(p)
-            if err != nil {
-                return nil, err
+### Error E115: Constraint Characteristics validation missing
+**Cause**: SQL syntax allows constraint characteristics like DEFERRABLE, NOT DEFERRABLE, INITIALLY IMMEDIATE/DEFERRED, ENFORCED/NOT ENFORCED, but the parser doesn't validate that they aren't duplicated or conflicting.
+
+**Solution**: Track parsed characteristics with flags and return errors for duplicates:
+```go
+func parseConstraintCharacteristics(p *Parser) (*expr.ConstraintCharacteristics, error) {
+    characteristics := &expr.ConstraintCharacteristics{}
+    deferrableSet := false
+    initiallySet := false
+    enforcedSet := false
+    
+    for {
+        switch {
+        case p.ParseKeywords([]string{"NOT", "DEFERRABLE"}):
+            if deferrableSet {
+                return nil, errors.New("duplicate DEFERRABLE specification")
             }
-            return &query.QualifiedWildcard{
-                Kind:              &query.ExprWildcard{Expr: &queryExprWrapper{expr: parsedExpr}},
-                AdditionalOptions: opts,
-            }, nil
+            deferrableSet = true
+            // ... parse
+        case p.ParseKeyword("DEFERRABLE"):
+            if deferrableSet {
+                return nil, errors.New("duplicate DEFERRABLE specification")
+            }
+            deferrableSet = true
+            // ... parse
+        // ... other cases
         }
     }
+}
+```
+
+### Error E116: Non-Latin Unicode identifiers not recognized
+**Cause**: Dialect identifier validation only checks for ASCII letters (a-z, A-Z), rejecting Unicode characters like Japanese, Chinese, Cyrillic, etc.
+
+**Solution**: Use `unicode.IsLetter()` in addition to ASCII checks for dialects that support Unicode identifiers:
+```go
+// In dialect implementation:
+func (d *BigQueryDialect) IsIdentifierStart(ch rune) bool {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || 
+        ch == '_' || ch == '@' ||
+        unicode.IsLetter(ch)  // Support Unicode letters
+}
+
+func (d *BigQueryDialect) IsIdentifierPart(ch rune) bool {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+        (ch >= '0' && ch <= '9') || ch == '_' ||
+        unicode.IsLetter(ch)  // Support Unicode letters in identifier body
+}
+```
+**Note**: Don't forget to import `unicode` package.
+
+### Error E117: CREATE SERVER statement not implemented
+**Cause**: The parser doesn't recognize CREATE SERVER as a valid CREATE statement target.
+
+**Solution**: Add CREATE SERVER parsing with all its clauses:
+```go
+// In parseCreate() switch statement:
+case p.PeekKeyword("SERVER"):
+    p.NextToken() // Consume SERVER keyword
+    return parseCreateServer(p, orReplace)
+
+// Implementation:
+func parseCreateServer(p *Parser, orReplace bool) (*statement.CreateServerStatement, error) {
+    stmt := &statement.CreateServerStatement{OrReplace: orReplace}
+    
+    // Optional IF NOT EXISTS
+    stmt.IfNotExists = p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+    
+    // Required: server name
+    serverName, err := p.ParseObjectName()
+    if err != nil {
+        return nil, err
+    }
+    stmt.Name = serverName
+    
+    // Optional TYPE 'type'
+    if p.ParseKeyword("TYPE") {
+        // Parse string literal...
+    }
+    
+    // Optional VERSION 'version'
+    if p.ParseKeyword("VERSION") {
+        // Parse string literal...
+    }
+    
+    // Required: FOREIGN DATA WRAPPER fdw_name
+    if !p.ParseKeywords([]string{"FOREIGN", "DATA", "WRAPPER"}) {
+        return nil, fmt.Errorf("expected FOREIGN DATA WRAPPER")
+    }
+    // Parse fdw name...
+    
+    // Optional OPTIONS (key 'value', ...)
+    if p.ParseKeyword("OPTIONS") {
+        // Parse key-value options...
+    }
+    
+    return stmt, nil
 }
 ```
 
@@ -2853,10 +2970,15 @@ if dialects.SupportsSelectExprStar(p.GetDialect()) {
   - TestSnowflakeTimeTravel: ✅ Now passes
 
 **Notes**:
-- Source: 67,345 lines Rust → 82,200 lines Go (122% ratio)
-- Tests: 45,672 lines Rust → 14,150 lines Go (31% ratio)
-- Current status: 557 passing, 256 failing (~69% pass rate)
-- Major remaining work: PostgreSQL CREATE FUNCTION attributes (~10 tests), Snowflake Multi-Table INSERT placeholders (1 test), PIVOT (1 test)
+- Source: 67,345 lines Rust → 83,251 lines Go (124% ratio)
+- Tests: 49,886 lines Rust → 14,330 lines Go (29% ratio)
+- Current status: 841 passing, 366 failing (~70% pass rate)
+- Major remaining work: PostgreSQL CREATE FUNCTION attributes (~10 tests), Snowflake Multi-Table INSERT placeholders (1 test), PIVOT (1 test), DDL span mismatches (~60 tests)
 - Many remaining failures are span/column position mismatches rather than parsing logic errors
-- Remaining failing tests by category: PostgreSQL (~75), DDL (~60), Snowflake (~18)
+- Remaining failing tests by category: PostgreSQL (~75), DDL (~60), Snowflake (~18), Expressions (~50)
+
+**Recent Fixes (Session 26)**:
+- TestParseCreateTableWithConstraintCharacteristics: ✅ Partial (serialization correct, validation added for duplicates)
+- TestParseNonLatinIdentifiers: ✅ Now passing (BigQuery Unicode identifier support)
+- TestPostgresCreateServer: ✅ Now passing (all 3 subtests - CREATE SERVER with TYPE, VERSION, OPTIONS)
 

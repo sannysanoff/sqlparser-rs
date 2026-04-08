@@ -1600,6 +1600,7 @@ func (c *CreateSecret) String() string {
 type CreateServerStatement struct {
 	BaseStatement
 	OrReplace          bool
+	IfNotExists        bool
 	Name               *ast.ObjectName
 	ServerType         *string
 	Version            *string
@@ -1615,7 +1616,44 @@ func (c *CreateServerStatement) String() string {
 	if c.OrReplace {
 		f.WriteString("OR REPLACE ")
 	}
+	if c.IfNotExists {
+		f.WriteString("IF NOT EXISTS ")
+	}
 	f.WriteString(c.Name.String())
+	if c.ServerType != nil {
+		f.WriteString(" TYPE '")
+		f.WriteString(*c.ServerType)
+		f.WriteString("'")
+	}
+	if c.Version != nil {
+		f.WriteString(" VERSION '")
+		f.WriteString(*c.Version)
+		f.WriteString("'")
+	}
+	if c.ForeignDataWrapper != nil {
+		f.WriteString(" FOREIGN DATA WRAPPER ")
+		f.WriteString(c.ForeignDataWrapper.String())
+	}
+	if len(c.Options) > 0 {
+		f.WriteString(" OPTIONS (")
+		for i, opt := range c.Options {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			// For CREATE SERVER, format is key 'value' without = sign
+			f.WriteString(opt.Name.String())
+			f.WriteString(" ")
+			valueStr := opt.Value.String()
+			// Add quotes for string literal values
+			if valExpr, ok := opt.Value.(*expr.ValueExpr); ok {
+				if _, isString := valExpr.Value.(string); isString {
+					valueStr = fmt.Sprintf("'%s'", valueStr)
+				}
+			}
+			f.WriteString(valueStr)
+		}
+		f.WriteString(")")
+	}
 	return f.String()
 }
 

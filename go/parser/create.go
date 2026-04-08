@@ -118,6 +118,9 @@ func parseCreate(p *Parser) (ast.Statement, error) {
 		return parseCreateProcedure(p, false)
 	case p.PeekKeyword("STAGE"):
 		return parseCreateStage(p, orReplace, temporary, transient)
+	case p.PeekKeyword("SERVER"):
+		p.NextToken() // Consume SERVER keyword
+		return parseCreateServer(p, orReplace)
 	case p.PeekKeyword("SECURE"):
 		// CREATE SECURE VIEW or CREATE SECURE MATERIALIZED VIEW
 		p.NextToken() // consume SECURE
@@ -4749,4 +4752,101 @@ func parseKeyValueOptions(p *Parser, closeTok token.Token) (*expr.KeyValueOption
 	}
 
 	return opts, nil
+}
+
+// parseCreateServer parses CREATE SERVER statements (PostgreSQL)
+// CREATE SERVER [IF NOT EXISTS] server_name [TYPE 'server_type'] [VERSION 'server_version']
+// FOREIGN DATA WRAPPER fdw_name [OPTIONS (option 'value', [...])]
+func parseCreateServer(p *Parser, orReplace bool) (*statement.CreateServerStatement, error) {
+	stmt := &statement.CreateServerStatement{
+		OrReplace: orReplace,
+	}
+
+	// Check for IF NOT EXISTS
+	stmt.IfNotExists = p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+
+	// Parse server name
+	serverName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected server name: %w", err)
+	}
+	stmt.Name = serverName
+
+	// Optional TYPE 'server_type'
+	if p.ParseKeyword("TYPE") {
+		tok := p.PeekTokenRef()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			stmt.ServerType = &str.Value
+			p.AdvanceToken()
+		} else {
+			return nil, fmt.Errorf("expected string literal for TYPE, found %s", tok.Token.String())
+		}
+	}
+
+	// Optional VERSION 'server_version'
+	if p.ParseKeyword("VERSION") {
+		tok := p.PeekTokenRef()
+		if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			stmt.Version = &str.Value
+			p.AdvanceToken()
+		} else {
+			return nil, fmt.Errorf("expected string literal for VERSION, found %s", tok.Token.String())
+		}
+	}
+
+	// Required FOREIGN DATA WRAPPER fdw_name
+	if !p.ParseKeywords([]string{"FOREIGN", "DATA", "WRAPPER"}) {
+		return nil, fmt.Errorf("expected FOREIGN DATA WRAPPER")
+	}
+
+	fdwName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected foreign data wrapper name: %w", err)
+	}
+	stmt.ForeignDataWrapper = fdwName
+
+	// Optional OPTIONS (key 'value', ...)
+	if p.ParseKeyword("OPTIONS") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		for {
+			// Check for closing paren
+			if p.ConsumeToken(token.TokenRParen{}) {
+				break
+			}
+
+			// Parse option name
+			optName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected option name: %w", err)
+			}
+
+			// Parse option value (string literal)
+			tok := p.PeekTokenRef()
+			var optValue string
+			if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+				optValue = str.Value
+				p.AdvanceToken()
+			} else {
+				return nil, fmt.Errorf("expected string literal for option value, found %s", tok.Token.String())
+			}
+
+			stmt.Options = append(stmt.Options, &expr.SqlOption{
+				Name:  &expr.Ident{Value: optName.Value},
+				Value: &expr.ValueExpr{Value: optValue},
+			})
+
+			// Check for comma or closing paren
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			}
+			if p.ConsumeToken(token.TokenRParen{}) {
+				break
+			}
+		}
+	}
+
+	return stmt, nil
 }

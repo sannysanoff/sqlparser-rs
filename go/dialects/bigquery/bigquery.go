@@ -18,6 +18,8 @@
 package bigquery
 
 import (
+	"unicode"
+
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/dialects"
 	"github.com/user/sqlparser/token"
@@ -138,7 +140,9 @@ func (d *BigQueryDialect) IsIdentifierStart(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' ||
 		// BigQuery supports `@@foo.bar` variable syntax in its procedural language.
 		// https://cloud.google.com/bigquery/docs/reference/standard-sql/procedural-language#beginexceptionend
-		ch == '@'
+		ch == '@' ||
+		// Support Unicode letters (non-Latin characters)
+		unicode.IsLetter(ch)
 }
 
 // IsIdentifierPart returns true if the character is a valid unquoted
@@ -146,7 +150,8 @@ func (d *BigQueryDialect) IsIdentifierStart(ch rune) bool {
 func (d *BigQueryDialect) IsIdentifierPart(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
 		(ch >= '0' && ch <= '9') ||
-		ch == '_'
+		ch == '_' ||
+		unicode.IsLetter(ch)
 }
 
 // IsDelimitedIdentifierStart returns true if the character starts a quoted identifier.

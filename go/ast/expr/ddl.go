@@ -395,6 +395,13 @@ func (c *ConstraintCharacteristics) String() string {
 	if c.NotValid {
 		parts = append(parts, "NOT VALID")
 	}
+	if c.Enforced != nil {
+		if *c.Enforced {
+			parts = append(parts, "ENFORCED")
+		} else {
+			parts = append(parts, "NOT ENFORCED")
+		}
+	}
 	return strings.Join(parts, " ")
 }
 
