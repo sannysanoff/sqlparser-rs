@@ -399,7 +399,70 @@ func (ep *ExpressionParser) tryParseNamedArgWithExprName() (expr.FunctionArg, er
 	// Save position for backtracking
 	restore := ep.parser.SavePosition()
 
-	// Try to parse an expression as the name
+	// For dialects that support colon operator (like MSSQL JSON_OBJECT), we need to
+	// be careful not to let ParseExpr() consume the colon as a JSON access operator.
+	// The colon is recognized as an infix operator for JSON path access, but in function
+	// arguments it should be treated as a named argument separator.
+	//
+	// Solution: For simple literals (strings, numbers), manually parse them and check
+	// for the colon operator before falling back to full expression parsing.
+	dialect := ep.parser.GetDialect()
+	if dialects.SupportsNamedFnArgsWithColonOperator(dialect) {
+		// Try to parse a simple literal first
+		tok := ep.parser.PeekTokenRef()
+		var nameExpr expr.Expr
+
+		switch t := tok.Token.(type) {
+		case token.TokenSingleQuotedString:
+			ep.parser.NextToken() // consume
+			nameExpr = &expr.ValueExpr{
+				Value:   t.Value,
+				SpanVal: tok.Span,
+			}
+		case token.TokenDoubleQuotedString:
+			ep.parser.NextToken() // consume
+			nameExpr = &expr.ValueExpr{
+				Value:   t.Value,
+				SpanVal: tok.Span,
+			}
+		case token.TokenNumber:
+			ep.parser.NextToken() // consume
+			nameExpr = &expr.ValueExpr{
+				Value:   t.Value,
+				SpanVal: tok.Span,
+			}
+		default:
+			// Not a simple literal, fall through to standard parsing
+			nameExpr = nil
+		}
+
+		if nameExpr != nil {
+			// Check for named argument operator (specifically colon for MSSQL)
+			operator := ep.parseNamedArgOperator()
+			if operator != "" {
+				// Parse the argument value
+				valueExpr, err := ep.parseWildcardExpr()
+				if err != nil {
+					restore()
+					return nil, err
+				}
+
+				// Create the identifier with proper quote style based on the original token
+				quoteStyle := '\'' // Default to single quote
+				return &expr.FunctionArgNamed{
+					Name:     &expr.Ident{Value: nameExpr.String(), QuoteStyle: &quoteStyle},
+					Value:    valueExpr,
+					Operator: operator,
+				}, nil
+			}
+
+			// No operator found after literal, backtrack
+			restore()
+		}
+	}
+
+	// Try to parse an expression as the name (standard approach)
+	restore = ep.parser.SavePosition()
 	nameExpr, err := ep.ParseExpr()
 	if err != nil {
 		restore()

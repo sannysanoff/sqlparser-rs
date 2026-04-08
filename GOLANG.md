@@ -1,5 +1,24 @@
 ---
 
+**Line Counts (Updated April 9, 2026 - Session 27 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 97,475 lines | 145% |
+| Tests | 49,886 lines | 13,923 lines | 28% |
+| **Test Status** | - | **571 passing** / **242 failing** (~70%) |
+
+**Summary of Session 27:**
+
+1. **Fixed MSSQL JSON_OBJECT Function Parsing** (1 test now passing)
+   - Fixed `JSON_OBJECT('name' : 'value', 'type' : 1)` parsing for MSSQL dialect
+   - **Root Cause**: The colon `:` operator was being consumed as JSON path access before it could be recognized as a named argument separator
+   - **Fix**: Modified `tryParseNamedArgWithExprName()` to manually parse simple string literals first when the dialect supports colon operator for named arguments, avoiding the infix expression parser that would consume the colon as JSON access
+   - **Pattern E118**: Colon operator ambiguity in function args - When dialect supports both JSON path access (colon) and named arguments (colon), parse simple literals manually before falling back to full expression parsing to prevent premature colon consumption
+   - Test Fixed: TestParseJsonObject
+
+---
+
 **Line Counts (Updated April 9, 2026 - Session 26 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -2875,6 +2894,47 @@ func parseCreateServer(p *Parser, orReplace bool) (*statement.CreateServerStatem
     }
     
     return stmt, nil
+}
+```
+
+### Error E118: Colon operator consumed as JSON access before named argument parsing
+**Cause**: When parsing function arguments with named parameters using the colon operator (e.g., `JSON_OBJECT('name' : 'value')`), the colon is consumed by the infix expression parser as a JSON path access operator before it can be recognized as a named argument separator.
+
+**Symptom**: Error like `expected variant object key name, found: 1` when parsing `JSON_OBJECT('name' : 'value', 'type' : 1)`
+
+**Solution**: When the dialect supports named arguments with colon operator, manually parse simple literals (strings, numbers) before falling back to full expression parsing. This avoids the infix parser consuming the colon:
+```go
+func (ep *ExpressionParser) tryParseNamedArgWithExprName() (expr.FunctionArg, error) {
+    // For dialects that support colon operator, parse simple literals manually
+    if dialects.SupportsNamedFnArgsWithColonOperator(dialect) {
+        tok := ep.parser.PeekTokenRef()
+        var nameExpr expr.Expr
+        
+        switch t := tok.Token.(type) {
+        case token.TokenSingleQuotedString:
+            ep.parser.NextToken()
+            nameExpr = &expr.ValueExpr{Value: t.Value, SpanVal: tok.Span}
+        // ... handle other literal types
+        }
+        
+        if nameExpr != nil {
+            // Check for named argument operator BEFORE full expression parsing
+            operator := ep.parseNamedArgOperator()
+            if operator != "" {
+                valueExpr, err := ep.parseWildcardExpr()
+                // ... create FunctionArgNamed with proper QuoteStyle
+                quoteStyle := '\''
+                return &expr.FunctionArgNamed{
+                    Name:     &expr.Ident{Value: nameExpr.String(), QuoteStyle: &quoteStyle},
+                    Value:    valueExpr,
+                    Operator: operator,
+                }, nil
+            }
+            // No operator found, backtrack
+            restore()
+        }
+    }
+    // Fall through to standard expression parsing
 }
 ```
 
