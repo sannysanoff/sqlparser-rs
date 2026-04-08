@@ -2177,7 +2177,7 @@ func (d *SnowflakeDialect) parseMultiTableInsertIntoClause(parser dialects.Parse
 				if err != nil {
 					return nil, err
 				}
-				value.Expr = exprVal.(expr.Expr)
+				value.Expr = exprVal // No type assertion needed - field is interface{}
 			}
 			values.Values = append(values.Values, value)
 
@@ -2216,7 +2216,7 @@ func (d *SnowflakeDialect) parseMultiTableInsertWhenClauses(parser dialects.Pars
 		}
 
 		whenClause := &expr.MultiTableInsertWhenClause{
-			Condition:   condition.(expr.Expr),
+			Condition:   condition, // No type assertion needed - field is interface{}
 			IntoClauses: intoClauses,
 		}
 		whenClauses = append(whenClauses, whenClause)

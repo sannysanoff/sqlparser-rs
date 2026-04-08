@@ -85,6 +85,19 @@ func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr
 		// The period operator is handled exclusively by compound field access parsing
 		nextTok := ep.parser.PeekTokenRef()
 		if _, ok := nextTok.Token.(token.TokenPeriod); ok {
+			// For dialects supporting semi-structured data, we may need to continue
+			// parsing compound expressions after array subscripts (e.g., a[0].foo.bar)
+			// Check if we can continue parsing the compound expression
+			if comp, isComp := left.(*expr.CompoundFieldAccess); isComp && dialects.SupportsPartiQL(ep.parser.GetDialect()) {
+				// Continue parsing the compound expression chain
+				// Pass the root and the existing chain so it can be extended
+				newLeft, err := ep.parseCompoundExpr(comp.Root, comp.AccessChain)
+				if err != nil {
+					return nil, err
+				}
+				left = newLeft
+				continue
+			}
 			break
 		}
 

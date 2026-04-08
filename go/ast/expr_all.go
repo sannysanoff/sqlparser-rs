@@ -528,11 +528,13 @@ type EJsonPathDot struct {
 }
 
 // String returns the SQL representation.
+// Note: This returns just the key without prefix. The container (EJsonPath)
+// adds the appropriate prefix (":" or ".") based on context.
 func (j *EJsonPathDot) String() string {
 	if j.Quoted {
-		return fmt.Sprintf(".\"%s\"", j.Key)
+		return fmt.Sprintf("\"%s\"", j.Key)
 	}
-	return "." + j.Key
+	return j.Key
 }
 
 // EJsonPathBracket represents bracket notation in JSON path (was expr.JsonPathBracket).
@@ -561,8 +563,16 @@ func (j *EJsonPath) String() string {
 	var sb strings.Builder
 	for i, elem := range j.Path {
 		if i == 0 {
+			// First element: add ":" prefix if it's a EJsonPathDot
+			// (colon-style access like a:b)
 			if _, ok := elem.(*EJsonPathDot); ok {
 				sb.WriteString(":")
+			}
+		} else {
+			// Subsequent elements: always add "." prefix for EJsonPathDot
+			// (dot-style access like a.b or a:b.c)
+			if _, ok := elem.(*EJsonPathDot); ok {
+				sb.WriteString(".")
 			}
 		}
 		sb.WriteString(elem.String())

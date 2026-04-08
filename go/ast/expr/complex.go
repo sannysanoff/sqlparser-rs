@@ -32,8 +32,8 @@ type ArrayExpr struct {
 }
 
 func (a *ArrayExpr) exprNode() {}
-func (a *ArrayExpr) expr()   {}
-func (a *ArrayExpr) IsExpr() {}
+func (a *ArrayExpr) expr()     {}
+func (a *ArrayExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (a *ArrayExpr) Span() token.Span {
@@ -63,8 +63,8 @@ type IntervalExpr struct {
 }
 
 func (i *IntervalExpr) exprNode() {}
-func (i *IntervalExpr) expr()   {}
-func (i *IntervalExpr) IsExpr() {}
+func (i *IntervalExpr) expr()     {}
+func (i *IntervalExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IntervalExpr) Span() token.Span {
@@ -114,8 +114,8 @@ type TupleExpr struct {
 }
 
 func (t *TupleExpr) exprNode() {}
-func (t *TupleExpr) expr()   {}
-func (t *TupleExpr) IsExpr() {}
+func (t *TupleExpr) expr()     {}
+func (t *TupleExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (t *TupleExpr) Span() token.Span {
@@ -160,8 +160,8 @@ type StructExpr struct {
 }
 
 func (s *StructExpr) exprNode() {}
-func (s *StructExpr) expr()   {}
-func (s *StructExpr) IsExpr() {}
+func (s *StructExpr) expr()     {}
+func (s *StructExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (s *StructExpr) Span() token.Span {
@@ -210,8 +210,8 @@ type MapExpr struct {
 }
 
 func (m *MapExpr) exprNode() {}
-func (m *MapExpr) expr()   {}
-func (m *MapExpr) IsExpr() {}
+func (m *MapExpr) expr()     {}
+func (m *MapExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (m *MapExpr) Span() token.Span {
@@ -251,8 +251,8 @@ type DictionaryExpr struct {
 }
 
 func (d *DictionaryExpr) exprNode() {}
-func (d *DictionaryExpr) expr()   {}
-func (d *DictionaryExpr) IsExpr() {}
+func (d *DictionaryExpr) expr()     {}
+func (d *DictionaryExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (d *DictionaryExpr) Span() token.Span {
@@ -276,8 +276,8 @@ type NamedExpr struct {
 }
 
 func (n *NamedExpr) exprNode() {}
-func (n *NamedExpr) expr()   {}
-func (n *NamedExpr) IsExpr() {}
+func (n *NamedExpr) expr()     {}
+func (n *NamedExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (n *NamedExpr) Span() token.Span {
@@ -370,8 +370,8 @@ type CompoundFieldAccess struct {
 }
 
 func (c *CompoundFieldAccess) exprNode() {}
-func (c *CompoundFieldAccess) expr()   {}
-func (c *CompoundFieldAccess) IsExpr() {}
+func (c *CompoundFieldAccess) expr()     {}
+func (c *CompoundFieldAccess) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *CompoundFieldAccess) Span() token.Span {
@@ -400,11 +400,13 @@ type JsonPathDot struct {
 }
 
 // String returns the SQL representation.
+// Note: This returns just the key without prefix. The container (JsonPath)
+// adds the appropriate prefix (":" or ".") based on context.
 func (j *JsonPathDot) String() string {
 	if j.Quoted {
-		return fmt.Sprintf(".\"%s\"", j.Key)
+		return fmt.Sprintf("\"%s\"", j.Key)
 	}
-	return "." + j.Key
+	return j.Key
 }
 
 // JsonPathBracket represents bracket notation in JSON path.
@@ -437,8 +439,16 @@ func (j *JsonPath) String() string {
 	var sb strings.Builder
 	for i, elem := range j.Path {
 		if i == 0 {
+			// First element: add ":" prefix if it's a JsonPathDot
+			// (colon-style access like a:b)
 			if _, ok := elem.(*JsonPathDot); ok {
 				sb.WriteString(":")
+			}
+		} else {
+			// Subsequent elements: always add "." prefix for JsonPathDot
+			// (dot-style access like a.b or a:b.c)
+			if _, ok := elem.(*JsonPathDot); ok {
+				sb.WriteString(".")
 			}
 		}
 		sb.WriteString(elem.String())
@@ -454,8 +464,8 @@ type JsonAccess struct {
 }
 
 func (j *JsonAccess) exprNode() {}
-func (j *JsonAccess) expr()   {}
-func (j *JsonAccess) IsExpr() {}
+func (j *JsonAccess) expr()     {}
+func (j *JsonAccess) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (j *JsonAccess) Span() token.Span {
@@ -474,8 +484,8 @@ type OuterJoin struct {
 }
 
 func (o *OuterJoin) exprNode() {}
-func (o *OuterJoin) expr()   {}
-func (o *OuterJoin) IsExpr() {}
+func (o *OuterJoin) expr()     {}
+func (o *OuterJoin) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (o *OuterJoin) Span() token.Span {
@@ -494,8 +504,8 @@ type PriorExpr struct {
 }
 
 func (p *PriorExpr) exprNode() {}
-func (p *PriorExpr) expr()   {}
-func (p *PriorExpr) IsExpr() {}
+func (p *PriorExpr) expr()     {}
+func (p *PriorExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (p *PriorExpr) Span() token.Span {
@@ -544,8 +554,8 @@ type LambdaExpr struct {
 }
 
 func (l *LambdaExpr) exprNode() {}
-func (l *LambdaExpr) expr()   {}
-func (l *LambdaExpr) IsExpr() {}
+func (l *LambdaExpr) expr()     {}
+func (l *LambdaExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (l *LambdaExpr) Span() token.Span {
@@ -577,8 +587,8 @@ type MemberOfExpr struct {
 }
 
 func (m *MemberOfExpr) exprNode() {}
-func (m *MemberOfExpr) expr()   {}
-func (m *MemberOfExpr) IsExpr() {}
+func (m *MemberOfExpr) expr()     {}
+func (m *MemberOfExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (m *MemberOfExpr) Span() token.Span {
@@ -624,8 +634,8 @@ type MatchAgainstExpr struct {
 }
 
 func (m *MatchAgainstExpr) exprNode() {}
-func (m *MatchAgainstExpr) expr()   {}
-func (m *MatchAgainstExpr) IsExpr() {}
+func (m *MatchAgainstExpr) expr()     {}
+func (m *MatchAgainstExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (m *MatchAgainstExpr) Span() token.Span {

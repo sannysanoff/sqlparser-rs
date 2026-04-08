@@ -1,5 +1,38 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 15 Final):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,050 lines | 120% |
+| Tests | 49,886 lines | 14,150 lines | 28% |
+| **Test Status** | - | **548 passing** / **265 failing** (~67%) |
+
+**Summary of Session 15:**
+
+1. **Fixed Snowflake Semi-Structured Data Traversal** (3 subtests passing)
+   - `SELECT a[0].foo.bar` - array subscript followed by dot access now works
+   - `SELECT a:b::ARRAY[1]` - colon notation serialization fixed (removed extra `.`)
+   - **Root Cause**: `JsonPathDot.String()` was adding `.` prefix, but `JsonPath.String()` was also adding `:` prefix for first element, resulting in `:.key`
+   - **Fix**: Modified `JsonPathDot.String()` to return just the key, and `JsonPath.String()` to handle all prefix logic based on element position
+
+2. **Fixed Expression Interface Compatibility for Multi-Table INSERT** (7 subtests passing)
+   - Changed `MultiTableInsertValue.Expr` and `MultiTableInsertWhenClause.Condition` from `expr.Expr` to `interface{}`
+   - This allows both `ast.Expr` and `expr.Expr` types to be stored without type assertion panics
+   - Removed type assertions in Snowflake parser that were causing `*ast.EIdent is not expr.Expr` panics
+
+3. **Fixed Period Handling After Array Subscripts** (core.go)
+   - Added special handling in `ParseExprWithPrecedence` for periods after `CompoundFieldAccess`
+   - For PartiQL-supporting dialects (Snowflake), periods after array subscripts continue compound expression parsing
+   - This enables chains like `a[0].foo.bar` to be parsed correctly
+
+**New Patterns Documented:**
+- **Pattern E82**: Interface incompatibility fix - When AST fields need to accept both `ast.Expr` and `expr.Expr`, use `interface{}` with type switches in String() methods
+- **Pattern E83**: Prefix serialization in containers - Container types (like JsonPath) should handle all prefix logic, not leaf types (like JsonPathDot)
+- **Pattern E84**: Continuing compound expressions after subscripts - In the infix loop, check for periods after CompoundFieldAccess and continue parsing via parseCompoundExpr()
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 14 Final):**
 
 | Component | Rust | Go | Ratio |
