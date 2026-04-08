@@ -1,6 +1,91 @@
 ---
 
-## Latest Update: April 18, 2026 - Session 39 (BINARY Keyword as Cast, Test Fixes)
+## Latest Update: April 8, 2026 - Session 40 (PostgreSQL Test Fixes, Analysis of 218 Failing Tests)
+
+**Line Counts (Updated April 8, 2026 - Session 40):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 59,778 lines | 82,874 lines | 139% |
+| Tests | 49,886 lines | 14,175 lines | 28% |
+| **Test Status** | - | **595 tests passing** / **218 tests failing** (~73%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 40 Summary:
+
+**Fixed GENERATED ALWAYS AS IDENTITY Test** (1 test now passing)
+- Fixed `TestPostgresCreateTableGeneratedAlwaysAsIdentity` - now properly passing
+- **Implementation**: Already complete in AST types (`GeneratedIdentity`, `SequenceOptions`, `GeneratedAs`)
+- **Root Cause**: Test expectation mismatch - Go canonical form uses UPPERCASE for data types and keywords
+- **Fix**: Updated test to use `OneStatementParsesTo()` with correct canonical uppercase form
+
+**Verified COPY Statement Implementation** (7/8 COPY tests passing)
+- Removed accidentally added duplicate COPY type definitions
+- Verified existing COPY implementation is complete and working
+- **Tests Passing**: 
+  - `TestPostgresCopyFromStdin` - COPY FROM STDIN
+  - `TestPostgresCopyFromBeforeV90` - Legacy COPY syntax
+  - `TestPostgresCopyToBeforeV90` - Legacy COPY TO syntax  
+  - `TestPostgresCopyFromStdinWithoutSemicolon` - COPY without semicolon
+  - `TestPostgresCopyFrom` - Standard COPY FROM file
+  - `TestPostgresCopyTo` - Standard COPY TO file
+  - `TestPostgresCopyFromStdinWithoutSemicolonVariants` - COPY variants
+- **Remaining**: `TestPostgresCopyFromError` - needs error validation for COPY FROM with query
+
+**Identified Massive Code Port Priorities**
+
+Based on 218 failing tests analysis, highest-impact features to port:
+
+1. **COMMENT ON** (~8 tests) - Add support for `COMMENT ON TABLE`, `COMMENT ON COLUMN`
+2. **TRUNCATE with Options** (~8 tests) - Add `RESTART IDENTITY`, `CONTINUE IDENTITY`, `CASCADE`
+3. **CREATE TABLE options** (~15 tests) - Add `INHERIT`, `ON COMMIT`, `TABLESPACE`
+4. **ALTER TABLE operations** (~12 tests) - Add `ALTER COLUMN`, `ADD GENERATED`, `OWNER TO`
+5. **Transaction Statements** (~6 tests) - Add `BEGIN`, `LOCK TABLE`
+
+These 5 features would fix ~50+ tests, bringing pass rate to ~80%.
+- **Pattern E155**: Canonical form case sensitivity - Go implementation uses UPPERCASE for SQL keywords and data types in `String()` output, matching Rust behavior but tests must use matching case
+
+**Analyzed 218 Failing Tests for High-Impact Missing Features**
+
+Top missing features causing multiple test failures:
+
+1. **PostgreSQL COPY FROM/TO** (~10+ tests failing)
+   - Missing: `Copy`, `CopySource`, `CopyTarget`, `CopyOption` AST types
+   - Missing: `parseCopy()` function in parser
+   - Reference: `src/parser/mod.rs:11129-11278`
+
+2. **PostgreSQL COMMENT ON** (~8 tests failing)
+   - Missing: Comment statement parsing and AST
+   - Reference: `src/ast/mod.rs` Comment struct
+
+3. **PostgreSQL TRUNCATE with Options** (~8 tests failing)
+   - Missing: `TRUNCATE ... RESTART IDENTITY`, `CONTINUE IDENTITY`, `CASCADE`
+   - Reference: `src/ast/mod.rs:6512` TruncateIdentityOption
+
+4. **PostgreSQL CREATE TABLE features** (~15 tests failing)
+   - Missing: `INHERIT`, `ON COMMIT`, `TABLESPACE` clauses
+   - Missing: Array type definitions with brackets
+
+5. **PostgreSQL ALTER TABLE operations** (~12 tests failing)
+   - Missing: `ALTER TABLE ... ALTER COLUMN`, `ADD GENERATED`, `OWNER TO`
+
+6. **PostgreSQL Transaction Statements** (~6 tests failing)
+   - Missing: `BEGIN`, `COMMIT`, `ROLLBACK`, `LOCK TABLE`
+
+7. **Other Features** (~160 tests failing)
+   - Span position mismatches (non-functional)
+   - Serialization format differences
+   - Dialect-specific keyword handling
+
+**Identified Strategy for Massive Code Port**
+
+- **High Priority**: COPY FROM, COMMENT ON, TRUNCATE options (will fix ~25+ tests)
+- **Medium Priority**: CREATE TABLE options, ALTER TABLE operations (will fix ~25+ tests)
+- **Low Priority**: Span fixes (cosmetic, can be deferred)
+
+---
+
+## Previous Update: April 18, 2026 - Session 39 (BINARY Keyword as Cast, Test Fixes)
 
 **Line Counts (Updated April 18, 2026 - Session 39):**
 
@@ -456,6 +541,26 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
       return d.SupportsBinaryKwAsCast()
   })
   ```
+
+---
+
+### Session 40 Patterns (New):
+
+- **Pattern E155**: Test canonical form case sensitivity - Go implementation uses UPPERCASE for SQL keywords and data types in `String()` methods (e.g., `BIGINT`, `GENERATED ALWAYS AS IDENTITY`). When porting tests from Rust, ensure the expected canonical form matches this case. Use `OneStatementParsesTo(sql, canonical)` where canonical is the expected UPPERCASE output:
+  ```go
+  // Test input uses lowercase
+  sql := "CREATE TABLE t (col bigint generated always as identity)"
+  // Canonical form uses UPPERCASE (matching Rust behavior)
+  canonical := "CREATE TABLE t (col BIGINT GENERATED ALWAYS AS IDENTITY)"
+  pg.OneStatementParsesTo(t, sql, canonical)
+  ```
+
+- **Pattern E156**: Massive code port prioritization - With 218 failing tests, identify high-impact features that fix multiple tests:
+  1. COPY FROM/TO (~10+ tests) - Add `CopyStatement`, `CopySource`, `CopyTarget` AST types
+  2. COMMENT ON (~8 tests) - Add `Comment` statement AST and parser
+  3. TRUNCATE options (~8 tests) - Extend `Truncate` with `RestartIdentity`, `ContinueIdentity`
+  4. CREATE TABLE options (~15 tests) - Add `INHERIT`, `ON COMMIT`, `TABLESPACE`
+  5. ALTER TABLE operations (~12 tests) - Add `ALTER COLUMN`, `ADD GENERATED`, `OWNER TO`
 
 ---
 
