@@ -1661,6 +1661,7 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 	// MySQL requires the index name: CREATE INDEX name ON table_name (col)
 	var indexName *ast.Ident
 	var using *ast.Ident
+	var usingAfterCols bool
 
 	// Check if we have ON keyword (meaning no index name)
 	if !p.PeekKeyword("ON") {
@@ -1703,6 +1704,48 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 	columns, err := parseIndexColumnList(p)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for USING after column list (MySQL syntax: CREATE INDEX ON t(c) USING HASH)
+	if using == nil && p.ParseKeyword("USING") {
+		using, err = p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		usingAfterCols = true
+	}
+
+	// Parse MySQL index options (KEY_BLOCK_SIZE, LOCK, ALGORITHM, etc.)
+	var mysqlOpts []*expr.SqlOption
+	for {
+		if p.PeekKeyword("KEY_BLOCK_SIZE") || p.PeekKeyword("LOCK") || p.PeekKeyword("USING") || p.PeekKeyword("ALGORITHM") || p.PeekKeyword("COMMENT") {
+			// Parse option name
+			optName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Expect =
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse value
+			exprParser := NewExpressionParser(p)
+			optVal, err := exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			optNameExpr := &expr.Ident{
+				SpanVal:    optName.Span(),
+				Value:      optName.Value,
+				QuoteStyle: optName.QuoteStyle,
+			}
+			mysqlOpts = append(mysqlOpts, &expr.SqlOption{
+				Name:  optNameExpr,
+				Value: optVal,
+			})
+		} else {
+			break
+		}
 	}
 
 	// Parse INCLUDE clause (PostgreSQL 11+)
@@ -1774,18 +1817,20 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 	}
 
 	return &statement.CreateIndex{
-		Unique:        unique,
-		Concurrently:  concurrently,
-		IfNotExists:   ifNotExists,
-		Name:          indexName,
-		TableName:     tableName,
-		Using:         using,
-		Columns:       columns,
-		Include:       include,
-		NullsDistinct: nullsDistinct,
-		With:          withOpts,
-		TableSpace:    tablespace,
-		Predicate:     predicate,
+		Unique:         unique,
+		Concurrently:   concurrently,
+		IfNotExists:    ifNotExists,
+		Name:           indexName,
+		TableName:      tableName,
+		Using:          using,
+		UsingAfterCols: usingAfterCols,
+		Columns:        columns,
+		Include:        include,
+		NullsDistinct:  nullsDistinct,
+		With:           withOpts,
+		TableSpace:     tablespace,
+		Predicate:      predicate,
+		MySQLOptions:   mysqlOpts,
 	}, nil
 }
 

@@ -1088,8 +1088,19 @@ func parseAlterView(p *Parser) (ast.Statement, error) {
 	// Parse optional WITH options
 	var withOptions []*expr.SqlOption
 	if p.ParseKeyword("WITH") {
-		// Parse WITH options if present
-		// For now, skip complex WITH option parsing
+		// Expect opening paren
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, fmt.Errorf("expected '(' after WITH: %w", err)
+		}
+		// Parse options
+		withOptions, err = parseSqlOptions(p)
+		if err != nil {
+			return nil, err
+		}
+		// Expect closing paren
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Expect AS

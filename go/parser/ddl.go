@@ -59,7 +59,9 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 			p.PeekKeyword("COLLATE") || p.PeekKeyword("COMMENT") || p.PeekKeyword("GENERATED") ||
 			p.PeekKeyword("CONSTRAINT") || p.PeekKeyword("PRIMARY") || p.PeekKeyword("UNIQUE") ||
 			p.PeekKeyword("CHECK") || p.PeekKeyword("REFERENCES") || p.PeekKeyword("ON") ||
-			p.PeekKeyword("AUTO_INCREMENT") || p.PeekKeyword("AUTOINCREMENT") || p.PeekKeyword("IDENTITY") {
+			p.PeekKeyword("AUTO_INCREMENT") || p.PeekKeyword("AUTOINCREMENT") || p.PeekKeyword("IDENTITY") ||
+			p.PeekKeyword("AS") || p.PeekKeyword("KEY") || p.PeekKeyword("SRID") ||
+			p.PeekKeyword("INVISIBLE") || p.PeekKeyword("VISIBLE") {
 
 			constraint, err := parseColumnConstraint(p)
 			if err != nil {
@@ -165,8 +167,21 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		}, nil
 	}
 
-	// UNIQUE [DEFERRABLE/etc]
+	// UNIQUE [KEY] [DEFERRABLE/etc] - MySQL UNIQUE KEY syntax
 	if p.ParseKeyword("UNIQUE") {
+		// Check for optional KEY keyword (MySQL-specific)
+		if p.ParseKeyword("KEY") {
+			// UNIQUE KEY - treat as UNIQUE KEY
+			characteristics, err := parseConstraintCharacteristics(p)
+			if err != nil {
+				return nil, err
+			}
+			return &expr.ColumnOptionDef{
+				ConstraintName:  constraintName,
+				Name:            "UNIQUE KEY",
+				Characteristics: characteristics,
+			}, nil
+		}
 		characteristics, err := parseConstraintCharacteristics(p)
 		if err != nil {
 			return nil, err
@@ -174,6 +189,20 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		return &expr.ColumnOptionDef{
 			ConstraintName:  constraintName,
 			Name:            "UNIQUE",
+			Characteristics: characteristics,
+		}, nil
+	}
+
+	// KEY (MySQL shorthand for PRIMARY KEY)
+	// In MySQL, KEY in a column definition is shorthand for PRIMARY KEY
+	if p.ParseKeyword("KEY") {
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOptionDef{
+			ConstraintName:  constraintName,
+			Name:            "PRIMARY KEY", // KEY is shorthand for PRIMARY KEY
 			Characteristics: characteristics,
 		}, nil
 	}
@@ -262,6 +291,56 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			Value:           refDetails,
 			Characteristics: characteristics,
 		}, nil
+	}
+
+	// AS (expr) [STORED|VIRTUAL] - MySQL/SQLite/DuckDB generated column shorthand
+	// This is shorthand for GENERATED ALWAYS AS expr
+	if p.ParseKeyword("AS") {
+		// Expect opening paren
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, fmt.Errorf("expected '(' after AS: %w", err)
+		}
+		exprParser := NewExpressionParser(p)
+		genExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("expected expression in AS (expr): %w", err)
+		}
+		// Expect closing paren
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		// Check for optional STORED or VIRTUAL
+		var genType string
+		if p.ParseKeyword("STORED") {
+			genType = "STORED"
+		} else if p.ParseKeyword("VIRTUAL") {
+			genType = "VIRTUAL"
+		}
+
+		name := "AS"
+		if genType != "" {
+			name += " " + genType
+		}
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: name, Value: genExpr}, nil
+	}
+
+	// SRID n (MySQL spatial reference)
+	if p.ParseKeyword("SRID") {
+		exprParser := NewExpressionParser(p)
+		sridExpr, err := exprParser.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("expected expression after SRID: %w", err)
+		}
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "SRID", Value: sridExpr}, nil
+	}
+
+	// INVISIBLE / VISIBLE (MySQL column visibility)
+	if p.ParseKeyword("INVISIBLE") {
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "INVISIBLE"}, nil
+	}
+	if p.ParseKeyword("VISIBLE") {
+		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "VISIBLE"}, nil
 	}
 
 	// GENERATED ALWAYS AS expr STORED/VIRTUAL

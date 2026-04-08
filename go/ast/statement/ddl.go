@@ -546,6 +546,7 @@ type CreateIndex struct {
 	Name           *ast.Ident
 	TableName      *ast.ObjectName
 	Using          *ast.Ident
+	UsingAfterCols bool // true if USING comes after columns (MySQL style)
 	Columns        []*expr.IndexColumn
 	Include        []*ast.Ident
 	NullsDistinct  *bool // nil = not specified, true = NULLS DISTINCT, false = NULLS NOT DISTINCT
@@ -554,6 +555,7 @@ type CreateIndex struct {
 	TableSpace     *ast.Ident
 	SortedBy       []*expr.OrderByExpr
 	IgnoreOrRevert *string
+	MySQLOptions   []*expr.SqlOption // MySQL-specific options like LOCK, KEY_BLOCK_SIZE
 }
 
 func (c *CreateIndex) statementNode() {}
@@ -581,7 +583,8 @@ func (c *CreateIndex) String() string {
 	f.WriteString("ON ")
 	f.WriteString(c.TableName.String())
 
-	if c.Using != nil {
+	// Serialize USING before columns (PostgreSQL style) unless it was parsed after columns
+	if c.Using != nil && !c.UsingAfterCols {
 		f.WriteString(" USING ")
 		f.WriteString(c.Using.String())
 	}
@@ -594,6 +597,12 @@ func (c *CreateIndex) String() string {
 		f.WriteString(col.String())
 	}
 	f.WriteString(")")
+
+	// Serialize USING after columns (MySQL style) if it was parsed after columns
+	if c.Using != nil && c.UsingAfterCols {
+		f.WriteString(" USING ")
+		f.WriteString(c.Using.String())
+	}
 
 	if len(c.Include) > 0 {
 		f.WriteString(" INCLUDE (")
@@ -618,6 +627,12 @@ func (c *CreateIndex) String() string {
 			f.WriteString(opt.String())
 		}
 		f.WriteString(")")
+	}
+
+	// Serialize MySQL-specific index options
+	for _, opt := range c.MySQLOptions {
+		f.WriteString(" ")
+		f.WriteString(opt.String())
 	}
 
 	if c.TableSpace != nil {
@@ -902,6 +917,17 @@ func (a *AlterView) String() string {
 	if len(a.Columns) > 0 {
 		f.WriteString(" (")
 		f.WriteString(formatIdents(a.Columns, ", "))
+		f.WriteString(")")
+	}
+
+	if len(a.WithOptions) > 0 {
+		f.WriteString(" WITH (")
+		for i, opt := range a.WithOptions {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(opt.String())
+		}
 		f.WriteString(")")
 	}
 

@@ -934,6 +934,47 @@ func (c *ColumnOptionDef) String() string {
 		return sb.String()
 	}
 
+	// Handle AS (expr) [STORED|VIRTUAL] - MySQL generated column shorthand
+	if c.Name == "AS" || c.Name == "AS STORED" || c.Name == "AS VIRTUAL" {
+		sb.WriteString("AS (")
+		if c.Value != nil {
+			sb.WriteString(c.Value.String())
+		}
+		sb.WriteString(")")
+		if c.Name == "AS STORED" {
+			sb.WriteString(" STORED")
+		} else if c.Name == "AS VIRTUAL" {
+			sb.WriteString(" VIRTUAL")
+		}
+		return sb.String()
+	}
+
+	// Handle UNIQUE KEY (MySQL)
+	if c.Name == "UNIQUE KEY" {
+		sb.WriteString("UNIQUE KEY")
+		if c.Characteristics != nil {
+			sb.WriteString(" ")
+			sb.WriteString(c.Characteristics.String())
+		}
+		return sb.String()
+	}
+
+	// Handle SRID (MySQL spatial reference)
+	if c.Name == "SRID" {
+		sb.WriteString("SRID")
+		if c.Value != nil {
+			sb.WriteString(" ")
+			sb.WriteString(c.Value.String())
+		}
+		return sb.String()
+	}
+
+	// Handle INVISIBLE/VISIBLE (MySQL column visibility)
+	if c.Name == "INVISIBLE" || c.Name == "VISIBLE" {
+		sb.WriteString(c.Name)
+		return sb.String()
+	}
+
 	// Default: Name + Value
 	sb.WriteString(c.Name)
 	if c.Value != nil {

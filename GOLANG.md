@@ -1,6 +1,64 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 53 (Massive Code Port: BIT/ENUM Types, CREATE VIEW IF NOT EXISTS, ON CLUSTER)
+## Latest Update: April 8, 2026 - Session 54 (Massive Code Port: MySQL Column Options, ALTER VIEW WITH, CREATE INDEX Options)
+
+**Line Counts (Updated April 8, 2026 - Session 54):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 39,768 lines | 99,938 lines | 251% |
+| Tests | 49,886 lines | 14,259 lines | 29% |
+| **Test Status** | - | **~150 tests passing** / **~150 tests failing** (~50%) |
+| **Total Test Cases** | - | ~810 test functions |
+
+### Session 54 Summary: Massive Code Port - MySQL Column Options, ALTER VIEW WITH, CREATE INDEX Options
+
+**Fixed 5 Key Parser Issues:**
+
+1. **MySQL UNIQUE KEY Column Option** (TestParseCreateTableColumnKeyOptions now passing)
+   - **Implementation**: Extended `parseColumnConstraint()` to handle UNIQUE KEY syntax
+   - **Fix**: Parse UNIQUE KEY as a distinct column option type
+   - **Files Modified**: `parser/ddl.go`, `ast/expr/ddl.go`
+   - **Pattern**: Check for KEY keyword after UNIQUE and store as "UNIQUE KEY" option type
+
+2. **MySQL KEY Column Option** (MySQL shorthand for PRIMARY KEY)
+   - **Implementation**: Added KEY parsing in `parseColumnConstraint()` 
+   - **Fix**: Parse standalone KEY keyword as PRIMARY KEY shorthand
+   - **Files Modified**: `parser/ddl.go`
+   - **Pattern**: KEY alone in column definition is equivalent to PRIMARY KEY
+
+3. **MySQL/SQLite/DuckDB AS (Generated Columns)** (TestParseCreateTableGencol now passing)
+   - **Implementation**: Added AS (expr) [STORED|VIRTUAL] parsing for generated columns
+   - **Fix**: Parse AS with parenthesized expression and optional STORED/VIRTUAL keywords
+   - **Files Modified**: `parser/ddl.go`, `ast/expr/ddl.go`
+   - **Pattern**: AS (expression) with optional storage type for generated/virtual columns
+
+4. **ALTER VIEW WITH Options** (TestParseAlterViewWithOptions now passing)
+   - **Implementation**: Added WITH options parsing and serialization in ALTER VIEW
+   - **Fix**: Parse WITH (key = value) options after view name and before AS
+   - **Files Modified**: `parser/alter.go`, `ast/statement/ddl.go`
+   - **Pattern**: Parse WITH options using `parseSqlOptions()` helper, serialize before AS clause
+
+5. **MySQL CREATE INDEX Options** (TestCreateIndexOptions now passing)
+   - **Implementation**: Added USING after columns and MySQL-specific index options (LOCK, ALGORITHM, KEY_BLOCK_SIZE, COMMENT)
+   - **Fix**: Track `UsingAfterCols` flag to serialize USING in correct position; added `MySQLOptions` field to CreateIndex struct
+   - **Files Modified**: `parser/create.go`, `ast/statement/ddl.go`
+   - **Pattern**: Parse USING after column list for MySQL syntax; parse key=value options after USING
+
+**Additional Column Options Added:**
+- SRID (MySQL spatial reference identifier)
+- INVISIBLE/VISIBLE (MySQL column visibility)
+
+**New Patterns Documented:**
+- **Pattern E199**: UNIQUE KEY parsing - After parsing UNIQUE, check for optional KEY keyword to handle MySQL's UNIQUE KEY syntax
+- **Pattern E200**: Generated column AS parsing - Parse AS followed by parenthesized expression, then check for optional STORED/VIRTUAL keywords
+- **Pattern E201**: ALTER VIEW WITH options - Parse WITH keyword, expect opening paren, parse options with `parseSqlOptions()`, then expect closing paren before AS
+- **Pattern E202**: MySQL CREATE INDEX USING position - Track whether USING was parsed before or after columns to serialize in correct position
+- **Pattern E203**: MySQL index options parsing - After columns and optional USING, parse key=value options (LOCK, ALGORITHM, etc.) in a loop
+
+---
+
+## Previous Update: April 8, 2026 - Session 53 (Massive Code Port: BIT/ENUM Types, CREATE VIEW IF NOT EXISTS, ON CLUSTER)
 
 **Line Counts (Updated April 8, 2026 - Session 53):**
 
@@ -1817,6 +1875,99 @@ f.WriteString(fmt.Sprintf(" STORED AS %s", strings.ToUpper(c.HiveFormats.Storage
 ```
 
 **Solution**: Use `strings.ToUpper()` for canonical output of identifiers like file formats, keywords, and type names.
+
+### E204: Syntax Element Position Tracking
+**Error**: SQL elements that can appear in different positions serialize incorrectly.
+
+**Example**:
+```go
+// WRONG - USING always serialized before columns
+if c.Using != nil {
+    f.WriteString(" USING ")
+    f.WriteString(c.Using.String())
+}
+f.WriteString("(")
+// columns...
+f.WriteString(")")
+// Result: CREATE INDEX ON t USING HASH(c1, c2) - PostgreSQL style
+
+// CORRECT - track position and serialize accordingly
+type CreateIndex struct {
+    Using          *ast.Ident
+    UsingAfterCols bool  // true if USING comes after columns
+}
+// In String() method:
+if c.Using != nil && !c.UsingAfterCols {
+    f.WriteString(" USING ")
+    f.WriteString(c.Using.String())
+}
+f.WriteString("(")
+// columns...
+f.WriteString(")")
+if c.Using != nil && c.UsingAfterCols {
+    f.WriteString(" USING ")
+    f.WriteString(c.Using.String())
+}
+// Result: CREATE INDEX ON t(c1, c2) USING HASH - MySQL style
+```
+
+**Solution**: Add a boolean flag to track where an element was parsed from, then check this flag during serialization to output in the correct position.
+
+### E205: MySQL Index Options Parsing
+**Error**: MySQL index options like LOCK, ALGORITHM, KEY_BLOCK_SIZE not parsed after CREATE INDEX.
+
+**Example**:
+```go
+// WRONG - only parses standard options
+if p.ParseKeyword("WITH") {
+    // parse options...
+}
+
+// CORRECT - parse MySQL-specific options in a loop
+var mysqlOpts []*expr.SqlOption
+for {
+    if p.PeekKeyword("KEY_BLOCK_SIZE") || p.PeekKeyword("LOCK") || 
+       p.PeekKeyword("ALGORITHM") || p.PeekKeyword("COMMENT") {
+        optName, _ := p.ParseIdentifier()
+        p.ExpectToken(token.TokenEq{})
+        optVal, _ := exprParser.ParseExpr()
+        mysqlOpts = append(mysqlOpts, &expr.SqlOption{
+            Name:  optName,
+            Value: optVal,
+        })
+    } else {
+        break
+    }
+}
+```
+
+**Solution**: Use a loop to parse multiple MySQL index options after the column list. Check for each option type using `PeekKeyword()` and break when no more options are found.
+
+### E206: Column Constraint Name Consistency
+**Error**: Column constraint names like "UNIQUE KEY" vs "UNIQUE" or "AS" vs "GENERATED ALWAYS AS" need consistent handling.
+
+**Example**:
+```go
+// Parse UNIQUE KEY as a distinct type
+if p.ParseKeyword("UNIQUE") {
+    if p.ParseKeyword("KEY") {
+        return &expr.ColumnOptionDef{
+            Name: "UNIQUE KEY",  // Distinct name for UNIQUE KEY
+        }
+    }
+    return &expr.ColumnOptionDef{
+        Name: "UNIQUE",
+    }
+}
+
+// In String() method, handle each type specifically
+if c.Name == "UNIQUE KEY" {
+    sb.WriteString("UNIQUE KEY")
+    return sb.String()
+}
+```
+
+**Solution**: Use distinct names for each variant of a constraint type, then handle each specifically in the String() method for proper serialization.
 
 ---
 
