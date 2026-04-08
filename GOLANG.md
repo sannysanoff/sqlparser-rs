@@ -1,6 +1,48 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 54 (Massive Code Port: MySQL Column Options, ALTER VIEW WITH, CREATE INDEX Options)
+## Latest Update: April 8, 2026 - Session 55 (Snowflake Serialization Fixes: CREATE VIEW Parens, TIMESTAMP_NTZ, Stage Names)
+
+**Line Counts (Updated April 8, 2026 - Session 55):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 99,938 lines | 148% |
+| Tests | 49,886 lines | 14,259 lines | 29% |
+| **Test Status** | - | **~169 tests failing** (~82% success rate) |
+| **Total Test Cases** | - | ~810 test functions |
+
+### Session 55 Summary: Snowflake Serialization and Parser Fixes
+
+**Fixed 3 Key Issues (+16 tests now passing):**
+
+1. **CREATE VIEW COPY GRANTS Parentheses Serialization** (TestSnowflakeCreateViewCopyGrants now passing - 3 subtests)
+   - **Implementation**: Added `QueryIsParens` field to `CreateView` struct to track if query was wrapped in parentheses
+   - **Fix**: Modified parser to detect `AS (SELECT ...)` pattern and set flag; updated String() to wrap query in parens when flag is set
+   - **Files Modified**: `ast/statement/ddl.go`, `parser/create.go`
+   - **Pattern**: Track parenthesized queries in CREATE VIEW AS (SELECT ...) syntax for faithful round-trip serialization
+
+2. **TIMESTAMP_NTZ Precision Parsing** (TestSnowflakeTimestampNtzWithPrecision now passing - 2 subtests)
+   - **Implementation**: Added `parseTimestampNtzType()` function to handle TIMESTAMP_NTZ[(n)] syntax
+   - **Fix**: Parse optional precision in parentheses after TIMESTAMP_NTZ keyword
+   - **Files Modified**: `parser/parser.go`
+   - **Pattern**: Snowflake-specific timestamp types with precision like TIMESTAMP_NTZ(9)
+
+3. **Snowflake Stage Name Serialization** (TestSnowflakeSelectDollarColumnFromStage now passing - 4 subtests)
+   - **Implementation**: Fixed two issues:
+     - No space before stage params: `@stage(params)` instead of `@stage (params)`
+     - Space before alias: `@stage alias` instead of `@stagealias`
+   - **Fix**: Modified `TableTableFactor.String()` to detect Snowflake stages (starting with @) and handle args/alias differently; fixed stage name parser to return when next token isn't a path character
+   - **Files Modified**: `ast/query/table.go`, `dialects/snowflake/snowflake.go`
+   - **Pattern**: Snowflake stage references need special serialization: `@stage(params) alias`
+
+**New Patterns Documented:**
+- **Pattern E206**: CREATE VIEW query parentheses tracking - Add `QueryIsParens bool` field to CreateView struct, detect `AS (SELECT...)` pattern in parser, serialize with parens when flag is true
+- **Pattern E207**: Snowflake TIMESTAMP_NTZ precision - Parse TIMESTAMP_NTZ[(n)] with optional precision like other timestamp types
+- **Pattern E208**: Snowflake stage serialization - For stage names starting with @, don't add space before Args in String(), but ensure space before Alias; in parser, return stage name when next token isn't a valid path character
+
+---
+
+## Previous Update: April 8, 2026 - Session 54 (Massive Code Port: MySQL Column Options, ALTER VIEW WITH, CREATE INDEX Options)
 
 **Line Counts (Updated April 8, 2026 - Session 54):**
 
@@ -1968,6 +2010,88 @@ if c.Name == "UNIQUE KEY" {
 ```
 
 **Solution**: Use distinct names for each variant of a constraint type, then handle each specifically in the String() method for proper serialization.
+
+### E207: CREATE VIEW Query Parentheses Tracking
+**Error**: CREATE VIEW AS (SELECT ...) loses parentheses when serialized as CREATE VIEW AS SELECT ...
+
+**Example**:
+```go
+// Add field to AST struct
+type CreateView struct {
+    Query               *query.Query
+    QueryIsParens       bool // True when query is wrapped in parentheses
+}
+
+// In parser, detect parentheses after AS
+queryIsParens := false
+if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+    queryIsParens = true
+    p.AdvanceToken() // consume opening paren
+}
+stmt, err := p.ParseQuery()
+if queryIsParens {
+    p.ExpectToken(token.TokenRParen{}) // consume closing paren
+}
+
+// In String() method, conditionally wrap query
+f.WriteString(" AS ")
+if c.QueryIsParens {
+    f.WriteString("(")
+    f.WriteString(c.Query.String())
+    f.WriteString(")")
+} else {
+    f.WriteString(c.Query.String())
+}
+```
+
+**Solution**: Add `QueryIsParens` bool field to track if query was parenthesized; detect in parser after AS keyword; serialize with parens when flag is true.
+
+### E208: Snowflake Stage Name Serialization
+**Error**: Snowflake stage references like `@mystage1(file_format => '...')` serialize with unwanted space: `@mystage1 (file_format => '...')`, and aliases concatenate: `@mystage1t` instead of `@mystage1 t`
+
+**Example**:
+```go
+// In TableTableFactor.String(), detect Snowflake stage
+isSnowflakeStage := len(nameStr) > 0 && nameStr[0] == '@'
+
+if t.Args != nil {
+    argStr := "(" + strings.Join(args, ", ") + ")"
+    // For Snowflake stages, don't add a space before args
+    if isSnowflakeStage {
+        // Append directly to the stage name part
+        parts[len(parts)-1] = parts[len(parts)-1] + argStr
+    } else {
+        parts = append(parts, argStr)
+    }
+}
+// Alias is appended normally and will have space via strings.Join
+```
+
+**Solution**: Detect Snowflake stage names (starting with @) and append args directly to the stage name part instead of as a separate part. The alias is handled normally via the parts slice.
+
+### E209: Snowflake Stage Name Parsing with Table Aliases
+**Error**: In `SELECT * FROM @mystage1 t`, the alias `t` is consumed as part of the stage name, producing `@mystage1t`.
+
+**Example**:
+```go
+// After adding a word to stage name, check if next token indicates end
+afterWordTok := parser.PeekToken()
+switch afterWordTok.Token.(type) {
+case token.TokenPeriod:
+    // Could be file extension, continue
+case token.TokenChar, token.TokenTilde, token.TokenColon, ...:
+    // Valid stage path characters, continue
+default:
+    // Next token is not part of stage path - likely a table alias
+    // Return the stage name without consuming the next token
+    parts = append(parts, &ast.ObjectNamePartIdentifier{
+        Ident: createIdentWithQuoteStyle(stageName.String()),
+    })
+    return &ast.ObjectName{Parts: parts}, nil
+}
+```
+
+**Solution**: After consuming a word token in stage name parsing, peek at the next token. If it's not a valid stage path character (period for file extensions, slashes, colons, etc.), return the stage name - the next token is likely a table alias.
 
 ---
 

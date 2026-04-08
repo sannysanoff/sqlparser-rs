@@ -420,6 +420,7 @@ type CreateView struct {
 	Name                *ast.ObjectName
 	Columns             []*expr.ViewColumnDef // View columns with optional options (TAG, POLICY, etc.)
 	Query               *query.Query
+	QueryIsParens       bool // True when query is wrapped in parentheses: AS (SELECT ...)
 	Options             []*expr.SqlOption
 	ClusterBy           []expr.Expr
 	WithNoSchemaBinding bool
@@ -522,7 +523,13 @@ func (c *CreateView) String() string {
 	}
 
 	f.WriteString(" AS ")
-	f.WriteString(c.Query.String())
+	if c.QueryIsParens {
+		f.WriteString("(")
+		f.WriteString(c.Query.String())
+		f.WriteString(")")
+	} else {
+		f.WriteString(c.Query.String())
+	}
 
 	// WITH NO SCHEMA BINDING (Redshift)
 	if c.WithNoSchemaBinding {

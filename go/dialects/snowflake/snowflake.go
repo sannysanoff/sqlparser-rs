@@ -1707,7 +1707,25 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				} else {
 					stageName.WriteString(t.Word.Value)
 				}
-			// Continue to next token
+				// After adding a word, check if the next token indicates end of stage name
+				// If next token is not a path separator or file extension pattern,
+				// this word might be a table alias - return the stage name
+				afterWordTok := parser.PeekToken()
+				switch afterWordTok.Token.(type) {
+				case token.TokenPeriod:
+					// Could be file extension, continue to next iteration
+				case token.TokenChar, token.TokenTilde, token.TokenColon, token.TokenEq,
+					token.TokenPlus, token.TokenMinus, token.TokenMod, token.TokenDiv,
+					token.TokenSingleQuotedString, token.TokenDoubleQuotedString:
+					// These are valid stage path characters, continue
+				default:
+					// Next token is not part of stage path - likely a table alias or clause keyword
+					// Return the stage name without consuming the next token
+					parts = append(parts, &ast.ObjectNamePartIdentifier{
+						Ident: createIdentWithQuoteStyle(stageName.String()),
+					})
+					return &ast.ObjectName{Parts: parts}, nil
+				}
 			case token.TokenPeriod:
 				stageName.WriteRune('.')
 				continue

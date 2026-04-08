@@ -1594,10 +1594,24 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 		return nil, err
 	}
 
+	// Check for parenthesized query: AS (SELECT ...)
+	queryIsParens := false
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		queryIsParens = true
+		p.AdvanceToken() // consume opening paren
+	}
+
 	// Parse the query
 	stmt, err := p.ParseQuery()
 	if err != nil {
 		return nil, err
+	}
+
+	// If query was parenthesized, consume the closing paren
+	if queryIsParens {
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Convert statement to *query.Query
@@ -1634,6 +1648,7 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 		Name:                name,
 		Columns:             columns,
 		Query:               q,
+		QueryIsParens:       queryIsParens,
 		Options:             options,
 		ClusterBy:           clusterBy,
 		WithNoSchemaBinding: withNoSchemaBinding,

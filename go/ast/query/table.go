@@ -64,7 +64,8 @@ type TableTableFactor struct {
 func (t *TableTableFactor) Span() token.Span { return t.span }
 func (t *TableTableFactor) String() string {
 	var parts []string
-	parts = append(parts, t.Name.String())
+	nameStr := t.Name.String()
+	parts = append(parts, nameStr)
 	if t.JsonPath != nil {
 		parts = append(parts, t.JsonPath.String())
 	}
@@ -75,6 +76,10 @@ func (t *TableTableFactor) String() string {
 		}
 		parts = append(parts, fmt.Sprintf("PARTITION (%s)", strings.Join(partitionStrs, ", ")))
 	}
+
+	// Check if this is a Snowflake stage reference (starts with @)
+	isSnowflakeStage := len(nameStr) > 0 && nameStr[0] == '@'
+
 	if t.Args != nil {
 		args := make([]string, len(t.Args.Args))
 		for i, arg := range t.Args.Args {
@@ -88,7 +93,17 @@ func (t *TableTableFactor) String() string {
 			}
 			argStr += ", SETTINGS " + strings.Join(settings, ", ")
 		}
-		parts = append(parts, argStr)
+		// For Snowflake stages, don't add a space before args
+		if isSnowflakeStage {
+			// Append directly to the last part (the stage name)
+			if len(parts) > 0 {
+				parts[len(parts)-1] = parts[len(parts)-1] + argStr
+			} else {
+				parts = append(parts, argStr)
+			}
+		} else {
+			parts = append(parts, argStr)
+		}
 	}
 	if t.WithOrdinality {
 		parts = append(parts, "WITH ORDINALITY")
@@ -97,6 +112,7 @@ func (t *TableTableFactor) String() string {
 		parts = append(parts, t.Sample.BeforeTableAlias.String())
 	}
 	if t.Alias != nil {
+		// For Snowflake stages, ensure space before alias
 		parts = append(parts, t.Alias.String())
 	}
 	if len(t.IndexHints) > 0 {

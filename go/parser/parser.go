@@ -2281,6 +2281,8 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseTimeType(p, tok.Span)
 	case "TIMESTAMP":
 		return parseTimestampType(p, tok.Span)
+	case "TIMESTAMP_NTZ":
+		return parseTimestampNtzType(p, tok.Span)
 	case "DATETIME":
 		return parseDatetimeType(p, tok.Span)
 	case "FLOAT":
@@ -2949,6 +2951,33 @@ func parseTimestampType(p *Parser, spanVal token.Span) (*datatype.TimestampType,
 			}
 		} else {
 			return nil, fmt.Errorf("expected number in TIMESTAMP precision specification")
+		}
+	}
+
+	return result, nil
+}
+
+// parseTimestampNtzType parses TIMESTAMP_NTZ [(precision)]
+func parseTimestampNtzType(p *Parser, spanVal token.Span) (*datatype.TimestampNtzType, error) {
+	result := &datatype.TimestampNtzType{
+		SpanVal: spanVal,
+	}
+
+	// Check for optional precision specification
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			precision, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid TIMESTAMP_NTZ precision: %w", err)
+			}
+			result.Precision = &precision
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in TIMESTAMP_NTZ precision specification")
 		}
 	}
 
