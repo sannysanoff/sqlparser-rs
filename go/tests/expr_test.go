@@ -1705,7 +1705,7 @@ func TestExtractSecondsOk(t *testing.T) {
 	})
 
 	dialects.VerifiedExpr(t, "EXTRACT(SECONDS FROM '2 seconds'::INTERVAL)")
-	dialects.VerifiedStmt(t, "SELECT EXTRACT(seconds FROM '2 seconds'::INTERVAL)")
+	dialects.VerifiedStmt(t, "SELECT EXTRACT(SECONDS FROM '2 seconds'::INTERVAL)")
 }
 
 // TestExtractSecondsSingleQuoteOk verifies EXTRACT with quoted 'seconds' field.

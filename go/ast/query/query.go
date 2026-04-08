@@ -452,16 +452,8 @@ type AliasedExpr struct {
 }
 
 func (e *AliasedExpr) String() string {
-	if e.Explicit {
-		return fmt.Sprintf("%s AS %s", e.Expr.String(), e.Alias.String())
-	}
-	// For implicit aliases, check if the expression ends with $ (dollar-quoted string)
-	// If so, don't add space: $$string$$alias (PostgreSQL syntax)
-	exprStr := e.Expr.String()
-	if strings.HasSuffix(exprStr, "$") {
-		return fmt.Sprintf("%s%s", exprStr, e.Alias.String())
-	}
-	return fmt.Sprintf("%s %s", exprStr, e.Alias.String())
+	// Canonical form always includes AS keyword
+	return fmt.Sprintf("%s AS %s", e.Expr.String(), e.Alias.String())
 }
 
 // QualifiedWildcard represents an expression followed by wildcard expansion

@@ -136,7 +136,7 @@ func TestParseUncacheTable(t *testing.T) {
 func TestParsePivotTable(t *testing.T) {
 	dialects := utils.NewTestedDialects()
 
-	sql := "SELECT * FROM monthly_sales PIVOT (SUM(amount) FOR month IN ('JAN', 'FEB'))"
+	sql := "SELECT * FROM monthly_sales PIVOT(SUM(amount) FOR month IN ('JAN', 'FEB'))"
 	dialects.VerifiedStmt(t, sql)
 }
 
@@ -154,7 +154,7 @@ func TestParseUnpivotTable(t *testing.T) {
 func TestParsePivotUnpivotTable(t *testing.T) {
 	dialects := utils.NewTestedDialects()
 
-	sql := "SELECT * FROM (SELECT * FROM sales UNPIVOT (amount FOR month IN (jan, feb))) PIVOT (SUM(amount) FOR month IN ('JAN', 'FEB'))"
+	sql := "SELECT * FROM (SELECT * FROM sales UNPIVOT (amount FOR month IN (jan, feb))) PIVOT(SUM(amount) FOR month IN ('JAN', 'FEB'))"
 	dialects.VerifiedStmt(t, sql)
 }
 

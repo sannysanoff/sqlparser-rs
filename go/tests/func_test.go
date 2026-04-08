@@ -131,7 +131,7 @@ func TestParseLoadExtension(t *testing.T) {
 
 	load, ok = stmts[0].(*statement.Load)
 	require.True(t, ok, "Expected Load statement, got %T", stmts[0])
-	assert.Equal(t, "filename", load.ExtensionName.String())
+	assert.Equal(t, "filename", load.ExtensionName.Value)
 
 	// Dialects that don't support LOAD extension should error
 	dialectsNoSupport := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {

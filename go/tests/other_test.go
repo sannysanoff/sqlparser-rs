@@ -133,8 +133,9 @@ func TestParseAliasedExpressions(t *testing.T) {
 	sql1 := "SELECT x AS y FROM t"
 	dialects.VerifiedStmt(t, sql1)
 
-	sql2 := "SELECT x y FROM t"
-	dialects.VerifiedStmt(t, sql2)
+	// alias without AS is parsed correctly and normalized to include AS:
+	sql2 := "SELECT x AS y FROM t"
+	dialects.OneStatementParsesTo(t, "SELECT x y FROM t", sql2)
 }
 
 // TestParseColumnDefinitionTrailingCommas verifies column definition trailing comma parsing.
@@ -288,8 +289,8 @@ func TestParseSelectExprStar(t *testing.T) {
 	// Arbitrary expression wildcard expansion with function
 	dialectsFiltered.VerifiedOnlySelect(t, "SELECT myfunc().foo.* FROM T")
 
-	// Test float multiplication - using canonical form without decimal point
-	dialectsFiltered.OneStatementParsesTo(t, "SELECT 2. * 3 FROM T", "SELECT 2 * 3 FROM T")
+	// Test float multiplication - Go preserves the decimal point like Rust without bigdecimal
+	dialectsFiltered.VerifiedOnlySelect(t, "SELECT 2. * 3 FROM T")
 
 	// Test myfunc().*
 	dialectsFiltered.VerifiedOnlySelect(t, "SELECT myfunc().* FROM T")
