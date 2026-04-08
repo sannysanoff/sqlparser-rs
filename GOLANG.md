@@ -1,6 +1,44 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 58 (INSERT/UPDATE/COPY INTO Major Parser Fixes)
+## Latest Update: April 8, 2026 - Session 59 (Parser Fixes: ORDER BY Keyword Check, EXCLUDE Tests, Stage Params)
+
+**Line Counts (Updated April 8, 2026 - Session 59):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 85,420 lines | 127% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **119 tests failing** (~85% success rate) |
+| **Total Test Cases** | - | 813 test outcomes |
+| **Tests Passing** | - | **694 tests** (up from 690) |
+
+### Session 59 Summary: Parser Fixes (+4 tests passing)
+
+**Fixed 4 Critical Issues:**
+
+1. **ORDER BY Keyword Check in Function Args** (TestParseSelectGroupByAll now passing)
+   - **Root Cause**: `parseFunctionArgs()` was checking for `ORDER` keyword alone to break the argument parsing loop, which caused `SUM(order)` to be treated as having an ORDER BY clause instead of an expression with "order" as an identifier
+   - **Fix**: Changed check from `PeekKeyword("ORDER")` to `PeekKeyword("ORDER") && PeekNthKeyword(1, "BY")` to properly distinguish between ORDER BY clause and "order" as an identifier
+   - **Files Modified**: `parser/special.go`
+
+2. **SELECT EXCLUDE Test Dialect Filter** (TestSelectExclude and TestSelectExcludeQualifiedNames now passing)
+   - **Root Cause**: Tests were using `SupportsSelectWildcardExcept()` filter when they should use `SupportsSelectWildcardExclude()` 
+   - **Fix**: Updated test dialect filter from `SupportsSelectWildcardExcept()` to `SupportsSelectWildcardExclude()` to match Rust test behavior
+   - **Files Modified**: `tests/query/select_test.go`
+
+3. **CREATE STAGE Key-Value Option Quote Preservation** (TestSnowflakeCreateStageWithParams now passing)
+   - **Root Cause**: The `parseKeyValueOptions()` function in `parser/create.go` was not setting the `Quoted` flag when parsing single-quoted string values
+   - **Fix**: Added `Quoted: true` when the value token is `TokenSingleQuotedString`
+   - **Files Modified**: `parser/create.go`
+
+**New Patterns Documented:**
+- **Pattern E221**: ORDER BY clause detection - When checking for clause keywords like ORDER BY in function argument parsing, always check for the complete phrase (ORDER + BY) to avoid misidentifying identifiers like "order" as clause keywords
+- **Pattern E222**: Test dialect filter accuracy - Ensure test dialect filters match the exact capability being tested (e.g., SupportsSelectWildcardExclude vs SupportsSelectWildcardExcept)
+- **Pattern E223**: Quote preservation in generic parsers - When using shared parsing functions like parseKeyValueOptions(), always set the Quoted flag based on the token type to ensure proper round-trip serialization
+
+---
+
+## Previous Update: April 8, 2026 - Session 58 (INSERT/UPDATE/COPY INTO Major Parser Fixes)
 
 **Line Counts (Updated April 8, 2026 - Session 58):**
 

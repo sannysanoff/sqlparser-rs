@@ -640,7 +640,7 @@ func TestParseSelectWildcardWithExcept(t *testing.T) {
 // Reference: tests/sqlparser_common.rs:17414
 func TestSelectExclude(t *testing.T) {
 	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
-		return d.SupportsSelectWildcardExcept()
+		return d.SupportsSelectWildcardExclude()
 	})
 
 	// Single column EXCLUDE - parsing only (struct fields not yet implemented)
@@ -654,7 +654,7 @@ func TestSelectExclude(t *testing.T) {
 // Reference: tests/sqlparser_common.rs:17527
 func TestSelectExcludeQualifiedNames(t *testing.T) {
 	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
-		return d.SupportsSelectWildcardExcept()
+		return d.SupportsSelectWildcardExclude()
 	})
 
 	// Qualified names in EXCLUDE

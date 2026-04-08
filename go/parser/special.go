@@ -222,7 +222,9 @@ func (ep *ExpressionParser) parseFunctionArgs() ([]expr.FunctionArg, []expr.Func
 
 	for {
 		// Check for clause keywords
-		if ep.parser.PeekKeyword("ORDER") {
+		// ORDER BY is a clause, not an argument - but we need to check for "ORDER" followed by "BY"
+		// to distinguish it from "order" as an identifier (e.g., column name)
+		if ep.parser.PeekKeyword("ORDER") && ep.parser.PeekNthKeyword(1, "BY") {
 			break // ORDER BY is a clause, not an argument
 		}
 		if ep.parser.PeekKeyword("LIMIT") {

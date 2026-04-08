@@ -5085,10 +5085,17 @@ func parseKeyValueOptions(p *Parser, closeTok token.Token) (*expr.KeyValueOption
 			return nil, fmt.Errorf("expected value in key-value option, found %s", valTok.Token.String())
 		}
 
+		// Check if value was originally quoted
+		isQuoted := false
+		if _, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+			isQuoted = true
+		}
+
 		opts.Options = append(opts.Options, &expr.KeyValueOption{
 			OptionName:  key,
 			OptionValue: val,
 			Kind:        expr.KeyValueOptionKindSingle,
+			Quoted:      isQuoted,
 		})
 
 		// Check for comma (consume it if present and continue)
