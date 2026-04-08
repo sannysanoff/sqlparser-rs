@@ -1943,6 +1943,14 @@ func (p *Parser) ParseViewColumns() ([]*expr.ViewColumnDef, error) {
 
 	var columns []*expr.ViewColumnDef
 	for {
+		// Check for trailing comma (column list ends with comma then paren)
+		if p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken() // consume )
+				break
+			}
+		}
+
 		col, err := p.ParseViewColumn()
 		if err != nil {
 			return nil, err

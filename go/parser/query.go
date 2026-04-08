@@ -1261,6 +1261,19 @@ func parseTableWithJoinsList(p *Parser) ([]query.TableWithJoins, error) {
 
 		// Check for comma (cross join) or JOIN keywords
 		if p.ConsumeToken(token.TokenComma{}) {
+			// Handle trailing comma (Snowflake/ClickHouse/DuckDB style in FROM clause)
+			if p.GetDialect().SupportsFromTrailingCommas() {
+				nextTok := p.PeekToken()
+				// Check if next token is a clause keyword (WHERE, GROUP BY, etc.) or EOF
+				if word, ok := nextTok.Token.(token.TokenWord); ok {
+					if isClauseKeyword(string(word.Word.Keyword)) {
+						break // Trailing comma before clause keyword
+					}
+				}
+				if token.IsEOF(nextTok.Token) {
+					break // Trailing comma at end of statement
+				}
+			}
 			continue
 		}
 
@@ -3408,7 +3421,7 @@ func parseWindowFrameBound(p *Parser) (query.WindowFrameBound, error) {
 
 			// Parse the temporal unit (DAY, MONTH, etc.)
 			if ep.isTemporalUnit() {
-				unit := ep.parseTemporalUnit()
+				unit, _ := ep.parseTemporalUnit()
 				// Create an interval expression with value and unit
 				exprBound = &expr.IntervalExpr{
 					Value:        &expr.ValueExpr{Value: strVal},

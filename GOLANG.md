@@ -1,5 +1,49 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 22 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 82,751 lines | 123% |
+| Tests | 45,672 lines | 14,150 lines | 31% |
+| **Test Status** | - | **218 passing** / **43 failing** (~84%) |
+
+**Summary of Session 22:**
+
+1. **Fixed PIVOT/UNPIVOT Serialization** (2 tests now passing)
+   - Fixed missing space after PIVOT keyword: `PIVOT (...)` instead of `PIVOT(...)`
+   - **Fix**: Added space in `PivotTableFactor.String()` method in `go/ast/query/table.go`
+   - Tests Fixed: TestParsePivotTable, TestParsePivotUnpivotTable
+
+2. **Fixed GROUPING SETS Single Value Normalization** (in progress - span comparison issues remain)
+   - Fixed parser to handle single values in GROUPING SETS: `GROUPING SETS ((a, b), a, (b), c, ())`
+   - Single values are now wrapped in single-element slices like CUBE/ROLLUP
+   - **Implementation**: Updated `ParseGroupingSets()` in `go/parser/groupings.go` to handle both parenthesized and non-parenthesized expressions
+   - Note: Test still has span comparison issues (AST comparison), but parsing logic is correct
+
+3. **Fixed SET NAMES Quoted Charset Names** (1 test now passing)
+   - Fixed serialization to preserve quotes around charset names: `SET NAMES 'UTF8'` instead of `SET NAMES UTF8`
+   - **Root Cause**: SetNames struct stored charset as plain string, losing quote information
+   - **Fix**: Changed `SetNames.CharsetName` from `string` to `*ast.Ident` which preserves `QuoteStyle`
+   - **Fix**: Changed `SetNames.CollationName` from `*string` to `*ast.Ident`
+   - Reference: `go/ast/statement/misc.go`, `go/parser/misc.go`
+   - Tests Fixed: TestParseSetNames
+
+4. **Fixed EXTRACT with String Literal Fields** (2 tests now passing)
+   - Fixed EXTRACT to preserve single-quoted field names like `EXTRACT('seconds' FROM ...)`
+   - **Implementation**: Added `FieldFromString` field to `Extract` AST struct
+   - **Implementation**: Modified `parseTemporalUnit()` to return `(string, bool)` indicating if field was a string literal
+   - **Implementation**: Updated `Extract.String()` to add quotes when `FieldFromString` is true
+   - Reference: `go/ast/expr/operators.go`, `go/parser/helpers.go`
+   - Tests Fixed: TestExtractSecondsSingleQuoteOk, TestParseCeilDatetime, TestParseFloorDatetime
+
+**New Patterns Documented:**
+- **Pattern E102**: Ident QuoteStyle preservation - When SQL syntax allows quoted identifiers (like `'UTF8'` in SET NAMES), store them as `*ast.Ident` not plain strings. The Ident struct has a `QuoteStyle` field that preserves the original quote character for faithful re-serialization.
+- **Pattern E103**: GROUPING SETS single value handling - Like CUBE and ROLLUP, GROUPING SETS should handle both parenthesized lists `(a, b)` and single expressions `a`. Single expressions should be wrapped in single-element slices `[]expr.Expr{e}` for consistent AST representation.
+- **Pattern E104**: Multi-return value for variant parsing - When parsing syntax variants that need to preserve original format (like quoted vs unquoted), return multiple values from the parser function (e.g., `(string, bool)` for value and format flag) rather than trying to encode all information in a single string.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 21 Complete):**
 
 | Component | Rust | Go | Ratio |

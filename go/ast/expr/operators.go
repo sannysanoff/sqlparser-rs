@@ -33,8 +33,8 @@ type UnaryOp struct {
 }
 
 func (u *UnaryOp) exprNode() {}
-func (u *UnaryOp) expr()   {}
-func (u *UnaryOp) IsExpr() {}
+func (u *UnaryOp) expr()     {}
+func (u *UnaryOp) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (u *UnaryOp) Span() token.Span {
@@ -63,8 +63,8 @@ type BinaryOp struct {
 }
 
 func (b *BinaryOp) exprNode() {}
-func (b *BinaryOp) expr()   {}
-func (b *BinaryOp) IsExpr() {}
+func (b *BinaryOp) expr()     {}
+func (b *BinaryOp) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (b *BinaryOp) Span() token.Span {
@@ -83,8 +83,8 @@ type IsNull struct {
 }
 
 func (i *IsNull) exprNode() {}
-func (i *IsNull) expr()   {}
-func (i *IsNull) IsExpr() {}
+func (i *IsNull) expr()     {}
+func (i *IsNull) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNull) Span() token.Span {
@@ -103,8 +103,8 @@ type IsNotNull struct {
 }
 
 func (i *IsNotNull) exprNode() {}
-func (i *IsNotNull) expr()   {}
-func (i *IsNotNull) IsExpr() {}
+func (i *IsNotNull) expr()     {}
+func (i *IsNotNull) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNotNull) Span() token.Span {
@@ -123,8 +123,8 @@ type IsTrue struct {
 }
 
 func (i *IsTrue) exprNode() {}
-func (i *IsTrue) expr()   {}
-func (i *IsTrue) IsExpr() {}
+func (i *IsTrue) expr()     {}
+func (i *IsTrue) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsTrue) Span() token.Span {
@@ -143,8 +143,8 @@ type IsNotTrue struct {
 }
 
 func (i *IsNotTrue) exprNode() {}
-func (i *IsNotTrue) expr()   {}
-func (i *IsNotTrue) IsExpr() {}
+func (i *IsNotTrue) expr()     {}
+func (i *IsNotTrue) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNotTrue) Span() token.Span {
@@ -163,8 +163,8 @@ type IsFalse struct {
 }
 
 func (i *IsFalse) exprNode() {}
-func (i *IsFalse) expr()   {}
-func (i *IsFalse) IsExpr() {}
+func (i *IsFalse) expr()     {}
+func (i *IsFalse) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsFalse) Span() token.Span {
@@ -183,8 +183,8 @@ type IsNotFalse struct {
 }
 
 func (i *IsNotFalse) exprNode() {}
-func (i *IsNotFalse) expr()   {}
-func (i *IsNotFalse) IsExpr() {}
+func (i *IsNotFalse) expr()     {}
+func (i *IsNotFalse) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNotFalse) Span() token.Span {
@@ -203,8 +203,8 @@ type IsUnknown struct {
 }
 
 func (i *IsUnknown) exprNode() {}
-func (i *IsUnknown) expr()   {}
-func (i *IsUnknown) IsExpr() {}
+func (i *IsUnknown) expr()     {}
+func (i *IsUnknown) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsUnknown) Span() token.Span {
@@ -223,8 +223,8 @@ type IsNotUnknown struct {
 }
 
 func (i *IsNotUnknown) exprNode() {}
-func (i *IsNotUnknown) expr()   {}
-func (i *IsNotUnknown) IsExpr() {}
+func (i *IsNotUnknown) expr()     {}
+func (i *IsNotUnknown) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNotUnknown) Span() token.Span {
@@ -244,8 +244,8 @@ type IsDistinctFrom struct {
 }
 
 func (i *IsDistinctFrom) exprNode() {}
-func (i *IsDistinctFrom) expr()   {}
-func (i *IsDistinctFrom) IsExpr() {}
+func (i *IsDistinctFrom) expr()     {}
+func (i *IsDistinctFrom) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsDistinctFrom) Span() token.Span {
@@ -265,8 +265,8 @@ type IsNotDistinctFrom struct {
 }
 
 func (i *IsNotDistinctFrom) exprNode() {}
-func (i *IsNotDistinctFrom) expr()   {}
-func (i *IsNotDistinctFrom) IsExpr() {}
+func (i *IsNotDistinctFrom) expr()     {}
+func (i *IsNotDistinctFrom) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNotDistinctFrom) Span() token.Span {
@@ -287,8 +287,8 @@ type InList struct {
 }
 
 func (i *InList) exprNode() {}
-func (i *InList) expr()   {}
-func (i *InList) IsExpr() {}
+func (i *InList) expr()     {}
+func (i *InList) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *InList) Span() token.Span {
@@ -317,8 +317,8 @@ type InSubquery struct {
 }
 
 func (i *InSubquery) exprNode() {}
-func (i *InSubquery) expr()   {}
-func (i *InSubquery) IsExpr() {}
+func (i *InSubquery) expr()     {}
+func (i *InSubquery) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *InSubquery) Span() token.Span {
@@ -342,8 +342,8 @@ type InUnnest struct {
 }
 
 func (i *InUnnest) exprNode() {}
-func (i *InUnnest) expr()   {}
-func (i *InUnnest) IsExpr() {}
+func (i *InUnnest) expr()     {}
+func (i *InUnnest) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *InUnnest) Span() token.Span {
@@ -368,8 +368,8 @@ type Between struct {
 }
 
 func (b *Between) exprNode() {}
-func (b *Between) expr()   {}
-func (b *Between) IsExpr() {}
+func (b *Between) expr()     {}
+func (b *Between) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (b *Between) Span() token.Span {
@@ -395,8 +395,8 @@ type Like struct {
 }
 
 func (l *Like) exprNode() {}
-func (l *Like) expr()   {}
-func (l *Like) IsExpr() {}
+func (l *Like) expr()     {}
+func (l *Like) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (l *Like) Span() token.Span {
@@ -433,8 +433,8 @@ type ILike struct {
 }
 
 func (i *ILike) exprNode() {}
-func (i *ILike) expr()   {}
-func (i *ILike) IsExpr() {}
+func (i *ILike) expr()     {}
+func (i *ILike) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *ILike) Span() token.Span {
@@ -470,8 +470,8 @@ type SimilarTo struct {
 }
 
 func (s *SimilarTo) exprNode() {}
-func (s *SimilarTo) expr()   {}
-func (s *SimilarTo) IsExpr() {}
+func (s *SimilarTo) expr()     {}
+func (s *SimilarTo) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (s *SimilarTo) Span() token.Span {
@@ -504,8 +504,8 @@ type RLike struct {
 }
 
 func (r *RLike) exprNode() {}
-func (r *RLike) expr()   {}
-func (r *RLike) IsExpr() {}
+func (r *RLike) expr()     {}
+func (r *RLike) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (r *RLike) Span() token.Span {
@@ -559,8 +559,8 @@ type Cast struct {
 }
 
 func (c *Cast) exprNode() {}
-func (c *Cast) expr()   {}
-func (c *Cast) IsExpr() {}
+func (c *Cast) expr()     {}
+func (c *Cast) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *Cast) Span() token.Span {
@@ -617,8 +617,8 @@ type Convert struct {
 }
 
 func (c *Convert) exprNode() {}
-func (c *Convert) expr()   {}
-func (c *Convert) IsExpr() {}
+func (c *Convert) expr()     {}
+func (c *Convert) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *Convert) Span() token.Span {
@@ -678,8 +678,8 @@ type Collate struct {
 }
 
 func (c *Collate) exprNode() {}
-func (c *Collate) expr()   {}
-func (c *Collate) IsExpr() {}
+func (c *Collate) expr()     {}
+func (c *Collate) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *Collate) Span() token.Span {
@@ -701,8 +701,8 @@ type AnyOp struct {
 }
 
 func (a *AnyOp) exprNode() {}
-func (a *AnyOp) expr()   {}
-func (a *AnyOp) IsExpr() {}
+func (a *AnyOp) expr()     {}
+func (a *AnyOp) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (a *AnyOp) Span() token.Span {
@@ -733,8 +733,8 @@ type AllOp struct {
 }
 
 func (a *AllOp) exprNode() {}
-func (a *AllOp) expr()   {}
-func (a *AllOp) IsExpr() {}
+func (a *AllOp) expr()     {}
+func (a *AllOp) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (a *AllOp) Span() token.Span {
@@ -785,8 +785,8 @@ type IsNormalized struct {
 }
 
 func (i *IsNormalized) exprNode() {}
-func (i *IsNormalized) expr()   {}
-func (i *IsNormalized) IsExpr() {}
+func (i *IsNormalized) expr()     {}
+func (i *IsNormalized) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (i *IsNormalized) Span() token.Span {
@@ -819,15 +819,16 @@ const (
 
 // Extract represents an EXTRACT expression.
 type Extract struct {
-	Field   string // DateTimeField
-	Syntax  ExtractSyntax
-	Expr    Expr
-	SpanVal token.Span
+	Field           string // DateTimeField
+	FieldFromString bool   // true if field was originally a string literal (e.g., EXTRACT('seconds' FROM ...))
+	Syntax          ExtractSyntax
+	Expr            Expr
+	SpanVal         token.Span
 }
 
 func (e *Extract) exprNode() {}
-func (e *Extract) expr()   {}
-func (e *Extract) IsExpr() {}
+func (e *Extract) expr()     {}
+func (e *Extract) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (e *Extract) Span() token.Span {
@@ -836,8 +837,11 @@ func (e *Extract) Span() token.Span {
 
 // String returns the SQL representation.
 func (e *Extract) String() string {
-	// EXTRACT fields are typically uppercase in standard SQL
-	field := strings.ToUpper(e.Field)
+	// Preserve original field casing and quoting
+	field := e.Field
+	if e.FieldFromString {
+		field = fmt.Sprintf("'%s'", field)
+	}
 	if e.Syntax == ExtractFrom {
 		return fmt.Sprintf("EXTRACT(%s FROM %s)", field, e.Expr.String())
 	}
@@ -864,8 +868,8 @@ type CeilExpr struct {
 }
 
 func (c *CeilExpr) exprNode() {}
-func (c *CeilExpr) expr()   {}
-func (c *CeilExpr) IsExpr() {}
+func (c *CeilExpr) expr()     {}
+func (c *CeilExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (c *CeilExpr) Span() token.Span {
@@ -895,8 +899,8 @@ type FloorExpr struct {
 }
 
 func (f *FloorExpr) exprNode() {}
-func (f *FloorExpr) expr()   {}
-func (f *FloorExpr) IsExpr() {}
+func (f *FloorExpr) expr()     {}
+func (f *FloorExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (f *FloorExpr) Span() token.Span {
@@ -922,8 +926,8 @@ type PositionExpr struct {
 }
 
 func (p *PositionExpr) exprNode() {}
-func (p *PositionExpr) expr()   {}
-func (p *PositionExpr) IsExpr() {}
+func (p *PositionExpr) expr()     {}
+func (p *PositionExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (p *PositionExpr) Span() token.Span {
@@ -946,8 +950,8 @@ type Substring struct {
 }
 
 func (s *Substring) exprNode() {}
-func (s *Substring) expr()   {}
-func (s *Substring) IsExpr() {}
+func (s *Substring) expr()     {}
+func (s *Substring) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (s *Substring) Span() token.Span {
@@ -1020,8 +1024,8 @@ type TrimExpr struct {
 }
 
 func (t *TrimExpr) exprNode() {}
-func (t *TrimExpr) expr()   {}
-func (t *TrimExpr) IsExpr() {}
+func (t *TrimExpr) expr()     {}
+func (t *TrimExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (t *TrimExpr) Span() token.Span {
@@ -1069,8 +1073,8 @@ type OverlayExpr struct {
 }
 
 func (o *OverlayExpr) exprNode() {}
-func (o *OverlayExpr) expr()   {}
-func (o *OverlayExpr) IsExpr() {}
+func (o *OverlayExpr) expr()     {}
+func (o *OverlayExpr) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (o *OverlayExpr) Span() token.Span {
@@ -1104,8 +1108,8 @@ type AtTimeZone struct {
 }
 
 func (a *AtTimeZone) exprNode() {}
-func (a *AtTimeZone) expr()   {}
-func (a *AtTimeZone) IsExpr() {}
+func (a *AtTimeZone) expr()     {}
+func (a *AtTimeZone) IsExpr()   {}
 
 // Span returns the source span for this expression.
 func (a *AtTimeZone) Span() token.Span {

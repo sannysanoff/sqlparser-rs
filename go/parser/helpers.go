@@ -20,7 +20,6 @@ package parser
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/user/sqlparser/ast/expr"
 	"github.com/user/sqlparser/dialects"
@@ -211,7 +210,7 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 	// Parse temporal unit
 	var leadingField *string
 	if ep.isTemporalUnit() {
-		unit := ep.parseTemporalUnit()
+		unit, _ := ep.parseTemporalUnit()
 		leadingField = &unit
 	} else if dialects.RequireIntervalQualifier(dialect) {
 		return nil, fmt.Errorf("INTERVAL requires a unit after the literal value")
@@ -242,7 +241,7 @@ func (ep *ExpressionParser) parseIntervalExpr() (expr.Expr, error) {
 			return nil, fmt.Errorf("syntax error at word: TO")
 		}
 
-		unit := ep.parseTemporalUnit()
+		unit, _ := ep.parseTemporalUnit()
 		lastField = &unit
 
 		// Check for precision on last field - only allowed for SECOND
@@ -298,24 +297,23 @@ func (ep *ExpressionParser) isTemporalUnit() bool {
 // parseTemporalUnit parses a temporal unit keyword or identifier
 // Supports standard keywords (YEAR, MONTH, etc.) and custom identifiers
 // For dialects that support allow_extract_single_quotes(), also supports string literals
-func (ep *ExpressionParser) parseTemporalUnit() string {
+// Returns the field value and a boolean indicating if it was a string literal.
+func (ep *ExpressionParser) parseTemporalUnit() (string, bool) {
 	tok := ep.parser.NextToken()
 	if word, ok := tok.Token.(token.TokenWord); ok {
-		// Use the original value (not the keyword) to preserve casing for custom fields
-		// Standard SQL temporal fields are normalized to uppercase
-		if word.Word.Value != "" {
-			val := word.Word.Value
-			// Normalize standard temporal units to uppercase
-			return strings.ToUpper(val)
+		// If it's a recognized keyword, use the normalized keyword (uppercase)
+		// Otherwise, preserve the original value for custom identifiers
+		if word.Word.Keyword != "" {
+			return string(word.Word.Keyword), false
 		}
-		return string(word.Word.Keyword)
+		return word.Word.Value, false
 	}
-	// Handle string literals as custom date/time fields (e.g., EXTRACT('seconds' FROM ...))
+	// Handle string literals as custom date/time fields (e.g. EXTRACT('seconds' FROM ...))
 	// This is supported by dialects like DuckDB via allow_extract_single_quotes()
 	if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
-		return str.Value
+		return str.Value, true
 	}
-	return ""
+	return "", false
 }
 
 // parseOptionalPrecision parses an optional precision like YEAR(2)
@@ -585,7 +583,7 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 	}
 
 	// Parse field (temporal unit)
-	field := ep.parseTemporalUnit()
+	field, fieldFromString := ep.parseTemporalUnit()
 
 	// Parse syntax: FROM expr or , expr (for some dialects)
 	var syntax expr.ExtractSyntax
@@ -607,10 +605,11 @@ func (ep *ExpressionParser) parseExtractExpr() (expr.Expr, error) {
 	}
 
 	return &expr.Extract{
-		SpanVal: mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
-		Field:   field,
-		Syntax:  syntax,
-		Expr:    exprVal,
+		SpanVal:         mergeSpans(spanStart, ep.parser.GetCurrentToken().Span),
+		Field:           field,
+		FieldFromString: fieldFromString,
+		Syntax:          syntax,
+		Expr:            exprVal,
 	}, nil
 }
 
@@ -634,7 +633,7 @@ func (ep *ExpressionParser) parseCeilFloorExpr(isCeil bool) (expr.Expr, error) {
 	if ep.parser.ParseKeyword("TO") {
 		// CEIL/FLOOR(expr TO DateTimeField)
 		ceilExpr.Field.Kind = expr.CeilFloorDateTime
-		dtField := ep.parseTemporalUnit()
+		dtField, _ := ep.parseTemporalUnit()
 		ceilExpr.Field.DateTimeField = &dtField
 	} else if ep.parser.ConsumeToken(token.TokenComma{}) {
 		// CEIL/FLOOR(expr, scale)

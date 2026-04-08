@@ -905,7 +905,7 @@ func (ep *ExpressionParser) parseWindowFrameBound() (*expr.WindowFrameBound, err
 
 			// Check for temporal unit
 			if ep.isTemporalUnit() {
-				unit := ep.parseTemporalUnit()
+				unit, _ := ep.parseTemporalUnit()
 				var intervalExpr expr.Expr = &expr.IntervalExpr{
 					Value:        &expr.ValueExpr{Value: strVal},
 					LeadingField: &unit,
@@ -973,7 +973,7 @@ func (ep *ExpressionParser) parseWindowFrameBound() (*expr.WindowFrameBound, err
 
 			// Parse the temporal unit (DAY, MONTH, etc.)
 			if ep.isTemporalUnit() {
-				unit := ep.parseTemporalUnit()
+				unit, _ := ep.parseTemporalUnit()
 				var intervalExpr expr.Expr = &expr.IntervalExpr{
 					Value:        &expr.ValueExpr{Value: strVal},
 					LeadingField: &unit,

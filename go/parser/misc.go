@@ -625,19 +625,19 @@ func parseSet(p *Parser) (ast.Statement, error) {
 
 	if p.GetDialect().SupportsSetNames() && p.ParseKeyword("NAMES") {
 		if p.ParseKeyword("DEFAULT") {
-			return &statement.SetNames{CharsetName: "DEFAULT"}, nil
+			return &statement.SetNames{CharsetName: &ast.Ident{Value: "DEFAULT"}}, nil
 		}
 		charset, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, fmt.Errorf("expected charset name after SET NAMES: %w", err)
 		}
-		stmt := &statement.SetNames{CharsetName: charset.Value}
+		stmt := &statement.SetNames{CharsetName: charset}
 		if p.ParseKeyword("COLLATE") {
 			collation, err := p.ParseIdentifier()
 			if err != nil {
 				return nil, fmt.Errorf("expected collation name after COLLATE: %w", err)
 			}
-			stmt.CollationName = &collation.Value
+			stmt.CollationName = collation
 		}
 		return stmt, nil
 	}

@@ -822,8 +822,8 @@ func parseCreateTableColumns(p *Parser) ([]*expr.ColumnDef, []*expr.TableConstra
 			break
 		}
 
-		// Handle trailing comma (DuckDB style)
-		if p.GetDialect().SupportsTrailingCommas() {
+		// Handle trailing comma (BigQuery, DuckDB, ClickHouse style)
+		if p.GetDialect().SupportsTrailingCommas() || p.GetDialect().SupportsColumnDefinitionTrailingCommas() {
 			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
 				p.NextToken() // consume )
 				break

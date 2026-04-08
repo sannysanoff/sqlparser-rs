@@ -136,8 +136,8 @@ func (s *Set) String() string {
 // Syntax: SET NAMES charset_name [COLLATE collation_name]
 type SetNames struct {
 	BaseStatement
-	CharsetName   string
-	CollationName *string
+	CharsetName   *ast.Ident
+	CollationName *ast.Ident
 }
 
 func (s *SetNames) statementNode() {}
@@ -145,10 +145,10 @@ func (s *SetNames) statementNode() {}
 func (s *SetNames) String() string {
 	var f strings.Builder
 	f.WriteString("SET NAMES ")
-	f.WriteString(s.CharsetName)
+	f.WriteString(s.CharsetName.String())
 	if s.CollationName != nil {
 		f.WriteString(" COLLATE ")
-		f.WriteString(*s.CollationName)
+		f.WriteString(s.CollationName.String())
 	}
 	return f.String()
 }

@@ -36,28 +36,38 @@ func (ep *ExpressionParser) ParseGroupingSets() (expr.Expr, error) {
 		if isRParen {
 			break
 		}
-		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
-			return nil, err
-		}
-		var set []expr.Expr
-		for {
-			_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
-			if isRParen {
-				break
+		// Each element can be a simple expression or a parenthesized list
+		if _, ok := ep.parser.PeekTokenRef().Token.(token.TokenLParen); ok {
+			if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
 			}
+			var set []expr.Expr
+			for {
+				_, isRParen := ep.parser.PeekTokenRef().Token.(token.TokenRParen)
+				if isRParen {
+					break
+				}
+				e, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				set = append(set, e)
+				if !ep.parser.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			sets = append(sets, set)
+		} else {
+			// Single value like 'a' or 'c' - wrap in single-element slice
 			e, err := ep.ParseExpr()
 			if err != nil {
 				return nil, err
 			}
-			set = append(set, e)
-			if !ep.parser.ConsumeToken(token.TokenComma{}) {
-				break
-			}
+			sets = append(sets, []expr.Expr{e})
 		}
-		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
-		sets = append(sets, set)
 		if !ep.parser.ConsumeToken(token.TokenComma{}) {
 			break
 		}
