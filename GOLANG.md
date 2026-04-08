@@ -1,5 +1,104 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 20 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,868 lines | 122% |
+| Tests | 45,672 lines | 14,150 lines | 31% |
+| **Test Status** | - | **823 passing** / **376 failing** (~69%) |
+
+**Summary of Session 20:**
+
+1. **Fixed Snowflake Stage Name Parsing** (6 tests now passing - major fix!)
+   - Fixed `@stage/day=18/23.parquet` - stage paths with file extensions now work
+   - **Root Cause**: The stage name parser's `PrevToken()` calls in the exit cases were putting the token index at the wrong position
+   - **Fix**: Removed `PrevToken()` calls from the exit cases in `ParseSnowflakeStageName()` - just return the stage name without putting back tokens
+   - Reference: `go/dialects/snowflake/snowflake.go` lines 1627-1637, 1662-1668
+   - Tests Fixed: TestSnowflakeStageNameWithSpecialChars (4 subtests), plus 2 other tests
+
+**New Patterns Documented:**
+- **Pattern E99**: Stage name parser exit behavior - Don't call `PrevToken()` when exiting a token consumption loop due to an unrecognized token. The caller should handle whatever token caused the exit. Calling `PrevToken()` can put the index at the wrong position (previous non-whitespace token) instead of where you expect.
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 20 Start):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,868 lines | 122% |
+| Tests | 45,672 lines | 14,150 lines | 31% |
+| **Test Status** | - | **817 passing** / **382 failing** (~68%) |
+
+**Session 20 Focus: Massive Code Port from Rust - High Impact Missing Chunks**
+
+Based on analysis of 382 failing tests, the following major chunks provide highest impact. **Strategy: Port large parser chunks from Rust rather than fixing tests one-by-one.**
+
+**Top Priority (Will Fix 50+ Tests Each):**
+
+1. **Snowflake Stage Name Tokenizer Fix** (NOW FIXED - 6 tests passing)
+   - ✅ Fixed: File extensions (.parquet) in stage paths parsed correctly
+   - Tests: `@stage/day=18/23.parquet` now works correctly
+   - **Fix**: Removed incorrect `PrevToken()` calls in stage name parser exit cases
+   - Reference: go/dialects/snowflake/snowflake.go
+
+2. **Snowflake PIVOT / UNPIVOT Clauses** (3 tests failing, but affects many SELECT queries)
+   - Missing: Full PIVOT/UNPIVOT implementation in SELECT
+   - **Action**: Port complete PIVOT parsing from Rust
+   - Reference: src/dialect/snowflake.rs:2943-3020
+
+3. **Snowflake Multi-Table INSERT with Placeholders** (8 tests failing)
+   - Missing: Placeholder support in VALUES clauses for INSERT ALL
+   - **Action**: Port parse_multi_table_insert() with placeholder support
+   - Reference: src/dialect/snowflake.rs:370-395
+
+4. **Snowflake CREATE VIEW with Tags/Policies** (6 tests failing)
+   - Missing: Tag and masking policy support in CREATE VIEW column definitions
+   - **Action**: Port CREATE VIEW column option parsing with tags/policies
+   - Reference: src/dialect/snowflake.rs
+
+5. **PostgreSQL CREATE TYPE / CREATE DOMAIN** (Complete - Fixed in Session 3)
+   - ✅ Already implemented
+
+6. **PostgreSQL CREATE FUNCTION with Full Attributes** (10+ tests failing)
+   - Missing: Full function attribute parsing (STABLE, VOLATILE, STRICT, etc.)
+   - **Action**: Port complete CREATE FUNCTION attribute parsing
+   - Reference: src/dialect/postgresql.rs
+
+7. **MySQL Table Hints and Index Hints** (8 tests failing)
+   - Missing: Complete table hint parsing (FORCE INDEX, USE KEY, etc.)
+   - **Action**: Port MySQL-specific table factor parsing
+   - Reference: src/dialect/mysql.rs
+
+**New Patterns Documented:**
+- **Pattern E97**: Massive code port strategy - When >20 tests fail for similar functionality, port the complete Rust parser module rather than fixing individual test cases. This is more efficient and ensures full compatibility.
+- **Pattern E98**: Tokenizer vs Parser fixes - Some issues (like stage names with file extensions) are tokenizer-level, requiring changes to how tokens are produced, not how they're parsed.
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 19 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 81,868 lines | 122% |
+| Tests | 45,672 lines | 14,150 lines | 31% |
+| **Test Status** | - | **817 passing** / **382 failing** (~68%) |
+
+**Summary of Session 19:**
+
+1. **Fixed ALTER USER SET/UNSET Options** (Major implementation - now compiling)
+   - Fixed syntax error from duplicate code in parser/alter.go
+   - Implemented parseMfaMethod() and parseCommaSeparatedIdentNames() helpers
+   - Fixed SavePosition() usage instead of non-existent SetPosition()
+   - Now compiles and passes related tests
+
+2. **Current Test Status** (April 8, 2026 - End of Session 19):
+   - **817 passing** / **382 failing** (~68% pass rate)
+   - Major improvement from earlier sessions
+   - Build now succeeds (no compilation errors)
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 19 In Progress):**
 
 | Component | Rust | Go | Ratio |
@@ -18,7 +117,7 @@ Based on analysis of 260 failing tests, the following major chunks provide highe
 
 2. **Snowflake Stage Names with File Extensions** (5 tests failing)
    - Root cause: File extensions (.parquet) in stage paths parsed as aliases
-   - Tests: `@stage/day=18/23.parquet` - "23." tokenized as NUMBER with trailing period
+   - Tests: `@stage/day=18/23.parquet` - "  ,"23." tokenized as NUMBER with trailing period
    - Reference: src/dialect/snowflake.rs:1256-1305
 
 3. **Snowflake Multi-Table INSERT** (8 tests failing)
@@ -1465,6 +1564,42 @@ if ep.parser.ConsumeToken(token.TokenLParen{}) {
 }
 ```
 
+### Error E99: Stage name parser exit with PrevToken() causes token position issues
+**Cause**: When a token consumption loop (like a stage name parser) encounters an unrecognized token and calls `PrevToken()` before returning, the token index may end up pointing at the wrong position - the previous non-whitespace token instead of where you expect.
+
+**Symptom**: Parser error like "Expected: end of statement, found: X" where X is a token that WAS consumed by the parser but appears to be "found" again because `PrevToken()` positioned the index incorrectly.
+
+**Solution**: Don't call `PrevToken()` in exit cases of token consumption loops. Just return the accumulated result. The caller should handle whatever token caused the exit:
+```go
+// WRONG: Putting back token in exit case
+for {
+    tok := parser.NextToken()
+    switch t := tok.Token.(type) {
+    case token.TokenWord:
+        stageName.WriteString(t.Word.Value)
+        continue
+    // ... other cases ...
+    default:
+        parser.PrevToken()  // DON'T DO THIS
+        return stageName
+    }
+}
+
+// CORRECT: Just return without putting back
+for {
+    tok := parser.NextToken()
+    switch t := tok.Token.(type) {
+    case token.TokenWord:
+        stageName.WriteString(t.Word.Value)
+        continue
+    // ... other cases ...
+    default:
+        // Just return - caller handles this token
+        return stageName
+    }
+}
+```
+
 ---
 
 ## Porting Patterns from Rust
@@ -2186,6 +2321,10 @@ p.SetState(oldState)
 **Total**: ~813 tests across all packages, 552 passing, 261 failing (~68% pass rate)
 
 **Recent Fixes**:
+- **Session 20 (April 8, 2026)**:
+  - TestSnowflakeStageNameWithSpecialChars: ✅ 4 subtests now passing
+  - Fixed stage name parsing with file extensions (23.parquet)
+  - Root cause: Incorrect PrevToken() calls in stage name parser exit cases
 - **Session 17 (April 8, 2026)**:
   - TestSnowflakeConnectByRoot: ✅ Now passing (CONNECT_BY_ROOT operator)
   - CONNECT BY clause parsing: ✅ Implemented START WITH and CONNECT BY support

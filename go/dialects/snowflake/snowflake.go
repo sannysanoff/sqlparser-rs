@@ -1627,8 +1627,7 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 					stageName.WriteRune(t.Char)
 					continue
 				} else {
-					// Not part of stage name, go back
-					parser.PrevToken()
+					// Not part of stage name - just return without putting back
 					parts = append(parts, &ast.ObjectNamePartIdentifier{
 						Ident: &ast.Ident{Value: stageName.String()},
 					})
@@ -1658,8 +1657,8 @@ func (d *SnowflakeDialect) ParseSnowflakeStageName(parser dialects.ParserAccesso
 				stageName.WriteString("'")
 				continue
 			default:
-				// End of stage name
-				parser.PrevToken()
+				// End of stage name - just return without putting back the token
+				// The caller will handle whatever token caused us to stop
 				parts = append(parts, &ast.ObjectNamePartIdentifier{
 					Ident: &ast.Ident{Value: stageName.String()},
 				})
