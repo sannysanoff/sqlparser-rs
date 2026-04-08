@@ -212,14 +212,54 @@ func parseGrantDenyRevokePrivilegesObjects(p *Parser) (*statement.Privileges, *s
 		{"VIEW", statement.GrantObjectTypeViews},
 		{"WAREHOUSE", statement.GrantObjectTypeWarehouses},
 		{"INTEGRATION", statement.GrantObjectTypeIntegrations},
-		{"PROCEDURE", statement.GrantObjectTypeProcedures},
-		{"FUNCTION", statement.GrantObjectTypeFunctions},
 	} {
 		if matched, err := parseSingleObjectType(spec.keyword, spec.objectType); err != nil {
 			return nil, nil, err
 		} else if matched {
 			return privileges, objects, nil
 		}
+	}
+
+	// Handle PROCEDURE and FUNCTION with optional argument types (for overloading support)
+	if p.ParseKeyword("PROCEDURE") {
+		objects.ObjectType = statement.GrantObjectTypeProcedures
+		name, err := parseGrantObjectName(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.ProcedureName = name
+		// Check for argument types: PROCEDURE name(type1, type2, ...)
+		if p.ConsumeToken(token.TokenLParen{}) {
+			argTypes, err := parseCommaSeparatedDataTypes(p)
+			if err != nil {
+				return nil, nil, err
+			}
+			objects.ProcedureArgTypes = argTypes
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, nil, err
+			}
+		}
+		return privileges, objects, nil
+	}
+	if p.ParseKeyword("FUNCTION") {
+		objects.ObjectType = statement.GrantObjectTypeFunctions
+		name, err := parseGrantObjectName(p)
+		if err != nil {
+			return nil, nil, err
+		}
+		objects.FunctionName = name
+		// Check for argument types: FUNCTION name(type1, type2, ...)
+		if p.ConsumeToken(token.TokenLParen{}) {
+			argTypes, err := parseCommaSeparatedDataTypes(p)
+			if err != nil {
+				return nil, nil, err
+			}
+			objects.FunctionArgTypes = argTypes
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, nil, err
+			}
+		}
+		return privileges, objects, nil
 	}
 
 	objects.ObjectType = statement.GrantObjectTypeTables
@@ -262,18 +302,36 @@ func parseGrantObjectName(p *Parser) (*ast.ObjectName, error) {
 		}
 	}
 	name := ast.NewObjectNameFromIdents(firstIdent)
-	if p.ConsumeToken(token.TokenPeriod{}) {
+	// Handle multi-part names (db.schema.object) - keep consuming .identifier
+	for p.ConsumeToken(token.TokenPeriod{}) {
 		if p.ConsumeToken(token.TokenMul{}) {
 			name.Parts = append(name.Parts, &ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: "*"}})
 		} else {
-			tableIdent, err := p.ParseIdentifier()
+			nextIdent, err := p.ParseIdentifier()
 			if err != nil {
 				return nil, err
 			}
-			name.Parts = append(name.Parts, &ast.ObjectNamePartIdentifier{Ident: tableIdent})
+			name.Parts = append(name.Parts, &ast.ObjectNamePartIdentifier{Ident: nextIdent})
 		}
 	}
 	return name, nil
+}
+
+// parseCommaSeparatedDataTypes parses a comma-separated list of data types
+// Used for procedure/function argument types in GRANT statements
+func parseCommaSeparatedDataTypes(p *Parser) ([]interface{}, error) {
+	var types []interface{}
+	for {
+		dataType, err := p.ParseDataType()
+		if err != nil {
+			return nil, err
+		}
+		types = append(types, dataType)
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+	return types, nil
 }
 
 // parseActionsList parses a comma-separated list of privilege actions
@@ -308,6 +366,24 @@ func parseGrantPermission(p *Parser) (*statement.Action, error) {
 	p.NextToken()
 
 	action := &statement.Action{ActionType: actionType, RawKeyword: word.Word.Value}
+
+	// Special case for ROLE action: parse the role name (e.g., GRANT ROLE role1 TO ...)
+	if actionType == statement.ActionTypeRole {
+		roleName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected role name after ROLE: %w", err)
+		}
+		action.Role = roleName
+		return action, nil
+	}
+
+	// Special case for CREATE action: parse optional object type (e.g., CREATE SCHEMA, CREATE DATABASE, etc.)
+	if actionType == statement.ActionTypeCreate {
+		if objType := p.parseCreateObjectType(); objType != "" {
+			action.CreateObjectType = objType
+		}
+	}
+
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 		p.NextToken()
 		columns, err := parseCommaSeparatedIdents(p)
@@ -320,6 +396,66 @@ func parseGrantPermission(p *Parser) (*statement.Action, error) {
 		}
 	}
 	return action, nil
+}
+
+// parseCreateObjectType parses optional object type for CREATE action
+// Returns empty string if no object type found
+// Reference: src/parser/mod.rs maybe_parse_action_create_object_type (line 17141)
+func (p *Parser) parseCreateObjectType() string {
+	// Multi-word object types (check these first before single-word)
+	if p.ParseKeywords([]string{"APPLICATION", "PACKAGE"}) {
+		return "APPLICATION PACKAGE"
+	}
+	if p.ParseKeywords([]string{"COMPUTE", "POOL"}) {
+		return "COMPUTE POOL"
+	}
+	if p.ParseKeywords([]string{"DATA", "EXCHANGE", "LISTING"}) {
+		return "DATA EXCHANGE LISTING"
+	}
+	if p.ParseKeywords([]string{"EXTERNAL", "VOLUME"}) {
+		return "EXTERNAL VOLUME"
+	}
+	if p.ParseKeywords([]string{"FAILOVER", "GROUP"}) {
+		return "FAILOVER GROUP"
+	}
+	if p.ParseKeywords([]string{"NETWORK", "POLICY"}) {
+		return "NETWORK POLICY"
+	}
+	if p.ParseKeywords([]string{"ORGANIZATION", "LISTING"}) {
+		return "ORGANIZATION LISTING"
+	}
+	if p.ParseKeywords([]string{"REPLICATION", "GROUP"}) {
+		return "REPLICATION GROUP"
+	}
+	// Single-word object types
+	if p.ParseKeyword("ACCOUNT") {
+		return "ACCOUNT"
+	}
+	if p.ParseKeyword("APPLICATION") {
+		return "APPLICATION"
+	}
+	if p.ParseKeyword("DATABASE") {
+		return "DATABASE"
+	}
+	if p.ParseKeyword("INTEGRATION") {
+		return "INTEGRATION"
+	}
+	if p.ParseKeyword("ROLE") {
+		return "ROLE"
+	}
+	if p.ParseKeyword("SCHEMA") {
+		return "SCHEMA"
+	}
+	if p.ParseKeyword("SHARE") {
+		return "SHARE"
+	}
+	if p.ParseKeyword("USER") {
+		return "USER"
+	}
+	if p.ParseKeyword("WAREHOUSE") {
+		return "WAREHOUSE"
+	}
+	return ""
 }
 
 // parseGrantees parses a comma-separated list of grantees

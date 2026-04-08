@@ -1,5 +1,29 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 2):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 78,775 lines | 117% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **513 passing** / **300 failing** (~63%) | +1 test passing (TestParseGrant)
+
+**Today's Major Fixes (Session 2):**
+1. **GRANT Statement - PROCEDURE/FUNCTION with Arg Types** - Fixed parsing and serialization of GRANT on procedures/functions with argument types (e.g., `GRANT USAGE ON PROCEDURE db1.sc1.foo(INT) TO ROLE role1`)
+2. **GRANT Statement - FUTURE TABLES Serialization** - Added missing case for `GrantObjectTypeFutureTablesInSchema` in GrantObjects.String()
+3. **GRANT Statement - ROLE Action** - Added support for `GRANT ROLE role1 TO ROLE role2` syntax
+4. **GRANT Statement - CREATE with Object Type** - Added support for `GRANT CREATE SCHEMA ON DATABASE db1 TO ROLE role1` syntax
+5. **GrantObjects AST Enhancement** - Added ProcedureName, ProcedureArgTypes, FunctionName, FunctionArgTypes fields to properly store procedure/function details
+6. **Multi-part Name Parsing** - Fixed `parseGrantObjectName()` to handle 3-part names (db.schema.object) not just 2-part names
+
+**New Patterns Documented:**
+- **Pattern E44**: Procedure/Function argument types in GRANT - Parse procedure/function names as object names, then check for `(` to parse optional argument type list
+- **Pattern E45**: Multi-word action types in GRANT - For CREATE action, check for optional object type keywords (SCHEMA, DATABASE, etc.) immediately after CREATE
+- **Pattern E46**: Special action handling - ROLE action requires parsing a role name after the keyword; CREATE action requires checking for optional object types
+- **Pattern E47**: Multi-part object names - Use a loop to consume `.identifier` sequences for N-part names (db.schema.table.subobj)
+
+---
+
 **Line Counts (Updated April 8, 2026 - Final Session):**
 
 | Component | Rust | Go | Ratio |
@@ -1243,14 +1267,14 @@ type timeTravelExpr struct {
 | Snowflake Specific | ~100 | ~47 | ~53 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~1,215 tests across all packages, 474 passing, 279 failing (~63% pass rate)
+**Total**: ~1,215 tests across all packages, 513 passing, 300 failing (~63% pass rate)
 
 **Recent Fixes**:
+- TestParseGrant: ✅ Now fully passes (PROCEDURE/FUNCTION with args, ROLE action, CREATE with object type, FUTURE types)
 - TestSnowflakeCopyInto: ✅ Partial (FROM (SELECT ...) subtest now passes)
 - CREATE TABLE Column Constraints: ✅ Serialization fixed (constraint names, CHECK parens, REFERENCES details)
 - TestSnowflakeLateralFlatten: ✅ Now passes (FLATTEN with named arguments)
 - TestParseCTEs: ✅ Now passes (CREATE VIEW with WITH clause)
-- TestParseGrant: ✅ Partially passes (COPY/REVOKE CURRENT GRANTS, WAREHOUSE, INTEGRATION, FUTURE types)
 - TestPostgresCreateFunction: ✅ Now passing (CREATE FUNCTION with args and attributes)
 - TestParseInsertDefaultValuesFull: ✅ Now passing (RETURNING and ON CONFLICT with DEFAULT VALUES)
 - TestPostgresCreateSimpleBeforeInsertTrigger: ✅ Now passing (EXECUTE FUNCTION without args)
@@ -1267,11 +1291,11 @@ type timeTravelExpr struct {
 - TestSnowflakeTimeTravel: ✅ Now passes (AT/BEFORE TIMESTAMP => syntax)
 
 **Notes**:
-- Source: 52,159 lines Rust → 78,911 lines Go (151% ratio - includes comprehensive comments and new implementations)
+- Source: 67,345 lines Rust → 78,775 lines Go (117% ratio - Go implementation is larger due to verbose error handling and type conversions)
 - Tests: 49,886 lines Rust → 14,149 lines Go (28% ratio - many tests still being ported)
 - Main tests package has 260+ tests
 - Additional test packages (ddl, dml, mysql, postgres, query, regression, snowflake) add more tests
-- Current status: 733 passing, 474 failing (~61% pass rate)
+- Current status: 513 passing, 300 failing (~63% pass rate)
 - Some tests require dialect-specific features only supported in specific dialects
 - Test framework compares full AST including spans, which causes some tests to fail even when parsing/serialization is correct
 - Many remaining failures are span/column position mismatches (off-by-one errors) rather than parsing logic errors

@@ -18,6 +18,7 @@
 package statement
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/user/sqlparser/ast"
@@ -511,6 +512,20 @@ const (
 	GrantObjectTypeFutureMaterializedViewsInSchema
 	// GrantObjectTypeFutureSequencesInSchema - FUTURE SEQUENCES IN SCHEMA
 	GrantObjectTypeFutureSequencesInSchema
+	// GrantObjectTypeResourceMonitors - RESOURCE MONITOR
+	GrantObjectTypeResourceMonitors
+	// GrantObjectTypeUsers - USER
+	GrantObjectTypeUsers
+	// GrantObjectTypeComputePools - COMPUTE POOL
+	GrantObjectTypeComputePools
+	// GrantObjectTypeConnections - CONNECTION
+	GrantObjectTypeConnections
+	// GrantObjectTypeFailoverGroup - FAILOVER GROUP
+	GrantObjectTypeFailoverGroup
+	// GrantObjectTypeReplicationGroup - REPLICATION GROUP
+	GrantObjectTypeReplicationGroup
+	// GrantObjectTypeExternalVolumes - EXTERNAL VOLUME
+	GrantObjectTypeExternalVolumes
 )
 
 // GrantObjects represents the objects on which privileges are granted
@@ -521,6 +536,14 @@ type GrantObjects struct {
 	Tables []*ast.ObjectName
 	// Schemas is the list of schema names (for IN SCHEMA variants)
 	Schemas []*ast.ObjectName
+	// ProcedureName is the procedure name (for GrantObjectTypeProcedures)
+	ProcedureName *ast.ObjectName
+	// ProcedureArgTypes are the argument types for procedures (for overloading support)
+	ProcedureArgTypes []interface{}
+	// FunctionName is the function name (for GrantObjectTypeFunctions)
+	FunctionName *ast.ObjectName
+	// FunctionArgTypes are the argument types for functions (for overloading support)
+	FunctionArgTypes []interface{}
 }
 
 func (g *GrantObjects) String() string {
@@ -615,6 +638,14 @@ func (g *GrantObjects) String() string {
 			}
 			f.WriteString(schema.String())
 		}
+	case GrantObjectTypeFutureTablesInSchema:
+		f.WriteString("FUTURE TABLES IN SCHEMA ")
+		for i, schema := range g.Schemas {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(schema.String())
+		}
 	case GrantObjectTypeWarehouses:
 		f.WriteString("WAREHOUSE ")
 		for i, table := range g.Tables {
@@ -633,19 +664,47 @@ func (g *GrantObjects) String() string {
 		}
 	case GrantObjectTypeProcedures:
 		f.WriteString("PROCEDURE ")
-		for i, table := range g.Tables {
-			if i > 0 {
-				f.WriteString(", ")
+		if g.ProcedureName != nil {
+			f.WriteString(g.ProcedureName.String())
+			if len(g.ProcedureArgTypes) > 0 {
+				f.WriteString("(")
+				for i, argType := range g.ProcedureArgTypes {
+					if i > 0 {
+						f.WriteString(", ")
+					}
+					f.WriteString(fmt.Sprintf("%v", argType))
+				}
+				f.WriteString(")")
 			}
-			f.WriteString(table.String())
+		} else if len(g.Tables) > 0 {
+			for i, table := range g.Tables {
+				if i > 0 {
+					f.WriteString(", ")
+				}
+				f.WriteString(table.String())
+			}
 		}
 	case GrantObjectTypeFunctions:
 		f.WriteString("FUNCTION ")
-		for i, table := range g.Tables {
-			if i > 0 {
-				f.WriteString(", ")
+		if g.FunctionName != nil {
+			f.WriteString(g.FunctionName.String())
+			if len(g.FunctionArgTypes) > 0 {
+				f.WriteString("(")
+				for i, argType := range g.FunctionArgTypes {
+					if i > 0 {
+						f.WriteString(", ")
+					}
+					f.WriteString(fmt.Sprintf("%v", argType))
+				}
+				f.WriteString(")")
 			}
-			f.WriteString(table.String())
+		} else if len(g.Tables) > 0 {
+			for i, table := range g.Tables {
+				if i > 0 {
+					f.WriteString(", ")
+				}
+				f.WriteString(table.String())
+			}
 		}
 	case GrantObjectTypeFutureSchemasInDatabase:
 		f.WriteString("FUTURE SCHEMAS IN DATABASE ")
@@ -686,6 +745,62 @@ func (g *GrantObjects) String() string {
 				f.WriteString(", ")
 			}
 			f.WriteString(schema.String())
+		}
+	case GrantObjectTypeResourceMonitors:
+		f.WriteString("RESOURCE MONITOR ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeUsers:
+		f.WriteString("USER ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeComputePools:
+		f.WriteString("COMPUTE POOL ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeConnections:
+		f.WriteString("CONNECTION ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeFailoverGroup:
+		f.WriteString("FAILOVER GROUP ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeReplicationGroup:
+		f.WriteString("REPLICATION GROUP ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
+		}
+	case GrantObjectTypeExternalVolumes:
+		f.WriteString("EXTERNAL VOLUME ")
+		for i, table := range g.Tables {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(table.String())
 		}
 	}
 	return f.String()

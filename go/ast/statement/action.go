@@ -37,6 +37,10 @@ type Action struct {
 	RawKeyword string
 	// Columns is an optional list of columns for column-level privileges
 	Columns []*ast.Ident
+	// Role is the role name for ROLE action type (GRANT ROLE name TO ...)
+	Role *ast.ObjectName
+	// CreateObjectType is the optional object type for CREATE action (e.g., SCHEMA, DATABASE, etc.)
+	CreateObjectType string
 }
 
 func (a *Action) String() string {
@@ -46,6 +50,16 @@ func (a *Action) String() string {
 		f.WriteString(a.RawKeyword)
 	} else {
 		f.WriteString(a.ActionType.String())
+	}
+	// For CREATE action, include the object type if present
+	if a.ActionType == ActionTypeCreate && a.CreateObjectType != "" {
+		f.WriteString(" ")
+		f.WriteString(a.CreateObjectType)
+	}
+	// For ROLE action, include the role name
+	if a.ActionType == ActionTypeRole && a.Role != nil {
+		f.WriteString(" ")
+		f.WriteString(a.Role.String())
 	}
 	if len(a.Columns) > 0 {
 		f.WriteString(" (")
@@ -106,6 +120,8 @@ const (
 	ActionTypeFailover
 	// ActionTypeReplicate - REPLICATE
 	ActionTypeReplicate
+	// ActionTypeRole - ROLE (for GRANT ROLE name TO ...)
+	ActionTypeRole
 )
 
 func (a ActionType) String() string {
@@ -152,6 +168,8 @@ func (a ActionType) String() string {
 		return "FAILOVER"
 	case ActionTypeReplicate:
 		return "REPLICATE"
+	case ActionTypeRole:
+		return "ROLE"
 	default:
 		return ""
 	}
@@ -202,6 +220,8 @@ func ParseActionType(s string) (ActionType, bool) {
 		return ActionTypeFailover, true
 	case "REPLICATE":
 		return ActionTypeReplicate, true
+	case "ROLE":
+		return ActionTypeRole, true
 	default:
 		return ActionTypeConnect, false
 	}
