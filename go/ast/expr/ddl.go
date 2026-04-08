@@ -1709,15 +1709,6 @@ const (
 
 func (e ExecuteAs) String() string { return "" }
 
-// RoleOption represents role option.
-type RoleOption struct{}
-
-func (r *RoleOption) exprNode()        {}
-func (r *RoleOption) expr()            {}
-func (r *RoleOption) IsExpr()          {}
-func (r *RoleOption) Span() token.Span { return token.Span{} }
-func (r *RoleOption) String() string   { return "" }
-
 // ReplicaIdentityType represents the type of replica identity for ALTER TABLE REPLICA IDENTITY
 type ReplicaIdentityType int
 
@@ -2413,14 +2404,299 @@ func (a *AlterTypeOperation) IsExpr()          {}
 func (a *AlterTypeOperation) Span() token.Span { return token.Span{} }
 func (a *AlterTypeOperation) String() string   { return "" }
 
-// AlterRoleOperation represents ALTER ROLE operation.
-type AlterRoleOperation struct{}
+// Password represents a password value for role options.
+// Can be either a password expression or NULL.
+type Password struct {
+	// Value is the password expression (nil for NullPassword)
+	Value Expr
+	// IsNull is true for PASSWORD NULL
+	IsNull bool
+}
 
-func (a *AlterRoleOperation) exprNode()        {}
-func (a *AlterRoleOperation) expr()            {}
-func (a *AlterRoleOperation) IsExpr()          {}
-func (a *AlterRoleOperation) Span() token.Span { return token.Span{} }
-func (a *AlterRoleOperation) String() string   { return "" }
+func (p *Password) String() string {
+	if p.IsNull {
+		return "PASSWORD NULL"
+	}
+	if p.Value != nil {
+		return "PASSWORD " + p.Value.String()
+	}
+	return "PASSWORD"
+}
+
+// RoleOption represents an option in a CREATE/ALTER ROLE statement.
+// Reference: src/ast/dcl.rs RoleOption
+// See: https://www.postgresql.org/docs/current/sql-createrole.html
+type RoleOption struct {
+	// Option type
+	Type RoleOptionType
+	// Value is used for ConnectionLimit and ValidUntil
+	Value Expr
+	// BoolValue is used for boolean options
+	BoolValue bool
+	// Password is used for PASSWORD option
+	Password *Password
+}
+
+// RoleOptionType represents the type of role option
+type RoleOptionType int
+
+const (
+	RoleOptionBypassRLS RoleOptionType = iota
+	RoleOptionNoBypassRLS
+	RoleOptionConnectionLimit
+	RoleOptionCreateDB
+	RoleOptionNoCreateDB
+	RoleOptionCreateRole
+	RoleOptionNoCreateRole
+	RoleOptionInherit
+	RoleOptionNoInherit
+	RoleOptionLogin
+	RoleOptionNoLogin
+	RoleOptionPassword
+	RoleOptionReplication
+	RoleOptionNoReplication
+	RoleOptionSuperUser
+	RoleOptionNoSuperUser
+	RoleOptionValidUntil
+)
+
+func (r *RoleOption) String() string {
+	switch r.Type {
+	case RoleOptionBypassRLS:
+		return "BYPASSRLS"
+	case RoleOptionNoBypassRLS:
+		return "NOBYPASSRLS"
+	case RoleOptionConnectionLimit:
+		if r.Value != nil {
+			return "CONNECTION LIMIT " + r.Value.String()
+		}
+		return "CONNECTION LIMIT"
+	case RoleOptionCreateDB:
+		return "CREATEDB"
+	case RoleOptionNoCreateDB:
+		return "NOCREATEDB"
+	case RoleOptionCreateRole:
+		return "CREATEROLE"
+	case RoleOptionNoCreateRole:
+		return "NOCREATEROLE"
+	case RoleOptionInherit:
+		return "INHERIT"
+	case RoleOptionNoInherit:
+		return "NOINHERIT"
+	case RoleOptionLogin:
+		return "LOGIN"
+	case RoleOptionNoLogin:
+		return "NOLOGIN"
+	case RoleOptionPassword:
+		if r.Password != nil {
+			return r.Password.String()
+		}
+		return "PASSWORD"
+	case RoleOptionReplication:
+		return "REPLICATION"
+	case RoleOptionNoReplication:
+		return "NOREPLICATION"
+	case RoleOptionSuperUser:
+		return "SUPERUSER"
+	case RoleOptionNoSuperUser:
+		return "NOSUPERUSER"
+	case RoleOptionValidUntil:
+		if r.Value != nil {
+			return "VALID UNTIL " + r.Value.String()
+		}
+		return "VALID UNTIL"
+	}
+	return ""
+}
+
+// SetConfigValue represents a value for SET configuration_parameter.
+// Reference: src/ast/dcl.rs SetConfigValue
+// SET config_name { TO | = } { value | DEFAULT }
+// SET config_name FROM CURRENT
+type SetConfigValue struct {
+	// Type determines the kind of value
+	Type SetConfigValueType
+	// Value is the expression value (for Value type)
+	Value Expr
+}
+
+// SetConfigValueType represents the type of SET config value
+type SetConfigValueType int
+
+const (
+	SetConfigValueDefault SetConfigValueType = iota
+	SetConfigValueFromCurrent
+	SetConfigValueExpr
+)
+
+func (s *SetConfigValue) String() string {
+	switch s.Type {
+	case SetConfigValueDefault:
+		return "DEFAULT"
+	case SetConfigValueFromCurrent:
+		return "FROM CURRENT"
+	case SetConfigValueExpr:
+		if s.Value != nil {
+			return s.Value.String()
+		}
+	}
+	return ""
+}
+
+// ResetConfig represents a RESET configuration option.
+// Reference: src/ast/dcl.rs ResetConfig
+// RESET config_name | RESET ALL
+type ResetConfig struct {
+	// IsAll is true for RESET ALL
+	IsAll bool
+	// ConfigName is the name to reset (for non-ALL case)
+	ConfigName *ast.ObjectName
+}
+
+func (r *ResetConfig) String() string {
+	if r.IsAll {
+		return "ALL"
+	}
+	if r.ConfigName != nil {
+		return r.ConfigName.String()
+	}
+	return ""
+}
+
+// AlterRoleOperation is an interface for ALTER ROLE operations.
+// Reference: src/ast/dcl.rs AlterRoleOperation
+type AlterRoleOperation interface {
+	Expr
+	isAlterRoleOperation()
+}
+
+// AlterRoleOperationRenameRole represents RENAME TO new_role_name.
+type AlterRoleOperationRenameRole struct {
+	RoleName *ast.Ident
+}
+
+func (a *AlterRoleOperationRenameRole) exprNode()             {}
+func (a *AlterRoleOperationRenameRole) expr()                 {}
+func (a *AlterRoleOperationRenameRole) IsExpr()               {}
+func (a *AlterRoleOperationRenameRole) Span() token.Span      { return token.Span{} }
+func (a *AlterRoleOperationRenameRole) String() string        { return "RENAME TO " + a.RoleName.String() }
+func (a *AlterRoleOperationRenameRole) isAlterRoleOperation() {}
+
+// AlterRoleOperationAddMember represents ADD MEMBER member_name (MSSQL).
+type AlterRoleOperationAddMember struct {
+	MemberName *ast.Ident
+}
+
+func (a *AlterRoleOperationAddMember) exprNode()             {}
+func (a *AlterRoleOperationAddMember) expr()                 {}
+func (a *AlterRoleOperationAddMember) IsExpr()               {}
+func (a *AlterRoleOperationAddMember) Span() token.Span      { return token.Span{} }
+func (a *AlterRoleOperationAddMember) String() string        { return "ADD MEMBER " + a.MemberName.String() }
+func (a *AlterRoleOperationAddMember) isAlterRoleOperation() {}
+
+// AlterRoleOperationDropMember represents DROP MEMBER member_name (MSSQL).
+type AlterRoleOperationDropMember struct {
+	MemberName *ast.Ident
+}
+
+func (a *AlterRoleOperationDropMember) exprNode()             {}
+func (a *AlterRoleOperationDropMember) expr()                 {}
+func (a *AlterRoleOperationDropMember) IsExpr()               {}
+func (a *AlterRoleOperationDropMember) Span() token.Span      { return token.Span{} }
+func (a *AlterRoleOperationDropMember) String() string        { return "DROP MEMBER " + a.MemberName.String() }
+func (a *AlterRoleOperationDropMember) isAlterRoleOperation() {}
+
+// AlterRoleOperationWithOptions represents WITH option [ ... ] (PostgreSQL).
+type AlterRoleOperationWithOptions struct {
+	Options []*RoleOption
+}
+
+func (a *AlterRoleOperationWithOptions) exprNode()        {}
+func (a *AlterRoleOperationWithOptions) expr()            {}
+func (a *AlterRoleOperationWithOptions) IsExpr()          {}
+func (a *AlterRoleOperationWithOptions) Span() token.Span { return token.Span{} }
+func (a *AlterRoleOperationWithOptions) String() string {
+	var parts []string
+	for _, opt := range a.Options {
+		parts = append(parts, opt.String())
+	}
+	return "WITH " + strings.Join(parts, " ")
+}
+func (a *AlterRoleOperationWithOptions) isAlterRoleOperation() {}
+
+// AlterRoleOperationSet represents SET configuration_parameter (PostgreSQL).
+// SET config_name { TO | = } { value | DEFAULT }
+// SET config_name FROM CURRENT
+type AlterRoleOperationSet struct {
+	// InDatabase is the optional database name for IN DATABASE clause
+	InDatabase *ast.ObjectName
+	// ConfigName is the configuration parameter name
+	ConfigName *ast.ObjectName
+	// ConfigValue is the value to set
+	ConfigValue *SetConfigValue
+	// UseEqual is true if = was used instead of TO (affects canonical form)
+	UseEqual bool
+}
+
+func (a *AlterRoleOperationSet) exprNode()        {}
+func (a *AlterRoleOperationSet) expr()            {}
+func (a *AlterRoleOperationSet) IsExpr()          {}
+func (a *AlterRoleOperationSet) Span() token.Span { return token.Span{} }
+func (a *AlterRoleOperationSet) String() string {
+	var f strings.Builder
+	if a.InDatabase != nil {
+		f.WriteString("IN DATABASE ")
+		f.WriteString(a.InDatabase.String())
+		f.WriteString(" ")
+	}
+	f.WriteString("SET ")
+	f.WriteString(a.ConfigName.String())
+	// The format depends on the value type:
+	// FROM CURRENT: SET config_name FROM CURRENT
+	// DEFAULT: SET config_name TO DEFAULT
+	// Expression: SET config_name {TO|=} value
+	switch a.ConfigValue.Type {
+	case SetConfigValueFromCurrent:
+		f.WriteString(" FROM CURRENT")
+	case SetConfigValueDefault:
+		f.WriteString(" TO DEFAULT")
+	case SetConfigValueExpr:
+		if a.UseEqual {
+			f.WriteString(" = ")
+		} else {
+			f.WriteString(" TO ")
+		}
+		f.WriteString(a.ConfigValue.Value.String())
+	}
+	return f.String()
+}
+func (a *AlterRoleOperationSet) isAlterRoleOperation() {}
+
+// AlterRoleOperationReset represents RESET configuration_parameter (PostgreSQL).
+// RESET config_name | RESET ALL
+type AlterRoleOperationReset struct {
+	// InDatabase is the optional database name for IN DATABASE clause
+	InDatabase *ast.ObjectName
+	// ConfigName is the configuration to reset
+	ConfigName *ResetConfig
+}
+
+func (a *AlterRoleOperationReset) exprNode()        {}
+func (a *AlterRoleOperationReset) expr()            {}
+func (a *AlterRoleOperationReset) IsExpr()          {}
+func (a *AlterRoleOperationReset) Span() token.Span { return token.Span{} }
+func (a *AlterRoleOperationReset) String() string {
+	var f strings.Builder
+	if a.InDatabase != nil {
+		f.WriteString("IN DATABASE ")
+		f.WriteString(a.InDatabase.String())
+		f.WriteString(" ")
+	}
+	f.WriteString("RESET ")
+	f.WriteString(a.ConfigName.String())
+	return f.String()
+}
+func (a *AlterRoleOperationReset) isAlterRoleOperation() {}
 
 // ObjectType represents object type for DROP statements.
 // Reference: src/ast/mod.rs ObjectType

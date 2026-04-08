@@ -48,31 +48,78 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 8, 2026 - Session 68 Complete**
+**Latest Update: April 8, 2026 - Session 69 Complete**
 
 **Summary:**
-- Previous: ~98 subtests failing across all packages
-- Current: **~107 subtests failing** (607+ passing)
-- Net change: ~10 tests fixed, massive MySQL index functionality ported
+- Previous: ~107 subtests failing across all packages
+- Current: **~95 subtests failing** (619+ passing)
+- Net change: ~12 tests fixed, comprehensive PostgreSQL CREATE/ALTER ROLE implementation
 - Key fixes:
-  1. **MySQL Index Column Parsing**: Added `parseParenthesizedIndexColumnList()` with ASC/DESC support
-  2. **UNIQUE INDEX syntax**: Fixed UNIQUE INDEX index_name parsing for MySQL
-  3. **Index options serialization**: Fixed USING/COMMENT format (no = sign, proper quotes)
-  4. **CREATE INDEX spacing**: Fixed space between USING BTREE and column list
-  5. **IndexOptions parsing**: Added `parseIndexOptions()` for USING/COMMENT after columns
-- Major progress in MySQL package: 105 tests passing (was ~85)
-- Remaining high-impact work: PostgreSQL CREATE/ALTER ROLE, INSERT ... RETURNING, UPDATE FROM
+  1. **CREATE ROLE with full PostgreSQL syntax**: SUPERUSER/NOSUPERUSER, CREATEDB/NOCREATEDB, etc.
+  2. **ALTER ROLE with full PostgreSQL operations**: RENAME TO, SET, RESET, WITH OPTIONS
+  3. **Role membership support**: IN ROLE, IN GROUP, ROLE, USER, ADMIN clauses
+  4. **SET configuration_parameter**: TO value, = value, TO DEFAULT, FROM CURRENT
+  5. **RESET configuration**: RESET ALL, RESET config_name with optional IN DATABASE
+- Major PostgreSQL progress: CREATE ROLE and ALTER ROLE tests now passing
+- Remaining high-impact work: INSERT ... RETURNING (parsing works, serialization issues), UPDATE FROM, MySQL functional key parts
 
 ---
 
-## Line Counts (Updated April 8, 2026 - Session 68)
+## Line Counts (Updated April 8, 2026 - Session 69)
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 87,111 lines | 129% |
-| Tests | 49,886 lines | 14,245 lines | 29% |
+| Source (parser+ast+dialects) | 52,159 lines | 55,541 lines | 106% |
+| Tests | 49,847 lines | 14,005 lines | 28% |
 | **Test Status - Snowflake** | - | **100% passing** (99+ subtests) |
-| **Test Status - All Packages** | - | **~607 subtests passing, ~107 failing** |
+| **Test Status - All Packages** | - | **~619 subtests passing, ~95 failing** |
+
+---
+
+## Session 69 Summary: PostgreSQL CREATE/ALTER ROLE Implementation (April 8, 2026)
+
+**Major Code Port:**
+
+Implemented comprehensive PostgreSQL CREATE ROLE and ALTER ROLE syntax, fixing 2 major test suites (12+ subtests):
+
+**New Types Added:**
+
+1. **`Password` type** (ast/expr/ddl.go)
+   - Represents PASSWORD 'value' or PASSWORD NULL
+   - Used by both CREATE ROLE and ALTER ROLE
+
+2. **`RoleOption` type** (ast/expr/ddl.go)
+   - Enum for all PostgreSQL role options: SUPERUSER, NOSUPERUSER, CREATEDB, NOCREATEDB, etc.
+   - Supports CONNECTION LIMIT, PASSWORD, VALID UNTIL with expression values
+
+3. **`SetConfigValue` and `ResetConfig` types** (ast/expr/ddl.go)
+   - For ALTER ROLE SET/RESET operations
+   - Supports TO value, = value, TO DEFAULT, FROM CURRENT
+
+4. **`AlterRoleOperation` interface** (ast/expr/ddl.go)
+   - AlterRoleOperationRenameRole: RENAME TO new_name
+   - AlterRoleOperationWithOptions: WITH option [ ... ]
+   - AlterRoleOperationSet: SET config_name { TO | = } { value | DEFAULT } or FROM CURRENT
+   - AlterRoleOperationReset: RESET { config_name | ALL }
+   - AlterRoleOperationAddMember/DropMember: MSSQL-specific
+
+**Key Changes:**
+
+1. **CREATE ROLE** (ast/statement/ddl.go, parser/create.go)
+   - Full PostgreSQL syntax support: boolean options (SUPERUSER, LOGIN, etc.)
+   - Value options: CONNECTION LIMIT, PASSWORD, VALID UNTIL
+   - Membership options: IN ROLE, IN GROUP, ROLE, USER, ADMIN
+   - MSSQL: AUTHORIZATION owner
+
+2. **ALTER ROLE** (parser/alter.go)
+   - RENAME TO operation
+   - WITH options (same as CREATE ROLE)
+   - SET with IN DATABASE support
+   - RESET with IN DATABASE support
+
+**Tests Fixed:**
+- TestPostgresCreateRole: 4 subtests passing
+- TestPostgresAlterRole: 8 subtests passing
 
 ---
 
@@ -297,7 +344,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 61-68 (April 8, 2026)
+### Sessions 61-69 (April 8, 2026)
+- **Session 69**: PostgreSQL CREATE/ALTER ROLE implementation (+12 tests) - ~619 tests passing
 - **Session 68**: MySQL index column parsing with ASC/DESC (+10 tests) - ~607 tests passing
 - **Session 67**: Final Snowflake test fixes (100% passing!) - ~471 tests passing, 5 failures fixed
 - **Session 66**: Nested parentheses position tracking fix (+111 tests!) - ~382 tests passing, 98.7% success rate
@@ -402,6 +450,27 @@ Pattern E257: UNIQUE INDEX Syntax
 - Solution: After UNIQUE, check for optional INDEX/KEY keyword before index name
 - Example: In parseTableConstraint(), after UNIQUE, parse optional INDEX/KEY
 - Files typically modified: parser/ddl.go
+
+Pattern E258: PostgreSQL CREATE/ALTER ROLE Options
+- When: Implementing CREATE ROLE with full PostgreSQL syntax
+- Problem: Need to track both positive (LOGIN) and negative (NOLOGIN) variants
+- Solution: Use *bool fields (Some(true)=LOGIN, Some(false)=NOLOGIN, None=not specified)
+- Example: CreateRole struct has Login *bool, SuperUser *bool, etc.
+- Files typically modified: ast/statement/dcl.go, parser/create.go
+
+Pattern E259: ALTER ROLE SET/RESET Operations
+- When: Implementing ALTER ROLE SET config and RESET config
+- Problem: Multiple syntax variants: SET x TO y, SET x = y, SET x TO DEFAULT, SET x FROM CURRENT
+- Solution: Use interface AlterRoleOperation with variants for each operation type
+- Example: AlterRoleOperationSet, AlterRoleOperationReset with SetConfigValue type
+- Files typically modified: ast/expr/ddl.go, parser/alter.go
+
+Pattern E260: Boolean Role Options as Enum
+- When: Parsing role options like SUPERUSER vs NOSUPERUSER
+- Problem: Storing with same type and BoolValue=false doesn't serialize correctly
+- Solution: Use separate enum variants for positive and negative: RoleOptionSuperUser vs RoleOptionNoSuperUser
+- Example: RoleOptionType has both RoleOptionSuperUser and RoleOptionNoSuperUser
+- Files typically modified: ast/expr/ddl.go
 ```
 
 **See full pattern catalog in code comments and previous session notes.**

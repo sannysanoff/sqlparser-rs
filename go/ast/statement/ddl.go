@@ -776,12 +776,37 @@ func (c *CreateFunction) String() string {
 // CREATE ROLE
 // ============================================================================
 
-// CreateRole represents a CREATE ROLE statement
+// CreateRole represents a CREATE ROLE statement.
+// Reference: src/ast/dcl.rs CreateRole
+// See: https://www.postgresql.org/docs/current/sql-createrole.html
 type CreateRole struct {
 	BaseStatement
+	// Role names to create
+	Names []*ast.ObjectName
+	// Whether IF NOT EXISTS was specified
 	IfNotExists bool
-	Names       []*ast.Ident
-	Options     []*expr.RoleOption
+	// Whether WITH keyword was used (affects canonical form)
+	With bool
+	// PostgreSQL boolean options stored individually for proper canonical ordering
+	Login       *bool // Some(true) = LOGIN, Some(false) = NOLOGIN
+	Inherit     *bool // Some(true) = INHERIT, Some(false) = NOINHERIT
+	BypassRLS   *bool // Some(true) = BYPASSRLS, Some(false) = NOBYPASSRLS
+	SuperUser   *bool // Some(true) = SUPERUSER, Some(false) = NOSUPERUSER
+	CreateDB    *bool // Some(true) = CREATEDB, Some(false) = NOCREATEDB
+	CreateRole  *bool // Some(true) = CREATEROLE, Some(false) = NOCREATEROLE
+	Replication *bool // Some(true) = REPLICATION, Some(false) = NOREPLICATION
+	// PostgreSQL value options
+	ConnectionLimit expr.Expr
+	ValidUntil      expr.Expr
+	Password        *expr.Password
+	// Role membership lists (order matters for canonical form)
+	InRole  []*ast.Ident
+	InGroup []*ast.Ident
+	Role    []*ast.Ident
+	User    []*ast.Ident
+	Admin   []*ast.Ident
+	// MSSQL option
+	AuthorizationOwner *ast.ObjectName
 }
 
 func (c *CreateRole) statementNode() {}
@@ -792,10 +817,114 @@ func (c *CreateRole) String() string {
 	if c.IfNotExists {
 		f.WriteString("IF NOT EXISTS ")
 	}
-	f.WriteString(formatIdents(c.Names, ", "))
-	for _, opt := range c.Options {
+	// Write role names
+	for i, name := range c.Names {
+		if i > 0 {
+			f.WriteString(", ")
+		}
+		f.WriteString(name.String())
+	}
+
+	// Check if we have any options
+	hasBooleanOptions := c.Login != nil || c.Inherit != nil || c.BypassRLS != nil ||
+		c.SuperUser != nil || c.CreateDB != nil || c.CreateRole != nil || c.Replication != nil
+	hasValueOptions := c.ConnectionLimit != nil || c.Password != nil || c.ValidUntil != nil
+	hasMembershipOptions := len(c.InRole) > 0 || len(c.InGroup) > 0 ||
+		len(c.Role) > 0 || len(c.User) > 0 || len(c.Admin) > 0 ||
+		c.AuthorizationOwner != nil
+
+	// Only include WITH if it was present in the original (for roundtrip preservation)
+	// Note: The true canonical form according to Rust doesn't include WITH
+	if c.With && (hasBooleanOptions || hasValueOptions || hasMembershipOptions) {
+		f.WriteString(" WITH")
+	}
+
+	// Write PostgreSQL boolean options in canonical order
+	if c.SuperUser != nil {
+		if *c.SuperUser {
+			f.WriteString(" SUPERUSER")
+		} else {
+			f.WriteString(" NOSUPERUSER")
+		}
+	}
+	if c.CreateDB != nil {
+		if *c.CreateDB {
+			f.WriteString(" CREATEDB")
+		} else {
+			f.WriteString(" NOCREATEDB")
+		}
+	}
+	if c.CreateRole != nil {
+		if *c.CreateRole {
+			f.WriteString(" CREATEROLE")
+		} else {
+			f.WriteString(" NOCREATEROLE")
+		}
+	}
+	if c.Inherit != nil {
+		if *c.Inherit {
+			f.WriteString(" INHERIT")
+		} else {
+			f.WriteString(" NOINHERIT")
+		}
+	}
+	if c.Login != nil {
+		if *c.Login {
+			f.WriteString(" LOGIN")
+		} else {
+			f.WriteString(" NOLOGIN")
+		}
+	}
+	if c.Replication != nil {
+		if *c.Replication {
+			f.WriteString(" REPLICATION")
+		} else {
+			f.WriteString(" NOREPLICATION")
+		}
+	}
+	if c.BypassRLS != nil {
+		if *c.BypassRLS {
+			f.WriteString(" BYPASSRLS")
+		} else {
+			f.WriteString(" NOBYPASSRLS")
+		}
+	}
+	if c.ConnectionLimit != nil {
+		f.WriteString(" CONNECTION LIMIT ")
+		f.WriteString(c.ConnectionLimit.String())
+	}
+	if c.Password != nil {
 		f.WriteString(" ")
-		f.WriteString(opt.String())
+		f.WriteString(c.Password.String())
+	}
+	if c.ValidUntil != nil {
+		f.WriteString(" VALID UNTIL ")
+		f.WriteString(c.ValidUntil.String())
+	}
+	if len(c.InRole) > 0 {
+		f.WriteString(" IN ROLE ")
+		f.WriteString(formatIdents(c.InRole, ", "))
+	}
+	if len(c.InGroup) > 0 {
+		f.WriteString(" IN GROUP ")
+		f.WriteString(formatIdents(c.InGroup, ", "))
+	}
+	// Note: Rust canonical form outputs USER before ROLE based on test expectations
+	if len(c.User) > 0 {
+		f.WriteString(" USER ")
+		f.WriteString(formatIdents(c.User, ", "))
+	}
+	if len(c.Role) > 0 {
+		f.WriteString(" ROLE ")
+		f.WriteString(formatIdents(c.Role, ", "))
+	}
+	if len(c.Admin) > 0 {
+		f.WriteString(" ADMIN ")
+		f.WriteString(formatIdents(c.Admin, ", "))
+	}
+	if c.AuthorizationOwner != nil {
+		f.WriteString(" AUTHORIZATION ")
+		f.WriteString(c.AuthorizationOwner.String())
 	}
 	return f.String()
 }
@@ -977,11 +1106,12 @@ func (a *AlterType) String() string {
 // ALTER ROLE
 // ============================================================================
 
-// AlterRole represents an ALTER ROLE statement
+// AlterRole represents an ALTER ROLE statement.
+// Reference: src/ast/dcl.rs AlterRoleOperation
 type AlterRole struct {
 	BaseStatement
 	Name      *ast.Ident
-	Operation *expr.AlterRoleOperation
+	Operation expr.AlterRoleOperation
 }
 
 func (a *AlterRole) statementNode() {}
@@ -990,8 +1120,10 @@ func (a *AlterRole) String() string {
 	var f strings.Builder
 	f.WriteString("ALTER ROLE ")
 	f.WriteString(a.Name.String())
-	f.WriteString(" ")
-	f.WriteString(a.Operation.String())
+	if a.Operation != nil {
+		f.WriteString(" ")
+		f.WriteString(a.Operation.String())
+	}
 	return f.String()
 }
 

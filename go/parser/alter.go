@@ -1177,8 +1177,18 @@ func parseAlterRole(p *Parser) (ast.Statement, error) {
 		return nil, fmt.Errorf("expected role name after ALTER ROLE: %w", err)
 	}
 
+	// Check for IN DATABASE clause (PostgreSQL)
+	var inDatabase *ast.ObjectName
+	if p.ParseKeywords([]string{"IN", "DATABASE"}) {
+		dbName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected database name after IN DATABASE: %w", err)
+		}
+		inDatabase = dbName
+	}
+
 	// Check for various operations
-	var operation *expr.AlterRoleOperation
+	var operation expr.AlterRoleOperation
 
 	// RENAME TO
 	if p.ParseKeyword("RENAME") {
@@ -1189,22 +1199,146 @@ func parseAlterRole(p *Parser) (ast.Statement, error) {
 		if err != nil {
 			return nil, fmt.Errorf("expected new role name: %w", err)
 		}
-		_ = newName // Use in operation
-	}
+		operation = &expr.AlterRoleOperationRenameRole{RoleName: newName}
+	} else if p.ParseKeyword("SET") {
+		// SET config_name { TO | = } { value | DEFAULT }
+		// SET config_name FROM CURRENT
+		configName, err := p.ParseObjectName()
+		if err != nil {
+			return nil, fmt.Errorf("expected config name after SET: %w", err)
+		}
 
-	// WITH options (PostgreSQL style)
-	if p.ParseKeyword("WITH") {
-		// Parse role options
+		configValue := &expr.SetConfigValue{}
+		useEqual := false
+
+		if p.ParseKeywords([]string{"FROM", "CURRENT"}) {
+			configValue.Type = expr.SetConfigValueFromCurrent
+		} else if p.ConsumeToken(token.TokenEq{}) {
+			useEqual = true
+			if p.ParseKeyword("DEFAULT") {
+				configValue.Type = expr.SetConfigValueDefault
+			} else {
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("expected value after SET config =: %w", err)
+				}
+				configValue.Type = expr.SetConfigValueExpr
+				configValue.Value = val
+			}
+		} else if p.ParseKeyword("TO") {
+			if p.ParseKeyword("DEFAULT") {
+				configValue.Type = expr.SetConfigValueDefault
+			} else {
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("expected value after SET config TO: %w", err)
+				}
+				configValue.Type = expr.SetConfigValueExpr
+				configValue.Value = val
+			}
+		} else {
+			return nil, fmt.Errorf("expected =, TO, or FROM CURRENT after SET config_name")
+		}
+
+		operation = &expr.AlterRoleOperationSet{
+			InDatabase:  inDatabase,
+			ConfigName:  configName,
+			ConfigValue: configValue,
+			UseEqual:    useEqual,
+		}
+	} else if p.ParseKeyword("RESET") {
+		// RESET config_name | RESET ALL
+		resetConfig := &expr.ResetConfig{}
+
+		if p.ParseKeyword("ALL") {
+			resetConfig.IsAll = true
+		} else {
+			configName, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected config name or ALL after RESET: %w", err)
+			}
+			resetConfig.ConfigName = configName
+		}
+
+		operation = &expr.AlterRoleOperationReset{
+			InDatabase: inDatabase,
+			ConfigName: resetConfig,
+		}
+	} else {
+		// WITH options (PostgreSQL style) - optional WITH keyword
+		p.ParseKeyword("WITH")
+
+		var options []*expr.RoleOption
+
 		for {
-			if !p.ParseKeyword("LOGIN") && !p.ParseKeyword("NOLOGIN") &&
-				!p.ParseKeyword("SUPERUSER") && !p.ParseKeyword("NOSUPERUSER") &&
-				!p.ParseKeyword("CREATEDB") && !p.ParseKeyword("NOCREATEDB") &&
-				!p.ParseKeyword("CREATEROLE") && !p.ParseKeyword("NOCREATEROLE") &&
-				!p.ParseKeyword("INHERIT") && !p.ParseKeyword("NOINHERIT") &&
-				!p.ParseKeyword("REPLICATION") && !p.ParseKeyword("NOREPLICATION") &&
-				!p.ParseKeyword("BYPASSRLS") && !p.ParseKeyword("NOBYPASSRLS") {
+			if p.ParseKeyword("LOGIN") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionLogin})
+			} else if p.ParseKeyword("NOLOGIN") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoLogin})
+			} else if p.ParseKeyword("SUPERUSER") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionSuperUser})
+			} else if p.ParseKeyword("NOSUPERUSER") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoSuperUser})
+			} else if p.ParseKeyword("CREATEDB") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionCreateDB})
+			} else if p.ParseKeyword("NOCREATEDB") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoCreateDB})
+			} else if p.ParseKeyword("CREATEROLE") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionCreateRole})
+			} else if p.ParseKeyword("NOCREATEROLE") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoCreateRole})
+			} else if p.ParseKeyword("INHERIT") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionInherit})
+			} else if p.ParseKeyword("NOINHERIT") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoInherit})
+			} else if p.ParseKeyword("REPLICATION") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionReplication})
+			} else if p.ParseKeyword("NOREPLICATION") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoReplication})
+			} else if p.ParseKeyword("BYPASSRLS") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionBypassRLS})
+			} else if p.ParseKeyword("NOBYPASSRLS") {
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionNoBypassRLS})
+			} else if p.ParseKeyword("CONNECTION") {
+				if !p.ParseKeyword("LIMIT") {
+					return nil, fmt.Errorf("expected LIMIT after CONNECTION")
+				}
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("expected expression after CONNECTION LIMIT: %w", err)
+				}
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionConnectionLimit, Value: val})
+			} else if p.ParseKeyword("PASSWORD") {
+				if p.ParseKeyword("NULL") {
+					options = append(options, &expr.RoleOption{Type: expr.RoleOptionPassword, Password: &expr.Password{IsNull: true}})
+				} else {
+					ep := NewExpressionParser(p)
+					val, err := ep.ParseExpr()
+					if err != nil {
+						return nil, fmt.Errorf("expected value after PASSWORD: %w", err)
+					}
+					options = append(options, &expr.RoleOption{Type: expr.RoleOptionPassword, Password: &expr.Password{Value: val}})
+				}
+			} else if p.ParseKeyword("VALID") {
+				if !p.ParseKeyword("UNTIL") {
+					return nil, fmt.Errorf("expected UNTIL after VALID")
+				}
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("expected expression after VALID UNTIL: %w", err)
+				}
+				options = append(options, &expr.RoleOption{Type: expr.RoleOptionValidUntil, Value: val})
+			} else {
 				break
 			}
+		}
+
+		if len(options) > 0 {
+			operation = &expr.AlterRoleOperationWithOptions{Options: options}
 		}
 	}
 

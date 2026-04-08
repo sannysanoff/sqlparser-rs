@@ -2015,17 +2015,147 @@ func parseCreateRole(p *Parser, orReplace bool) (ast.Statement, error) {
 	// Parse IF NOT EXISTS
 	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 
-	// Parse comma-separated role names (identifiers, not full object names)
-	names, err := parseCommaSeparatedIdents(p)
+	// Parse comma-separated role names (object names)
+	names, err := parseCommaSeparatedObjectNames(p)
 	if err != nil {
 		return nil, err
 	}
 
-	return &statement.CreateRole{
+	// Optional WITH keyword (track for roundtrip preservation)
+	hasWith := p.ParseKeyword("WITH")
+
+	// Initialize CreateRole struct
+	createRole := &statement.CreateRole{
 		IfNotExists: ifNotExists,
 		Names:       names,
-		Options:     nil, // Role options not yet implemented (Postgres/MSSQL specific)
-	}, nil
+		With:        hasWith,
+	}
+
+	// Parse optional role options
+	for {
+		if p.ParseKeyword("LOGIN") {
+			v := true
+			createRole.Login = &v
+		} else if p.ParseKeyword("NOLOGIN") {
+			v := false
+			createRole.Login = &v
+		} else if p.ParseKeyword("SUPERUSER") {
+			v := true
+			createRole.SuperUser = &v
+		} else if p.ParseKeyword("NOSUPERUSER") {
+			v := false
+			createRole.SuperUser = &v
+		} else if p.ParseKeyword("CREATEDB") {
+			v := true
+			createRole.CreateDB = &v
+		} else if p.ParseKeyword("NOCREATEDB") {
+			v := false
+			createRole.CreateDB = &v
+		} else if p.ParseKeyword("CREATEROLE") {
+			v := true
+			createRole.CreateRole = &v
+		} else if p.ParseKeyword("NOCREATEROLE") {
+			v := false
+			createRole.CreateRole = &v
+		} else if p.ParseKeyword("INHERIT") {
+			v := true
+			createRole.Inherit = &v
+		} else if p.ParseKeyword("NOINHERIT") {
+			v := false
+			createRole.Inherit = &v
+		} else if p.ParseKeyword("REPLICATION") {
+			v := true
+			createRole.Replication = &v
+		} else if p.ParseKeyword("NOREPLICATION") {
+			v := false
+			createRole.Replication = &v
+		} else if p.ParseKeyword("BYPASSRLS") {
+			v := true
+			createRole.BypassRLS = &v
+		} else if p.ParseKeyword("NOBYPASSRLS") {
+			v := false
+			createRole.BypassRLS = &v
+		} else if p.ParseKeyword("CONNECTION") {
+			// Expect LIMIT
+			if !p.ParseKeyword("LIMIT") {
+				return nil, fmt.Errorf("expected LIMIT after CONNECTION")
+			}
+			ep := NewExpressionParser(p)
+			val, err := ep.ParseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("expected expression after CONNECTION LIMIT: %w", err)
+			}
+			createRole.ConnectionLimit = val
+		} else if p.ParseKeyword("PASSWORD") {
+			if p.ParseKeyword("NULL") {
+				createRole.Password = &expr.Password{IsNull: true}
+			} else {
+				ep := NewExpressionParser(p)
+				val, err := ep.ParseExpr()
+				if err != nil {
+					return nil, fmt.Errorf("expected value after PASSWORD: %w", err)
+				}
+				createRole.Password = &expr.Password{Value: val}
+			}
+		} else if p.ParseKeyword("VALID") {
+			// Expect UNTIL
+			if !p.ParseKeyword("UNTIL") {
+				return nil, fmt.Errorf("expected UNTIL after VALID")
+			}
+			ep := NewExpressionParser(p)
+			val, err := ep.ParseExpr()
+			if err != nil {
+				return nil, fmt.Errorf("expected expression after VALID UNTIL: %w", err)
+			}
+			createRole.ValidUntil = val
+		} else if p.ParseKeyword("IN") {
+			if p.ParseKeyword("ROLE") {
+				roles, err := parseCommaSeparatedIdents(p)
+				if err != nil {
+					return nil, fmt.Errorf("expected role names after IN ROLE: %w", err)
+				}
+				createRole.InRole = roles
+			} else if p.ParseKeyword("GROUP") {
+				groups, err := parseCommaSeparatedIdents(p)
+				if err != nil {
+					return nil, fmt.Errorf("expected group names after IN GROUP: %w", err)
+				}
+				createRole.InGroup = groups
+			} else {
+				return nil, fmt.Errorf("expected ROLE or GROUP after IN")
+			}
+		} else if p.ParseKeyword("ROLE") {
+			roles, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected role names after ROLE: %w", err)
+			}
+			createRole.Role = roles
+		} else if p.ParseKeyword("USER") {
+			users, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected user names after USER: %w", err)
+			}
+			createRole.User = users
+		} else if p.ParseKeyword("ADMIN") {
+			admins, err := parseCommaSeparatedIdents(p)
+			if err != nil {
+				return nil, fmt.Errorf("expected admin names after ADMIN: %w", err)
+			}
+			createRole.Admin = admins
+		} else if p.ParseKeyword("AUTHORIZATION") {
+			// MSSQL AUTHORIZATION owner
+			owner, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected owner name after AUTHORIZATION: %w", err)
+			}
+			createRole.AuthorizationOwner = owner
+		} else {
+			// No more options
+			break
+		}
+	}
+
+	return createRole, nil
 }
 
 func parseCreateDatabase(p *Parser, orReplace bool, transient bool) (ast.Statement, error) {
