@@ -2159,6 +2159,48 @@ func (p *Parser) ExpectedAt(expected string, index int) error {
 // This is a simplified implementation that handles common data types
 // like INT, TEXT, VARCHAR, etc.
 func (p *Parser) ParseDataType() (datatype.DataType, error) {
+	// Parse the base type first
+	baseType, err := p.parseBaseDataType()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for array brackets [] after the type (PostgreSQL-style INT[])
+	if dialects.SupportsArrayTypedefWithBrackets(p.GetDialect()) {
+		for {
+			if p.ConsumeToken(token.TokenLBracket{}) {
+				// Parse optional array size (e.g., INT[3])
+				var size *uint64
+				sizeTok := p.PeekToken()
+				if num, ok := sizeTok.Token.(token.TokenNumber); ok {
+					s, err := strconv.ParseUint(num.Value, 10, 64)
+					if err == nil {
+						size = &s
+						p.AdvanceToken()
+					}
+				}
+				if _, err := p.ExpectToken(token.TokenRBracket{}); err != nil {
+					return nil, err
+				}
+				// Wrap the type in an Array type
+				baseType = &datatype.ArrayType{
+					ElemDef: datatype.ArrayElemTypeDef{
+						Style:    datatype.ArraySquareBracket,
+						DataType: baseType,
+						Size:     size,
+					},
+				}
+			} else {
+				break
+			}
+		}
+	}
+
+	return baseType, nil
+}
+
+// parseBaseDataType parses the base SQL data type without array brackets
+func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 	tok := p.PeekToken()
 	word, ok := tok.Token.(token.TokenWord)
 	if !ok {

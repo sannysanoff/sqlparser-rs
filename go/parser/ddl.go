@@ -151,17 +151,33 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "IDENTITY", Value: colIdent}, nil
 	}
 
-	// PRIMARY KEY
+	// PRIMARY KEY [DEFERRABLE/etc]
 	if p.ParseKeywords([]string{"PRIMARY", "KEY"}) {
-		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "PRIMARY KEY"}, nil
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOptionDef{
+			ConstraintName:  constraintName,
+			Name:            "PRIMARY KEY",
+			Characteristics: characteristics,
+		}, nil
 	}
 
-	// UNIQUE
+	// UNIQUE [DEFERRABLE/etc]
 	if p.ParseKeyword("UNIQUE") {
-		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "UNIQUE"}, nil
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOptionDef{
+			ConstraintName:  constraintName,
+			Name:            "UNIQUE",
+			Characteristics: characteristics,
+		}, nil
 	}
 
-	// CHECK (expr)
+	// CHECK (expr) [ENFORCED/NOT ENFORCED] [DEFERRABLE/etc]
 	if p.ParseKeyword("CHECK") {
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
@@ -174,7 +190,17 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
-		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "CHECK", Value: checkExpr}, nil
+		// Parse optional constraint characteristics (ENFORCED, DEFERRABLE, etc.)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOptionDef{
+			ConstraintName:  constraintName,
+			Name:            "CHECK",
+			Value:           checkExpr,
+			Characteristics: characteristics,
+		}, nil
 	}
 
 	// ON UPDATE CURRENT_TIMESTAMP [(fractional_seconds_precision)] - MySQL column option
@@ -223,7 +249,18 @@ func parseColumnConstraint(p *Parser) (*expr.ColumnOptionDef, error) {
 			OnUpdate: onUpdate,
 		}
 
-		return &expr.ColumnOptionDef{ConstraintName: constraintName, Name: "REFERENCES", Value: refDetails}, nil
+		// Parse optional constraint characteristics (DEFERRABLE, etc.)
+		characteristics, err := parseConstraintCharacteristics(p)
+		if err != nil {
+			return nil, err
+		}
+
+		return &expr.ColumnOptionDef{
+			ConstraintName:  constraintName,
+			Name:            "REFERENCES",
+			Value:           refDetails,
+			Characteristics: characteristics,
+		}, nil
 	}
 
 	// GENERATED ALWAYS AS expr STORED/VIRTUAL

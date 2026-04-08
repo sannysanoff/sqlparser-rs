@@ -828,9 +828,10 @@ func (c *ColumnOptionReferences) String() string {
 // ColumnOptionDef represents a column option definition.
 // This corresponds to Rust's ColumnOptionDef with name (constraint name) and option.
 type ColumnOptionDef struct {
-	ConstraintName *ast.Ident // Optional constraint name (e.g., "pkey" in "CONSTRAINT pkey PRIMARY KEY")
-	Name           string     // The option type (e.g., "PRIMARY KEY", "CHECK", "NOT NULL")
-	Value          Expr       // Optional value/expression for the option
+	ConstraintName  *ast.Ident                 // Optional constraint name (e.g., "pkey" in "CONSTRAINT pkey PRIMARY KEY")
+	Name            string                     // The option type (e.g., "PRIMARY KEY", "CHECK", "NOT NULL")
+	Value           Expr                       // Optional value/expression for the option
+	Characteristics *ConstraintCharacteristics // Optional constraint characteristics (DEFERRABLE, ENFORCED, etc.)
 }
 
 func (c *ColumnOptionDef) String() string {
@@ -868,6 +869,11 @@ func (c *ColumnOptionDef) String() string {
 		sb.WriteString("CHECK (")
 		sb.WriteString(c.Value.String())
 		sb.WriteString(")")
+		// Add constraint characteristics if present
+		if c.Characteristics != nil {
+			sb.WriteString(" ")
+			sb.WriteString(c.Characteristics.String())
+		}
 		return sb.String()
 	}
 
@@ -933,6 +939,11 @@ func (c *ColumnOptionDef) String() string {
 	if c.Value != nil {
 		sb.WriteString(" ")
 		sb.WriteString(c.Value.String())
+	}
+	// Add constraint characteristics if present (for PRIMARY KEY, UNIQUE, REFERENCES, etc.)
+	if c.Characteristics != nil {
+		sb.WriteString(" ")
+		sb.WriteString(c.Characteristics.String())
 	}
 	return sb.String()
 }

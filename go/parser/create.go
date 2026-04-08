@@ -333,15 +333,27 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 	}
 
-	// Parse AS (CREATE TABLE ... AS SELECT)
+	// Parse AS (CREATE TABLE ... AS SELECT or CREATE TABLE ... AS TABLE)
 	var asQuery *query.Query
+	var asTable *ast.ObjectName
 	if p.PeekKeyword("AS") {
 		p.AdvanceToken()
-		innerQuery, err := p.ParseQuery()
-		if err != nil {
-			return nil, err
+		// Check for AS TABLE (PostgreSQL table cloning syntax)
+		if p.PeekKeyword("TABLE") {
+			p.AdvanceToken()
+			sourceTable, err := p.ParseObjectName()
+			if err != nil {
+				return nil, fmt.Errorf("expected table name after AS TABLE: %w", err)
+			}
+			asTable = sourceTable
+		} else {
+			// Regular AS SELECT
+			innerQuery, err := p.ParseQuery()
+			if err != nil {
+				return nil, err
+			}
+			asQuery = extractQueryFromStatement(innerQuery)
 		}
-		asQuery = extractQueryFromStatement(innerQuery)
 	}
 
 	// Parse CREATE TABLE ... SELECT (MySQL style without AS)
@@ -530,6 +542,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Constraints:      constraints,
 		TableOptions:     tableOptions,
 		Query:            asQuery,
+		AsTable:          asTable,
 		Like:             like,
 		Clone:            clone,
 		OnCluster:        onCluster,

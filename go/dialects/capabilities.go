@@ -235,6 +235,15 @@ func SupportsWithinAfterArrayAggregation(d CoreDialect) bool {
 	return false
 }
 
+// SupportsArrayTypedefWithBrackets returns true if the dialect supports
+// array type definitions with square brackets, e.g., INT[].
+func SupportsArrayTypedefWithBrackets(d CoreDialect) bool {
+	if td, ok := d.(TableDefinitionDialect); ok {
+		return td.SupportsArrayTypedefWithBrackets()
+	}
+	return false
+}
+
 // SupportsMatchRecognize returns true if the dialect supports the MATCH_RECOGNIZE operation.
 func SupportsMatchRecognize(d CoreDialect) bool {
 	if ad, ok := d.(AggregationDialect); ok {

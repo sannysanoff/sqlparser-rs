@@ -54,6 +54,7 @@ type CreateTable struct {
 	Query                      *query.Query
 	WithoutRowid               bool
 	Like                       *expr.CreateTableLikeKind
+	AsTable                    *ast.ObjectName // PostgreSQL: CREATE TABLE x AS TABLE y
 	Clone                      *ast.ObjectName
 	Version                    *expr.TableVersion
 	Comment                    *expr.CommentDef
@@ -263,6 +264,11 @@ func (c *CreateTable) String() string {
 	}
 	if c.RequireUser {
 		f.WriteString(" REQUIRE USER")
+	}
+
+	if c.AsTable != nil {
+		f.WriteString(" AS TABLE ")
+		f.WriteString(c.AsTable.String())
 	}
 
 	if c.Query != nil {
