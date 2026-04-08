@@ -128,8 +128,9 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 		return nil, err
 	}
 
-	// Parse optional table alias (MySQL allows this)
+	// Parse optional table alias (PostgreSQL/MySQL allows this)
 	var tableAlias *ast.Ident
+	var tableAliasExplicit bool
 	if p.dialect.SupportsInsertTableAlias() {
 		// Try to parse AS alias or just implicit alias
 		if p.ParseKeyword("AS") {
@@ -138,12 +139,14 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 				return nil, err
 			}
 			tableAlias = alias
+			tableAliasExplicit = true
 		} else {
 			// Try implicit alias (not followed by certain keywords)
 			if !isInsertReservedKeyword(p.PeekToken()) {
 				alias, err := p.ParseIdentifier()
 				if err == nil {
 					tableAlias = alias
+					tableAliasExplicit = false
 				}
 			}
 		}
@@ -176,7 +179,7 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 		}
 
 		return finishInsert(p, insertToken, optimizerHints, orConflict, priority, ignore, replaceInto,
-			overwrite, into, hasTableKeyword, tableName, tableAlias, nil, nil, true, nil, nil, onInsert, returning)
+			overwrite, into, hasTableKeyword, tableName, tableAlias, tableAliasExplicit, nil, nil, true, nil, nil, onInsert, returning)
 	}
 
 	// Parse optional column list (col1, col2, ...) - can be empty ()
@@ -283,7 +286,7 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 	}
 
 	return finishInsert(p, insertToken, optimizerHints, orConflict, priority, ignore, replaceInto,
-		overwrite, into, hasTableKeyword, tableName, tableAlias, columns, source, false, assignments, insertAlias, onInsert, returning)
+		overwrite, into, hasTableKeyword, tableName, tableAlias, tableAliasExplicit, columns, source, false, assignments, insertAlias, onInsert, returning)
 }
 
 // parseOnConflict parses the ON CONFLICT clause
@@ -352,28 +355,29 @@ func parseOnConflict(p *Parser) (*expr.OnInsert, error) {
 // finishInsert creates the final Insert statement
 func finishInsert(p *Parser, insertToken token.TokenWithSpan, optimizerHints []*expr.OptimizerHint,
 	orConflict *expr.SqliteOnConflict, priority *expr.MysqlInsertPriority, ignore, replaceInto, overwrite, into,
-	hasTableKeyword bool, tableName *ast.ObjectName, tableAlias *ast.Ident, columns []*ast.Ident,
-	source *query.Query, defaultValues bool, assignments []*expr.Assignment, insertAlias *expr.InsertAliases,
-	onInsert *expr.OnInsert, returning []*query.SelectItem) (*statement.Insert, error) {
+	hasTableKeyword bool, tableName *ast.ObjectName, tableAlias *ast.Ident, tableAliasExplicit bool,
+	columns []*ast.Ident, source *query.Query, defaultValues bool, assignments []*expr.Assignment,
+	insertAlias *expr.InsertAliases, onInsert *expr.OnInsert, returning []*query.SelectItem) (*statement.Insert, error) {
 
 	insert := &statement.Insert{
-		OptimizerHints:  optimizerHints,
-		Or:              orConflict,
-		Priority:        priority,
-		Ignore:          ignore,
-		ReplaceInto:     replaceInto,
-		Into:            into,
-		Overwrite:       overwrite,
-		Table:           tableName,
-		TableAlias:      tableAlias,
-		HasTableKeyword: hasTableKeyword,
-		Columns:         columns,
-		Source:          source,
-		DefaultValues:   defaultValues,
-		Assignments:     assignments,
-		InsertAlias:     insertAlias,
-		On:              onInsert,
-		Returning:       returning,
+		OptimizerHints:     optimizerHints,
+		Or:                 orConflict,
+		Priority:           priority,
+		Ignore:             ignore,
+		ReplaceInto:        replaceInto,
+		Into:               into,
+		Overwrite:          overwrite,
+		Table:              tableName,
+		TableAlias:         tableAlias,
+		TableAliasExplicit: tableAliasExplicit,
+		HasTableKeyword:    hasTableKeyword,
+		Columns:            columns,
+		Source:             source,
+		DefaultValues:      defaultValues,
+		Assignments:        assignments,
+		InsertAlias:        insertAlias,
+		On:                 onInsert,
+		Returning:          returning,
 	}
 	insert.SetSpan(insertToken.Span)
 	return insert, nil

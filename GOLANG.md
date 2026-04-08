@@ -1,6 +1,49 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 47 (Placeholder Fix, Recursion Limit, Semicolon Tests, 194 Tests Failing)
+## Latest Update: April 8, 2026 - Session 48 (INSERT Table Alias, ON CONFLICT Serialization, Dollar-Quoted String Alias, 190 Tests Failing)
+
+**Line Counts (Updated April 8, 2026 - Session 48):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,479 lines | 125% |
+| Tests | 49,886 lines | 14,009 lines | 28% |
+| **Test Status** | - | **623 subtests passing** / **190 subtests failing** (~76.6%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 48 Summary:
+
+**Fixed 4 Key Test Issues:**
+
+1. **INSERT Table Alias Serialization** (2 tests now passing - TestPostgresSimplePostgresInsertWithAlias, TestPostgresComplexPostgresInsertWithAlias)
+   - Fixed `INSERT INTO table AS alias` serialization which was missing the alias
+   - **Root Cause**: Go AST had `TableAlias *ast.Ident` but didn't track if AS keyword was used
+   - **Fix**: Added `TableAliasExplicit bool` field to Insert struct to track AS usage, updated parser to set it, and updated String() to serialize alias with or without AS
+   - **Files Modified**: `ast/statement/dml.go`, `parser/dml.go`
+   - **Pattern E178**: INSERT table alias tracking - Add `TableAliasExplicit` field to track if AS keyword was used, then serialize as `TABLE AS ALIAS` if explicit, or `TABLE ALIAS` if implicit
+
+2. **ON CONFLICT Serialization Format** (1 test now passing - TestPostgresOnConflict)
+   - Fixed `ON CONFLICT(col)` vs `ON CONFLICT (col)` format
+   - **Root Cause**: Go was adding space after ON CONFLICT, but Rust expects no space before columns: `ON CONFLICT(col1, col2)`
+   - **Fix**: Updated `OnConflict.String()` to not add space before column list, but add space before `ON CONSTRAINT`
+   - **Files Modified**: `ast/expr/ddl.go`
+   - **Pattern E179**: ON CONFLICT serialization - No space before columns: `ON CONFLICT(col1, col2)`, but space before ON CONSTRAINT: `ON CONFLICT ON CONSTRAINT name`
+
+3. **Dollar-Quoted String with Implicit Alias** (1 test now passing - TestPostgresDollarQuotedString)
+   - Fixed `$$string$$alias` serialization which was outputting `$$string$$ AS alias`
+   - **Root Cause**: `AliasedExpr.String()` was always adding AS for all aliased expressions
+   - **Fix**: Added `Explicit bool` field to `AliasedExpr` to track if AS keyword was used. For implicit aliases with dollar-quoted strings, output without space: `$$string$$alias`
+   - **Files Modified**: `ast/query/query.go`, `parser/query.go`
+   - **Pattern E180**: Implicit alias serialization - Track `Explicit` flag in `AliasedExpr`. For dollar-quoted strings with implicit alias, don't add space: `$$string$$alias`. For other expressions with implicit alias, add space: `expr alias`
+
+**New Patterns Documented:**
+- **Pattern E178**: INSERT table alias tracking - Add `TableAliasExplicit bool` field to track if AS keyword was used
+- **Pattern E179**: ON CONFLICT serialization - No space before columns: `ON CONFLICT(col1, col2)`, space before ON CONSTRAINT
+- **Pattern E180**: Implicit alias serialization - Track `Explicit` flag in `AliasedExpr`, handle dollar-quoted strings specially
+
+---
+
+## Previous Update: April 8, 2026 - Session 47 (Placeholder Fix, Recursion Limit, Semicolon Tests, 194 Tests Failing)
 
 **Line Counts (Updated April 8, 2026 - Session 47):**
 
@@ -4825,3 +4868,82 @@ func parseCreateDatabase(p *Parser, orReplace bool, transient bool) (ast.Stateme
 
 **Solution**: Add a loop to parse Snowflake-specific options after the main clause parsing. See Pattern E135 documentation in Session 33 summary above for full code example.
 
+
+---
+
+### Error E178: INSERT Table Alias Not Serialized
+**Cause**: INSERT statement with table alias like `INSERT INTO table AS alias` was not serializing the alias.
+
+**Solution**: Add `TableAliasExplicit bool` field to Insert struct to track if AS keyword was used:
+
+```go
+// In ast/statement/dml.go
+type Insert struct {
+    // ... other fields ...
+    TableAlias         *ast.Ident
+    TableAliasExplicit bool // true if "AS" was used before the alias
+    // ...
+}
+
+// In String() method:
+if i.TableAlias != nil {
+    if i.TableAliasExplicit {
+        f.WriteString(" AS")
+    }
+    f.WriteString(" ")
+    f.WriteString(i.TableAlias.String())
+}
+```
+
+### Error E179: ON CONFLICT Serialization Format
+**Cause**: ON CONFLICT was being serialized with space after `ON CONFLICT` but Rust expects no space before column list.
+
+**Solution**: Update `OnConflict.String()` to handle columns vs constraint differently:
+
+```go
+func (o *OnConflict) String() string {
+    var result strings.Builder
+    result.WriteString("ON CONFLICT")
+    if o.ConflictTarget != nil {
+        // ON CONFLICT(col1, col2) - no space before columns
+        // ON CONFLICT ON CONSTRAINT name - space before ON CONSTRAINT
+        if o.ConflictTarget.OnConstraint != nil {
+            result.WriteString(" ")
+        }
+        result.WriteString(o.ConflictTarget.String())
+    }
+    result.WriteString(" DO ")
+    result.WriteString(o.Action.String())
+    return result.String()
+}
+```
+
+### Error E180: Implicit Alias Serialization for Dollar-Quoted Strings
+**Cause**: Dollar-quoted strings with implicit alias like `$$string$$alias` were being serialized as `$$string$$ AS alias`.
+
+**Solution**: Add `Explicit bool` field to `AliasedExpr` to track if AS keyword was used, and handle dollar-quoted strings specially:
+
+```go
+type AliasedExpr struct {
+    Expr     Expr
+    Alias    Ident
+    Explicit bool // true if AS keyword was used
+}
+
+func (e *AliasedExpr) String() string {
+    if e.Explicit {
+        return fmt.Sprintf("%s AS %s", e.Expr.String(), e.Alias.String())
+    }
+    // For implicit aliases, check if the expression ends with $ (dollar-quoted string)
+    // If so, don't add space: $$string$$alias (PostgreSQL syntax)
+    exprStr := e.Expr.String()
+    if strings.HasSuffix(exprStr, "$") {
+        return fmt.Sprintf("%s%s", exprStr, e.Alias.String())
+    }
+    return fmt.Sprintf("%s %s", exprStr, e.Alias.String())
+}
+```
+
+---
+
+**End of GOLANG.md**

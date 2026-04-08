@@ -57,6 +57,7 @@ type Insert struct {
 	Into                  bool
 	Table                 *ast.ObjectName
 	TableAlias            *ast.Ident
+	TableAliasExplicit    bool // true if "AS" was used before the alias
 	Columns               []*ast.Ident
 	Overwrite             bool
 	Source                *query.Query
@@ -153,6 +154,15 @@ func (i *Insert) String() string {
 
 	f.WriteString(" ")
 	f.WriteString(i.Table.String())
+
+	// Add table alias if present (PostgreSQL style: INSERT INTO table AS alias)
+	if i.TableAlias != nil {
+		if i.TableAliasExplicit {
+			f.WriteString(" AS")
+		}
+		f.WriteString(" ")
+		f.WriteString(i.TableAlias.String())
+	}
 
 	if len(i.Columns) > 0 {
 		f.WriteString(" (")

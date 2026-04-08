@@ -1031,8 +1031,9 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 						aliasIdent.QuoteStyle = &q
 					}
 					return &query.AliasedExpr{
-						Expr:  &queryExprWrapper{expr: binOp.Right},
-						Alias: aliasIdent,
+						Expr:     &queryExprWrapper{expr: binOp.Right},
+						Alias:    aliasIdent,
+						Explicit: true, // MSSQL alias = expr syntax is explicit
 					}, nil
 				}
 			}
@@ -1046,8 +1047,9 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 			return nil, err
 		}
 		return &query.AliasedExpr{
-			Expr:  &queryExprWrapper{expr: parsedExpr},
-			Alias: astIdentToQuery(aliasIdent),
+			Expr:     &queryExprWrapper{expr: parsedExpr},
+			Alias:    astIdentToQuery(aliasIdent),
+			Explicit: true,
 		}, nil
 	}
 
@@ -1058,8 +1060,9 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 			aliasIdent, err := p.ParseIdentifier()
 			if err == nil {
 				return &query.AliasedExpr{
-					Expr:  &queryExprWrapper{expr: parsedExpr},
-					Alias: astIdentToQuery(aliasIdent),
+					Expr:     &queryExprWrapper{expr: parsedExpr},
+					Alias:    astIdentToQuery(aliasIdent),
+					Explicit: false,
 				}, nil
 			}
 		}

@@ -3695,14 +3695,19 @@ type OnConflict struct {
 }
 
 func (o *OnConflict) String() string {
-	var parts []string
-	parts = append(parts, "ON CONFLICT")
+	var result strings.Builder
+	result.WriteString("ON CONFLICT")
 	if o.ConflictTarget != nil {
-		parts = append(parts, o.ConflictTarget.String())
+		// ON CONFLICT(col1, col2) - no space before columns
+		// ON CONFLICT ON CONSTRAINT name - space before ON CONSTRAINT
+		if o.ConflictTarget.OnConstraint != nil {
+			result.WriteString(" ")
+		}
+		result.WriteString(o.ConflictTarget.String())
 	}
-	parts = append(parts, "DO")
-	parts = append(parts, o.Action.String())
-	return strings.Join(parts, " ")
+	result.WriteString(" DO ")
+	result.WriteString(o.Action.String())
+	return result.String()
 }
 
 // ConflictTarget represents the target for ON CONFLICT (columns or constraint).
