@@ -3123,17 +3123,15 @@ func (f *FunctionDesc) Span() token.Span { return token.Span{} }
 func (f *FunctionDesc) String() string {
 	var sb strings.Builder
 	sb.WriteString(f.Name.String())
-	// Only add () if there are arguments
-	if len(f.Args) > 0 {
-		sb.WriteString("(")
-		for i, arg := range f.Args {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(arg.String())
+	// Always add () for function calls, even if no arguments
+	sb.WriteString("(")
+	for i, arg := range f.Args {
+		if i > 0 {
+			sb.WriteString(", ")
 		}
-		sb.WriteString(")")
+		sb.WriteString(arg.String())
 	}
+	sb.WriteString(")")
 	return sb.String()
 }
 
@@ -3155,14 +3153,40 @@ func (t *TriggerExecBody) String() string {
 	return sb.String()
 }
 
-// ConditionalStatements represents conditional statements.
-type ConditionalStatements struct{}
+// ConditionalStatements represents conditional statements (either a BEGIN/END block or a sequence).
+type ConditionalStatements struct {
+	IsBeginEnd bool            // true if wrapped in BEGIN/END
+	Statements []ast.Statement // the statements inside
+}
 
 func (c *ConditionalStatements) exprNode()        {}
 func (c *ConditionalStatements) expr()            {}
 func (c *ConditionalStatements) IsExpr()          {}
 func (c *ConditionalStatements) Span() token.Span { return token.Span{} }
-func (c *ConditionalStatements) String() string   { return "" }
+
+func (c *ConditionalStatements) String() string {
+	if c == nil || len(c.Statements) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	if c.IsBeginEnd {
+		sb.WriteString("BEGIN ")
+	}
+	for i, stmt := range c.Statements {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(stmt.String())
+		// Add semicolon after each statement in a compound block
+		if c.IsBeginEnd {
+			sb.WriteString(";")
+		}
+	}
+	if c.IsBeginEnd {
+		sb.WriteString(" END")
+	}
+	return sb.String()
+}
 
 // MacroArg represents macro argument.
 type MacroArg struct{}
@@ -5544,9 +5568,11 @@ func (v *ValueWithSpan) String() string   { return v.Value }
 
 // LockTable represents a table to lock.
 type LockTable struct {
-	Table    *ast.Ident
-	Alias    *ast.Ident
-	LockType LockTableType
+	Table       *ast.ObjectName
+	Alias       *ast.Ident
+	LockType    LockTableType
+	Only        bool // PostgreSQL: ONLY table_name
+	HasAsterisk bool // PostgreSQL: table_name* (include descendants)
 }
 
 // LockTableType represents the type of lock for LOCK TABLES.
@@ -5579,17 +5605,54 @@ func (l *LockTable) expr()            {}
 func (l *LockTable) IsExpr()          {}
 func (l *LockTable) Span() token.Span { return token.Span{} }
 func (l *LockTable) String() string {
-	return fmt.Sprintf("%s", l.Table.String())
+	var sb strings.Builder
+	if l.Only {
+		sb.WriteString("ONLY ")
+	}
+	sb.WriteString(l.Table.String())
+	if l.HasAsterisk {
+		sb.WriteString(" *")
+	}
+	return sb.String()
 }
 
-// LockMode represents lock mode.
+// LockMode represents PostgreSQL lock table modes.
 type LockMode int
 
 const (
 	LockModeNone LockMode = iota
+	LockModeAccessShare
+	LockModeAccessExclusive
+	LockModeRowShare
+	LockModeRowExclusive
+	LockModeShareUpdateExclusive
+	LockModeShareRowExclusive
+	LockModeShare
+	LockModeExclusive
 )
 
-func (l LockMode) String() string { return "" }
+func (l LockMode) String() string {
+	switch l {
+	case LockModeAccessShare:
+		return "ACCESS SHARE"
+	case LockModeAccessExclusive:
+		return "ACCESS EXCLUSIVE"
+	case LockModeRowShare:
+		return "ROW SHARE"
+	case LockModeRowExclusive:
+		return "ROW EXCLUSIVE"
+	case LockModeShareUpdateExclusive:
+		return "SHARE UPDATE EXCLUSIVE"
+	case LockModeShareRowExclusive:
+		return "SHARE ROW EXCLUSIVE"
+	case LockModeShare:
+		return "SHARE"
+	case LockModeExclusive:
+		return "EXCLUSIVE"
+	default:
+		return ""
+	}
+}
 
 // IamRoleKind represents IAM role kind.
 type IamRoleKind struct {

@@ -1,6 +1,86 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 61 (Critical Bug Fix: NOT NULL Column Constraint Parsing)
+## Latest Update: April 8, 2026 - Session 62 (Massive Code Port: CREATE TRIGGER, LOCK TABLE, SET TRANSACTION)
+
+**Line Counts (Updated April 8, 2026 - Session 62):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 100,460 lines | 149% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **113 tests failing** (~86% success rate) |
+| **Total Test Cases** | - | ~1,212 test outcomes |
+| **Tests Passing** | - | **~705 tests** |
+
+### Session 62 Summary: Massive Code Port Complete (+6 tests passing)
+
+**1. CREATE TRIGGER Implementation (MySQL/PostgreSQL)**
+
+Fixed two critical issues with CREATE TRIGGER:
+
+- **Function call serialization**: Added missing parentheses for trigger execute body with no arguments
+  - Fixed `FunctionDesc.String()` to always output `()` even when no arguments
+  - **Pattern E231**: Function call parentheses - Always include `()` in function call serialization, even for zero arguments
+
+- **Compound statement body parsing**: Implemented BEGIN ... END block parsing for trigger bodies
+  - Updated `parseCreateTrigger()` to handle compound statement bodies
+  - Extended `ConditionalStatements` struct to track `IsBeginEnd` flag
+  - Updated `String()` method to include semicolons between statements in BEGIN/END blocks
+  - **Pattern E232**: Compound statement serialization - Add semicolons between statements when inside BEGIN/END blocks for proper SQL generation
+
+**Tests Now Passing**:
+- `TestParseCreateTrigger` (MySQL trigger with EXECUTE FUNCTION)
+- `TestParseCreateTriggerCompoundStatement` (MySQL triggers with BEGIN...END blocks)
+
+**2. SET TRANSACTION CHARACTERISTICS Support**
+
+Fixed serialization of `SET SESSION CHARACTERISTICS AS TRANSACTION`:
+
+- Added `Characteristics` field to `SetTransaction` struct
+- Updated parser to set this flag when parsing CHARACTERISTICS AS
+- Updated `String()` method to output "CHARACTERISTICS AS" when flag is set
+- **Pattern E233**: Optional clause tracking - Use boolean flags to track optional SQL clauses like CHARACTERISTICS AS for proper round-trip serialization
+
+**Tests Now Passing**:
+- `TestPostgresSetTransaction` (all subtests)
+- `TestPostgresTransactionStatement`
+
+**3. LOCK TABLE Implementation (PostgreSQL)**
+
+Implemented full PostgreSQL LOCK TABLE syntax:
+
+- Updated `LockTable` struct to support:
+  - `Only` field for `LOCK TABLE ONLY table_name`
+  - `HasAsterisk` field for `table_name*` (include descendants)
+  - Changed `Table` from `*ast.Ident` to `*ast.ObjectName` for schema-qualified names
+  
+- Added all PostgreSQL lock modes to `LockMode` enum:
+  - ACCESS SHARE, ACCESS EXCLUSIVE
+  - ROW SHARE, ROW EXCLUSIVE
+  - SHARE UPDATE EXCLUSIVE, SHARE ROW EXCLUSIVE
+  - SHARE, EXCLUSIVE
+
+- Updated `parseLock()` to:
+  - Parse schema-qualified table names
+  - Handle ONLY keyword and asterisk suffix
+  - Parse all IN ... MODE variations
+  - Support NOWAIT option
+
+- Updated `Lock.String()` and `LockTable.String()` for proper serialization
+
+**Tests Now Passing**:
+- `TestPostgresLockTable` (all subtests including complex multi-table locks)
+
+**New Patterns Documented**:
+- **Pattern E231**: Function call parentheses - Always include `()` in function call serialization, even for zero arguments in trigger EXECUTE bodies
+- **Pattern E232**: Compound statement serialization - Add semicolons between statements when inside BEGIN/END blocks
+- **Pattern E233**: Optional clause tracking - Use boolean flags to track optional SQL clauses for proper round-trip serialization
+- **Pattern E234**: PostgreSQL LOCK TABLE modes - Parse complex multi-word lock modes like SHARE UPDATE EXCLUSIVE by checking longer phrases first
+- **Pattern E235**: Schema-qualified table names in LOCK - Use `ParseObjectName()` not `ParseIdentifier()` for table names that may include schema
+
+---
+
+## Previous Update: April 8, 2026 - Session 61 (Critical Bug Fix: NOT NULL Column Constraint Parsing)
 
 **Line Counts (Updated April 8, 2026 - Session 61):**
 
@@ -2618,6 +2698,156 @@ case token.TokenSingleQuotedString:
 ```
 
 **Solution**: Always set `Quoted: true` when parsing quoted string values in key-value options.
+
+### E231: Missing Parentheses in Function Call Serialization
+**Error**: Trigger EXECUTE FUNCTION func_name (no args) serializes as just `func_name` instead of `func_name()`.
+
+**Example**:
+```go
+// WRONG - missing () for no-argument function calls
+func (f *FunctionDesc) String() string {
+    sb.WriteString(f.Name.String())
+    if len(f.Args) > 0 {  // Only adds () if there are arguments!
+        sb.WriteString("(")
+        // ... args ...
+        sb.WriteString(")")
+    }
+    return sb.String()
+}
+
+// CORRECT - always include ()
+func (f *FunctionDesc) String() string {
+    sb.WriteString(f.Name.String())
+    sb.WriteString("(")  // Always add opening paren
+    for i, arg := range f.Args {
+        if i > 0 {
+            sb.WriteString(", ")
+        }
+        sb.WriteString(arg.String())
+    }
+    sb.WriteString(")")  // Always add closing paren
+    return sb.String()
+}
+```
+
+**Solution**: Always include `()` in function call serialization, even when there are no arguments.
+
+### E232: Missing Semicolons in Compound Statement Serialization
+**Error**: BEGIN ... END blocks serialize without semicolons between statements: `BEGIN SET a = 1 SET b = 2 END`.
+
+**Example**:
+```go
+// WRONG - missing semicolons
+func (c *ConditionalStatements) String() string {
+    sb.WriteString("BEGIN ")
+    for i, stmt := range c.Statements {
+        if i > 0 {
+            sb.WriteString(" ")
+        }
+        sb.WriteString(stmt.String())
+    }
+    sb.WriteString(" END")
+}
+
+// CORRECT - include semicolons
+func (c *ConditionalStatements) String() string {
+    sb.WriteString("BEGIN ")
+    for i, stmt := range c.Statements {
+        if i > 0 {
+            sb.WriteString(" ")
+        }
+        sb.WriteString(stmt.String())
+        if c.IsBeginEnd {
+            sb.WriteString(";")  // Add semicolon after each statement
+        }
+    }
+    sb.WriteString(" END")
+}
+```
+
+**Solution**: Add semicolons between statements when inside BEGIN/END blocks.
+
+### E233: Missing Optional Clause Serialization
+**Error**: `SET SESSION CHARACTERISTICS AS TRANSACTION` serializes as `SET SESSION TRANSACTION` (missing "CHARACTERISTICS AS").
+
+**Example**:
+```go
+// In AST struct
+type SetTransaction struct {
+    Session bool
+    Modes   []TransactionMode
+    // Missing: Characteristics bool
+}
+
+// WRONG - doesn't track if CHARACTERISTICS AS was present
+func (s *SetTransaction) String() string {
+    f.WriteString("SET ")
+    if s.Session {
+        f.WriteString("SESSION ")
+    }
+    f.WriteString("TRANSACTION")  // Missing CHARACTERISTICS AS!
+}
+
+// CORRECT - track and serialize optional clause
+type SetTransaction struct {
+    Session         bool
+    Characteristics bool  // New field to track optional clause
+    Modes           []TransactionMode
+}
+
+func (s *SetTransaction) String() string {
+    f.WriteString("SET ")
+    if s.Session {
+        f.WriteString("SESSION ")
+    }
+    if s.Characteristics {
+        f.WriteString("CHARACTERISTICS AS ")
+    }
+    f.WriteString("TRANSACTION")
+}
+```
+
+**Solution**: Use boolean flags to track optional SQL clauses for proper round-trip serialization.
+
+### E234: Multi-Word Lock Mode Parsing
+**Error**: `IN SHARE UPDATE EXCLUSIVE MODE` not parsed correctly due to keyword overlap (SHARE appears in both "SHARE" and "SHARE UPDATE EXCLUSIVE").
+
+**Example**:
+```go
+// WRONG - checks simple keywords first, misses complex phrases
+if p.ParseKeyword("SHARE") {
+    return LockModeShare  // Wrong! Could be SHARE UPDATE EXCLUSIVE
+}
+
+// CORRECT - check longer phrases first
+if p.ParseKeywords([]string{"SHARE", "UPDATE", "EXCLUSIVE"}) {
+    return LockModeShareUpdateExclusive
+} else if p.ParseKeywords([]string{"SHARE", "ROW", "EXCLUSIVE"}) {
+    return LockModeShareRowExclusive
+} else if p.ParseKeyword("SHARE") {
+    return LockModeShare
+}
+```
+
+**Solution**: When parsing multi-word keywords, check longer phrases before shorter ones to avoid premature matching.
+
+### E235: Simple Identifier vs ObjectName for Table Names
+**Error**: `LOCK TABLE public.widgets` fails because parser expects simple identifier, not schema-qualified name.
+
+**Example**:
+```go
+// WRONG - simple identifier only
+func parseLock() {
+    tableName, err := p.ParseIdentifier()  // Can't handle schema.table
+}
+
+// CORRECT - use ObjectName for qualified names
+func parseLock() {
+    tableName, err := p.ParseObjectName()  // Handles schema.table
+}
+```
+
+**Solution**: Use `ParseObjectName()` not `ParseIdentifier()` for table names that may include schema prefixes.
 
 ---
 

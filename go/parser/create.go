@@ -2920,7 +2920,7 @@ func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
 		trigger.Condition = condition
 	}
 
-	// Parse EXECUTE clause (FUNCTION or PROCEDURE)
+	// Parse EXECUTE clause (FUNCTION or PROCEDURE) OR compound statement body
 	if p.PeekKeyword("EXECUTE") {
 		p.NextToken()
 		execBody, err := parseTriggerExecBody(p)
@@ -2929,8 +2929,24 @@ func parseCreateTrigger(p *Parser, orReplace bool) (ast.Statement, error) {
 		}
 		trigger.ExecBody = execBody
 	} else {
-		// Parse statement body (for T-SQL style triggers)
-		// For now, skip this - it's complex conditional statement parsing
+		// Parse compound statement body (BEGIN ... END block or sequence of statements)
+		isBeginEnd := p.PeekKeyword("BEGIN")
+		if isBeginEnd {
+			p.NextToken() // consume BEGIN
+		}
+		stmts, err := parseConditionalStatements(p, []string{"END"})
+		if err != nil {
+			return nil, err
+		}
+		if isBeginEnd {
+			if _, err := p.ExpectKeyword("END"); err != nil {
+				return nil, err
+			}
+		}
+		trigger.Statements = &expr.ConditionalStatements{
+			IsBeginEnd: isBeginEnd,
+			Statements: stmts,
+		}
 	}
 
 	return trigger, nil

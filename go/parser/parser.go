@@ -1185,33 +1185,32 @@ func (p *Parser) parseRelease() (ast.Statement, error) {
 
 func (p *Parser) parseLock() (ast.Statement, error) {
 	// LOCK TABLE table_name [, ...] [IN lock_mode MODE] [NOWAIT]
-	// Check dialect - some dialects like MySQL handle LOCK in their own parseStatement
-	dialect := p.GetDialect()
-	dialectName := dialect.Dialect()
-
-	// PostgreSQL/generic dialect: LOCK TABLE
-	// MySQL has its own LOCK TABLES handling
-	if dialectName == "mysql" {
-		return nil, p.expectedRef("LOCK not yet implemented for generic dialect", p.PeekTokenRef())
-	}
-
 	// Check for LOCK [TABLE | TABLES]
 	isTables := p.ParseKeyword("TABLES")
 	if !isTables {
 		p.ParseKeyword("TABLE") // Optional TABLE keyword
 	}
 
-	// Parse table list
+	// Parse table list with optional ONLY and asterisk (PostgreSQL)
 	var tables []*expr.LockTable
 	for {
-		tableName, err := p.ParseIdentifier()
+		// Check for ONLY keyword (PostgreSQL)
+		only := p.ParseKeyword("ONLY")
+
+		// Parse table name (can be qualified like schema.table)
+		tableName, err := p.ParseObjectName()
 		if err != nil {
 			return nil, err
 		}
 
+		// Check for asterisk (PostgreSQL: table_name* includes descendants)
+		hasAsterisk := p.ConsumeToken(token.TokenMul{})
+
 		tables = append(tables, &expr.LockTable{
-			Table:    tableName,
-			LockType: expr.LockTableTypeRead, // Default
+			Table:       tableName,
+			LockType:    expr.LockTableTypeRead, // Default
+			Only:        only,
+			HasAsterisk: hasAsterisk,
 		})
 
 		if !p.ConsumeToken(token.TokenComma{}) {
@@ -1219,17 +1218,14 @@ func (p *Parser) parseLock() (ast.Statement, error) {
 		}
 	}
 
-	// Parse optional IN ... MODE clause
+	// Parse optional IN ... MODE clause (PostgreSQL lock modes)
 	var lockMode *expr.LockMode
 	if p.ParseKeyword("IN") {
-		// Simplified: just consume the mode keywords and set a basic mode
-		// Full implementation would parse ACCESS SHARE, ROW EXCLUSIVE, etc.
-		p.ParseKeyword("ACCESS")
-		p.ParseKeyword("SHARE")
-		if p.ParseKeyword("MODE") {
-			mode := expr.LockMode(1) // Placeholder
+		mode := p.parseLockTableMode()
+		if mode != expr.LockModeNone {
 			lockMode = &mode
 		}
+		p.ExpectKeyword("MODE")
 	}
 
 	// Parse optional NOWAIT
@@ -1240,6 +1236,30 @@ func (p *Parser) parseLock() (ast.Statement, error) {
 		Mode:   lockMode,
 		NoWait: noWait,
 	}, nil
+}
+
+// parseLockTableMode parses PostgreSQL lock table modes
+func (p *Parser) parseLockTableMode() expr.LockMode {
+	switch {
+	case p.ParseKeywords([]string{"ACCESS", "SHARE"}):
+		return expr.LockModeAccessShare
+	case p.ParseKeywords([]string{"ACCESS", "EXCLUSIVE"}):
+		return expr.LockModeAccessExclusive
+	case p.ParseKeywords([]string{"ROW", "SHARE"}):
+		return expr.LockModeRowShare
+	case p.ParseKeywords([]string{"ROW", "EXCLUSIVE"}):
+		return expr.LockModeRowExclusive
+	case p.ParseKeywords([]string{"SHARE", "UPDATE", "EXCLUSIVE"}):
+		return expr.LockModeShareUpdateExclusive
+	case p.ParseKeywords([]string{"SHARE", "ROW", "EXCLUSIVE"}):
+		return expr.LockModeShareRowExclusive
+	case p.ParseKeyword("SHARE"):
+		return expr.LockModeShare
+	case p.ParseKeyword("EXCLUSIVE"):
+		return expr.LockModeExclusive
+	default:
+		return expr.LockModeNone
+	}
 }
 
 func (p *Parser) parseUnlock() (ast.Statement, error) {

@@ -1660,6 +1660,14 @@ func (l *Lock) String() string {
 		}
 		f.WriteString(table.String())
 	}
+	if l.Mode != nil && *l.Mode != expr.LockModeNone {
+		f.WriteString(" IN ")
+		f.WriteString(l.Mode.String())
+		f.WriteString(" MODE")
+	}
+	if l.NoWait {
+		f.WriteString(" NOWAIT")
+	}
 	return f.String()
 }
 
@@ -2094,12 +2102,15 @@ func (r *Reset) String() string {
 
 // SetTransaction represents a SET TRANSACTION statement.
 // Syntax: SET [ SESSION | LOCAL ] TRANSACTION [ modes ] [ SNAPSHOT value ]
+//
+//	SET SESSION CHARACTERISTICS AS TRANSACTION [ modes ]
 type SetTransaction struct {
 	BaseStatement
-	Modes    []expr.TransactionMode
-	Snapshot expr.Expr
-	Session  bool
-	Local    bool
+	Modes           []expr.TransactionMode
+	Snapshot        expr.Expr
+	Session         bool
+	Local           bool
+	Characteristics bool // true for SET SESSION CHARACTERISTICS AS TRANSACTION
 }
 
 func (s *SetTransaction) statementNode() {}
@@ -2112,6 +2123,9 @@ func (s *SetTransaction) String() string {
 	}
 	if s.Local {
 		f.WriteString("LOCAL ")
+	}
+	if s.Characteristics {
+		f.WriteString("CHARACTERISTICS AS ")
 	}
 	f.WriteString("TRANSACTION")
 	if len(s.Modes) > 0 {

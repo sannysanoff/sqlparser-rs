@@ -705,7 +705,7 @@ func parseSet(p *Parser) (ast.Statement, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &statement.SetTransaction{Session: true, Modes: modes}, nil
+		return &statement.SetTransaction{Session: true, Characteristics: true, Modes: modes}, nil
 	}
 
 	if p.GetDialect().SupportsSetNames() && p.ParseKeyword("NAMES") {
