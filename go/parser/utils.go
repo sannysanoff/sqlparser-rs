@@ -241,6 +241,23 @@ func (p *Parser) PeekKeyword(expected string) bool {
 	return false
 }
 
+// PeekKeywordWithLParen checks if the current token is the expected keyword
+// followed by an opening parenthesis, without consuming them.
+// This is used for detecting table-valued functions like JSON_TABLE(...)
+func (p *Parser) PeekKeywordWithLParen(expected string) bool {
+	tok := p.PeekTokenRef()
+	if wordTok, ok := tok.Token.(token.TokenWord); ok {
+		if string(wordTok.Word.Keyword) == expected {
+			// Check if next token is LParen
+			nextTok := p.PeekNthToken(1)
+			if _, isLParen := nextTok.Token.(token.TokenLParen); isLParen {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ParseKeywords checks if the current and subsequent tokens exactly match the
 // keywords sequence, consumes them and returns true.
 // Otherwise, no tokens are consumed and returns false.

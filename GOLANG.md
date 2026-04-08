@@ -1,6 +1,51 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 59 (Parser Fixes: ORDER BY Keyword Check, EXCLUDE Tests, Stage Params)
+## Latest Update: April 8, 2026 - Session 60 (Massive Code Port: JSON_TABLE Support)
+
+**Line Counts (Updated April 8, 2026 - Session 60):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 66,842 lines | 85,789 lines | 128% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **118 tests failing** (~85% success rate) |
+| **Total Test Cases** | - | ~813 test outcomes |
+| **Tests Passing** | - | **~695 tests** |
+
+### Session 60 Summary: JSON_TABLE Implementation (+1 test passing, major feature)
+
+**Implemented JSON_TABLE Table-Valued Function:**
+
+1. **JSON_TABLE Parsing** (TestParseJsonTable now passing - major MySQL/Oracle feature!)
+   - **Implementation**: Added `parseJsonTableFactor()` to handle `JSON_TABLE(json_expr, path COLUMNS (...))` syntax
+   - **Features**: 
+     - Parses JSON expression and JSON path
+     - Handles COLUMNS clause with named columns, FOR ORDINALITY, and NESTED PATH
+     - Supports column options: data type, PATH, ON EMPTY, ON ERROR
+   - **Files Modified**: `parser/query.go` (lines 1855-2058)
+   - **New Functions**: `parseJsonTableFactor()`, `parseJsonTableColumn()`, `parseJsonTableNestedColumn()`, `parseJsonTableErrorHandling()`
+
+2. **OPENJSON Support** (MSSQL compatibility)
+   - **Implementation**: Added `parseOpenJsonTableFactor()` for MSSQL's `OPENJSON(json_expr [, path]) [WITH (col1 type, ...)]` syntax
+   - **Files Modified**: `parser/query.go` (lines 2096-2176)
+
+3. **Helper Functions Added:**
+   - `PeekKeywordWithLParen()`: Check for keyword followed by opening paren (for table-valued functions)
+   - `queryValueExpr`: Simple query.Expr wrapper for string values (used for data types in JSON_TABLE columns)
+
+4. **Serialization Fixes:**
+   - Fixed `JsonTableTableFactor.String()` to properly quote JSON paths
+   - Fixed `JsonTableNamedColumn.String()` to properly quote column PATH values
+
+**New Patterns Documented:**
+- **Pattern E224**: JSON_TABLE parsing - Parse JSON_TABLE keyword followed by `(`, then JSON expression, comma, JSON path string, COLUMNS keyword, and column definitions in parentheses
+- **Pattern E225**: Table-valued function detection - Use `PeekKeywordWithLParen()` to detect keywords like JSON_TABLE that must be followed by `(` to distinguish from table names
+- **Pattern E226**: Query value expression wrapper - Use `queryValueExpr{value: "..."}` to create a simple `query.Expr` from a string for representing data types or literals
+- **Pattern E227**: ValueWithSpan quote preservation - When serializing paths or string values that were parsed with quotes, check if the value already has quotes and add them if not: `if val[0] != '\'' { val = fmt.Sprintf("'%s'", val) }`
+
+---
+
+## Previous Update: April 8, 2026 - Session 59 (Parser Fixes: ORDER BY Keyword Check, EXCLUDE Tests, Stage Params)
 
 **Line Counts (Updated April 8, 2026 - Session 59):**
 
@@ -6123,6 +6168,65 @@ func (e *AliasedExpr) String() string {
     }
     return fmt.Sprintf("%s %s", exprStr, e.Alias.String())
 }
+```
+
+### Error E224: JSON_TABLE Not Recognized as Table Factor
+**Cause**: `JSON_TABLE(...)` is parsed as a regular table name followed by function arguments, failing on the COLUMNS clause.
+
+**Solution**: Check for JSON_TABLE keyword with following parenthesis in `parseTableFactor()` before falling through to regular table name parsing:
+
+```go
+// Check for JSON_TABLE table-valued function (MySQL/MariaDB/Oracle)
+if p.PeekKeywordWithLParen("JSON_TABLE") {
+    return parseJsonTableFactor(p)
+}
+
+// Parse JSON expression, path, COLUMNS keyword, and column definitions
+func parseJsonTableFactor(p *Parser) (query.TableFactor, error) {
+    p.AdvanceToken() // consume JSON_TABLE
+    p.ExpectToken(token.TokenLParen{})
+    jsonExpr, _ := ep.ParseExpr()
+    p.ExpectToken(token.TokenComma{})
+    jsonPathStr, _ := p.ParseStringLiteral()
+    p.ExpectKeywordIs("COLUMNS")
+    p.ExpectToken(token.TokenLParen{})
+    // ... parse column definitions
+}
+```
+
+### Error E225: Quote Preservation in ValueWithSpan Serialization
+**Cause**: Values stored in `ValueWithSpan` lose their quotes during serialization, producing `JSON_TABLE(expr, $[*] ...)` instead of `JSON_TABLE(expr, '$[*]' ...)`.
+
+**Solution**: Check if the value already has quotes and add them in the String() method if missing:
+
+```go
+func (j *JsonTableTableFactor) String() string {
+    jsonPath := j.JsonPath.Value
+    if len(jsonPath) > 0 && jsonPath[0] != '\'' && jsonPath[0] != '"' {
+        jsonPath = fmt.Sprintf("'%s'", jsonPath)
+    }
+    result := fmt.Sprintf("JSON_TABLE(%s, %s COLUMNS (%s))",
+        j.JsonExpr.String(), jsonPath, strings.Join(cols, ", "))
+    // ...
+}
+```
+
+### Error E226: Creating Simple Query Expressions from Strings
+**Cause**: Need to represent a data type or literal as a `query.Expr` but there's no simple wrapper type.
+
+**Solution**: Create a simple wrapper struct that implements the `query.Expr` interface:
+
+```go
+// queryValueExpr is a simple query.Expr that just returns a string value
+type queryValueExpr struct {
+    value string
+}
+
+func (v *queryValueExpr) String() string {
+    return v.value
+}
+
+// Usage: &queryValueExpr{value: dataType.String()}
 ```
 
 ---

@@ -261,8 +261,13 @@ func (j *JsonTableTableFactor) String() string {
 	for i, c := range j.Columns {
 		cols[i] = c.String()
 	}
-	result := fmt.Sprintf("JSON_TABLE(%s, %s COLUMNS(%s))",
-		j.JsonExpr.String(), j.JsonPath.String(), strings.Join(cols, ", "))
+	// Quote the JSON path if it doesn't already have quotes
+	jsonPath := j.JsonPath.Value
+	if len(jsonPath) > 0 && jsonPath[0] != '\'' && jsonPath[0] != '"' {
+		jsonPath = fmt.Sprintf("'%s'", jsonPath)
+	}
+	result := fmt.Sprintf("JSON_TABLE(%s, %s COLUMNS (%s))",
+		j.JsonExpr.String(), jsonPath, strings.Join(cols, ", "))
 	if j.Alias != nil {
 		result += " " + j.Alias.String()
 	}

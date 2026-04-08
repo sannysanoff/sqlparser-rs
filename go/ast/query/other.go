@@ -945,7 +945,12 @@ func (j *JsonTableNamedColumn) String() string {
 	if j.Exists {
 		parts = append(parts, "EXISTS")
 	}
-	parts = append(parts, "PATH", j.Path.String())
+	// Quote the path value
+	pathVal := j.Path.Value
+	if len(pathVal) > 0 && pathVal[0] != '\'' && pathVal[0] != '"' {
+		pathVal = fmt.Sprintf("'%s'", pathVal)
+	}
+	parts = append(parts, "PATH", pathVal)
 	if j.OnEmpty != nil {
 		parts = append(parts, j.OnEmpty.String(), "ON EMPTY")
 	}

@@ -896,6 +896,16 @@ func (w *queryExprWrapper) String() string {
 	return ""
 }
 
+// queryValueExpr is a simple query.Expr that just returns a string value
+// Used for representing data types and other literal values in query expressions
+type queryValueExpr struct {
+	value string
+}
+
+func (v *queryValueExpr) String() string {
+	return v.value
+}
+
 // isIdentifierNamed checks if an expression is an Identifier with the given name
 func isIdentifierNamed(e interface{}, name string) bool {
 	if ident, ok := e.(*expr.Identifier); ok {
@@ -1740,6 +1750,18 @@ func parseTableFactor(p *Parser) (query.TableFactor, error) {
 		return parseSnowflakeStageTableFactor(p)
 	}
 
+	// Check for JSON_TABLE table-valued function (MySQL/MariaDB/Oracle)
+	// Reference: src/parser/mod.rs:15682-15697
+	if p.PeekKeywordWithLParen("JSON_TABLE") {
+		return parseJsonTableFactor(p)
+	}
+
+	// Check for OPENJSON table-valued function (MSSQL)
+	// Reference: src/parser/mod.rs:15698-15700
+	if p.PeekKeywordWithLParen("OPENJSON") {
+		return parseOpenJsonTableFactor(p)
+	}
+
 	// Otherwise, it's a table name (possibly with PIVOT/UNPIVOT)
 	return parseTableNameWithPivot(p)
 }
@@ -1838,6 +1860,317 @@ func parseSnowflakeStageTableFactor(p *Parser) (query.TableFactor, error) {
 	}
 
 	return nil, fmt.Errorf("expected Snowflake dialect for stage reference")
+}
+
+// parseJsonTableFactor parses JSON_TABLE table-valued function
+// Reference: src/parser/mod.rs:15682-15697
+// Syntax: JSON_TABLE(json_expr, json_path COLUMNS (col1 type PATH '$.path', ...))
+func parseJsonTableFactor(p *Parser) (query.TableFactor, error) {
+	// Consume JSON_TABLE keyword
+	p.AdvanceToken()
+
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse JSON expression
+	ep := NewExpressionParser(p)
+	jsonExpr, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect comma
+	if _, err := p.ExpectToken(token.TokenComma{}); err != nil {
+		return nil, err
+	}
+
+	// Parse JSON path (as string literal)
+	jsonPathStr, err := p.ParseStringLiteral()
+	if err != nil {
+		return nil, err
+	}
+	jsonPath := query.ValueWithSpan{Value: jsonPathStr}
+
+	// Expect COLUMNS keyword
+	if err := p.ExpectKeywordIs("COLUMNS"); err != nil {
+		return nil, err
+	}
+
+	// Expect opening parenthesis for column list
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse column definitions
+	var columns []query.JsonTableColumn
+	for {
+		// Check for closing parenthesis
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			p.AdvanceToken()
+			break
+		}
+
+		// Parse column definition
+		col, err := parseJsonTableColumn(p)
+		if err != nil {
+			return nil, err
+		}
+		columns = append(columns, col)
+
+		// Check for comma or closing parenthesis
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			p.AdvanceToken()
+			break
+		}
+	}
+
+	// Expect closing parenthesis for JSON_TABLE
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.JsonTableTableFactor{
+		JsonExpr: exprToQueryExpr(jsonExpr),
+		JsonPath: jsonPath,
+		Columns:  columns,
+		Alias:    alias,
+	}, nil
+}
+
+// parseJsonTableColumn parses a column definition in JSON_TABLE COLUMNS clause
+// Reference: src/parser/mod.rs:16417-16464
+func parseJsonTableColumn(p *Parser) (query.JsonTableColumn, error) {
+	// Check for NESTED PATH syntax
+	if p.PeekKeyword("NESTED") {
+		return parseJsonTableNestedColumn(p)
+	}
+
+	// Check for ordinality column
+	if p.PeekKeyword("FOR") {
+		// Consume FOR
+		p.AdvanceToken()
+		if err := p.ExpectKeywordIs("ORDINALITY"); err != nil {
+			return nil, err
+		}
+		name, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		return &query.JsonTableForOrdinality{
+			Name: query.Ident{Value: name.Value},
+		}, nil
+	}
+
+	// Parse column name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse data type
+	dataType, err := p.ParseDataType()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for PATH clause
+	var path query.ValueWithSpan
+	if p.ParseKeyword("PATH") {
+		pathStr, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		path = query.ValueWithSpan{Value: pathStr}
+	}
+
+	// Parse optional error handling clauses
+	var onEmpty, onError *query.JsonTableColumnErrorHandling
+
+	// Check for ON EMPTY clause
+	if p.ParseKeyword("ON") {
+		if p.ParseKeyword("EMPTY") {
+			onEmpty = parseJsonTableErrorHandling(p)
+		} else if p.ParseKeyword("ERROR") {
+			onError = parseJsonTableErrorHandling(p)
+		}
+	}
+
+	return &query.JsonTableNamedColumn{
+		Name:    query.Ident{Value: name.Value},
+		Type:    &queryValueExpr{value: dataType.String()},
+		Path:    path,
+		OnEmpty: onEmpty,
+		OnError: onError,
+	}, nil
+}
+
+// parseJsonTableNestedColumn parses a NESTED PATH column definition
+func parseJsonTableNestedColumn(p *Parser) (query.JsonTableColumn, error) {
+	// Consume NESTED
+	p.AdvanceToken()
+
+	// Expect PATH keyword
+	if err := p.ExpectKeywordIs("PATH"); err != nil {
+		return nil, err
+	}
+
+	// Parse nested path (as string literal)
+	pathStr, err := p.ParseStringLiteral()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect COLUMNS keyword
+	if err := p.ExpectKeywordIs("COLUMNS"); err != nil {
+		return nil, err
+	}
+
+	// Expect opening parenthesis for nested columns
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse nested column definitions
+	var columns []query.JsonTableColumn
+	for {
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			p.AdvanceToken()
+			break
+		}
+
+		col, err := parseJsonTableColumn(p)
+		if err != nil {
+			return nil, err
+		}
+		columns = append(columns, col)
+
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			p.AdvanceToken()
+			break
+		}
+	}
+
+	return &query.JsonTableNestedColumn{
+		Path:    query.ValueWithSpan{Value: pathStr},
+		Columns: columns,
+	}, nil
+}
+
+// parseJsonTableErrorHandling parses ERROR/NULL/DEFAULT handling for JSON_TABLE columns
+func parseJsonTableErrorHandling(p *Parser) *query.JsonTableColumnErrorHandling {
+	if p.ParseKeyword("ERROR") {
+		errType := query.JsonTableColumnErrorHandlingError
+		return &errType
+	}
+	if p.ParseKeyword("NULL") {
+		nullType := query.JsonTableColumnErrorHandlingNull
+		return &nullType
+	}
+	if p.ParseKeyword("DEFAULT") {
+		// For DEFAULT, we use the WithValue variant but only need the type
+		// The actual value is handled separately if needed
+		defaultType := query.JsonTableColumnErrorHandlingDefault
+		return &defaultType
+	}
+	return nil
+}
+
+// parseOpenJsonTableFactor parses MSSQL's OPENJSON table-valued function
+// Reference: src/parser/mod.rs:15698-15700, 15974
+func parseOpenJsonTableFactor(p *Parser) (query.TableFactor, error) {
+	// Consume OPENJSON keyword
+	p.AdvanceToken()
+
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse JSON expression
+	ep := NewExpressionParser(p)
+	jsonExpr, err := ep.ParseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for optional path
+	var jsonPath *query.ValueWithSpan
+	if p.ConsumeToken(token.TokenComma{}) {
+		pathStr, err := p.ParseStringLiteral()
+		if err == nil {
+			jsonPath = &query.ValueWithSpan{Value: pathStr}
+		}
+	}
+
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for optional WITH clause
+	var columns []query.OpenJsonTableColumn
+	if p.ParseKeyword("WITH") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken()
+				break
+			}
+
+			// Parse column name
+			name, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+
+			// Parse data type
+			dataType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+
+			// Check for optional AS JSON
+			asJson := p.ParseKeyword("AS") && p.ParseKeyword("JSON")
+
+			columns = append(columns, query.OpenJsonTableColumn{
+				Name:   query.Ident{Value: name.Value},
+				Type:   &queryValueExpr{value: dataType.String()},
+				AsJson: asJson,
+			})
+
+			if p.ConsumeToken(token.TokenComma{}) {
+				continue
+			}
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken()
+				break
+			}
+		}
+	}
+
+	// Parse optional alias
+	alias, _ := tryParseTableAlias(p)
+
+	return &query.OpenJsonTableFactor{
+		JsonExpr: exprToQueryExpr(jsonExpr),
+		JsonPath: jsonPath,
+		Columns:  columns,
+		Alias:    alias,
+	}, nil
 }
 
 // isParenthesizedStart checks if next token is a left paren
