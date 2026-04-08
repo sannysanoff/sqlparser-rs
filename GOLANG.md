@@ -1,6 +1,33 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 42 (LIST/REMOVE + GRANT Fixes, 599 Tests Passing)
+## Latest Update: April 8, 2026 - Session 43 (TPCH Fixture Path + INTERVAL Case Sensitivity, 601 Tests Passing)
+
+**Line Counts (Updated April 8, 2026 - Session 43):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,466 lines | 125% |
+| Tests | 49,886 lines | 14,184 lines | 28% |
+| **Test Status** | - | **601 tests passing** / **212 tests failing** (~74.0%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 43 Summary:
+
+**Fixed TPCH Fixture Path Resolution** (46 tests now passing - critical infrastructure fix!)
+- Fixed `TestTPCHQueries` and `TestTPCHQueriesRoundtrip` - all 22 TPCH queries now parse correctly
+- **Root Cause**: Tests used relative path `fixtures/tpch/` but fixtures are in `tests/fixtures/tpch/` 
+- **Fix**: Updated `tpch_regression_test.go` to use `runtime.Caller(0)` to get the current file's directory, then construct absolute path to fixtures
+- **Pattern E163**: Test fixture path resolution - Use `runtime.Caller(0)` to get the test file's location, then construct paths relative to that location instead of the current working directory
+
+**Fixed INTERVAL Case Sensitivity** (46 tests now passing - critical parsing fix!)
+- Fixed `interval '90' day` failing with "Expected: end of statement, found: day"
+- **Root Cause**: The `tryParseTypedString()` function checked `dataTypeName == "INTERVAL"` but `dataTypeName` preserves the original case from the input SQL. Lowercase `interval` failed the check.
+- **Fix**: Changed to `strings.EqualFold(dataTypeName, "INTERVAL")` for case-insensitive comparison in `parser/prefix.go`
+- **Pattern E164**: Case-sensitive keyword matching in typed string literals - When checking data type names for special handling (like INTERVAL), use case-insensitive comparison since SQL keywords are case-insensitive
+
+---
+
+## Previous Update: April 8, 2026 - Session 42 (LIST/REMOVE + GRANT Fixes, 599 Tests Passing)
 
 **Line Counts (Updated April 8, 2026 - Session 42):**
 
@@ -2885,6 +2912,41 @@ case token.TokenPlaceholder:
         Value:   ast.NewPlaceholder(v.Value),
     }, nil
 ```
+
+### Error E163: Test fixture path resolution fails when running from different directories
+**Cause**: Tests use relative paths like `fixtures/tpch/` but the test execution directory may vary (running from project root vs. test directory vs. IDE).
+
+**Symptom**: Tests fail with "no such file or directory" errors when trying to load fixture files.
+
+**Solution**: Use `runtime.Caller(0)` to get the test file's absolute location, then construct paths relative to that:
+```go
+// Get the directory of the current file and construct path to fixtures
+_, currentFile, _, _ := runtime.Caller(0)
+testDir := filepath.Dir(currentFile)
+fixturePath := filepath.Join(testDir, "..", "fixtures", "tpch", filename)
+sql, err := os.ReadFile(fixturePath)
+require.NoError(t, err, "Failed to read %s", filename)
+```
+
+**Note**: Don't forget to import `runtime` and `path/filepath` packages.
+
+### Error E164: Case-sensitive keyword matching in typed string literals
+**Cause**: The `tryParseTypedString()` function checks for specific data types like `if dataTypeName == "INTERVAL"`, but `dataTypeName` preserves the original case from the SQL input. Lowercase `interval` fails the check.
+
+**Symptom**: SQL like `SELECT interval '90' day FROM t` produces `SELECT interval '90' AS day FROM t` - the `day` is treated as an alias instead of the INTERVAL's temporal unit.
+
+**Solution**: Use case-insensitive comparison for data type names:
+```go
+// WRONG: Case-sensitive comparison fails for lowercase
+if dataTypeName == "INTERVAL" {
+
+// CORRECT: Case-insensitive comparison handles all cases
+if strings.EqualFold(dataTypeName, "INTERVAL") {
+    // Parse INTERVAL 'value' unit [(precision)] syntax
+}
+```
+
+**Applies to**: INTERVAL, DATE, TIME, TIMESTAMP, and any other data types that have special parsing requirements in `tryParseTypedString()`.
 
 ---
 

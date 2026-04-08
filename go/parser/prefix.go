@@ -1100,7 +1100,7 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 	strVal, _ := stringTok.Token.(token.TokenSingleQuotedString)
 
 	// Special handling for INTERVAL - it has special syntax: INTERVAL 'value' unit [(precision)]
-	if dataTypeName == "INTERVAL" {
+	if strings.EqualFold(dataTypeName, "INTERVAL") {
 		// Check for temporal unit (DAY, MONTH, YEAR, etc.)
 		nextTok := ep.parser.PeekTokenRef()
 		if word, ok := nextTok.Token.(token.TokenWord); ok {

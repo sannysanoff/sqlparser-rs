@@ -20,6 +20,7 @@ package regression
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -61,7 +62,11 @@ func TestTPCHQueries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, err := os.ReadFile(filepath.Join("fixtures", "tpch", tt.filename))
+			// Get the directory of the current file and construct path to fixtures
+			_, currentFile, _, _ := runtime.Caller(0)
+			testDir := filepath.Dir(currentFile)
+			fixturePath := filepath.Join(testDir, "..", "fixtures", "tpch", tt.filename)
+			sql, err := os.ReadFile(fixturePath)
 			require.NoError(t, err, "Failed to read %s", tt.filename)
 
 			stmts, err := parser.ParseSQL(dialect, string(sql))
@@ -104,7 +109,11 @@ func TestTPCHQueriesRoundtrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sql, err := os.ReadFile(filepath.Join("fixtures", "tpch", tt.filename))
+			// Get the directory of the current file and construct path to fixtures
+			_, currentFile, _, _ := runtime.Caller(0)
+			testDir := filepath.Dir(currentFile)
+			fixturePath := filepath.Join(testDir, "..", "fixtures", "tpch", tt.filename)
+			sql, err := os.ReadFile(fixturePath)
 			require.NoError(t, err, "Failed to read %s", tt.filename)
 
 			originalSQL := string(sql)
