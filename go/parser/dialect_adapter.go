@@ -72,8 +72,8 @@ func (a *dialectAdapter) SupportsTripleQuotedString() bool {
 
 // SupportsDollarQuotedString implements tokenizer.Dialect
 func (a *dialectAdapter) SupportsDollarQuotedString() bool {
-	// Not all dialects support dollar-quoted strings (PostgreSQL-specific)
-	return false
+	// Delegate to the underlying dialect
+	return a.dialect.SupportsDollarQuotedString()
 }
 
 // SupportsDollarPlaceholder implements tokenizer.Dialect

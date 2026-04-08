@@ -279,6 +279,11 @@ func (d *OracleDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for OracleDialect.
+func (d *OracleDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for OracleDialect.
 func (d *OracleDialect) SupportsFilterDuringAggregation() bool {
 	return true

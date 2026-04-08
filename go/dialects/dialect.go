@@ -218,6 +218,10 @@ type StringLiteralDialect interface {
 	// SupportsStringEscapeConstant returns true if the dialect supports the
 	// E'...' syntax for string literals with escape sequences (Postgres).
 	SupportsStringEscapeConstant() bool
+
+	// SupportsDollarQuotedString returns true if the dialect supports
+	// dollar-quoted string literals (e.g., $$...$$) for PostgreSQL-style strings.
+	SupportsDollarQuotedString() bool
 }
 
 // AggregationDialect defines aggregation and window function capabilities.

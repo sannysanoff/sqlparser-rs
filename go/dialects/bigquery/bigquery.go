@@ -291,6 +291,11 @@ func (d *BigQueryDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for BigQueryDialect.
+func (d *BigQueryDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for BigQueryDialect.
 func (d *BigQueryDialect) SupportsFilterDuringAggregation() bool {
 	return true

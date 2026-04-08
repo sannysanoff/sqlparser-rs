@@ -269,6 +269,11 @@ func (d *AnsiDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for AnsiDialect.
+func (d *AnsiDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns false for AnsiDialect.
 func (d *AnsiDialect) SupportsFilterDuringAggregation() bool {
 	return false

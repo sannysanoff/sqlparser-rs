@@ -252,6 +252,7 @@ type CompleteDialect interface {
 	SupportsStringLiteralConcatenationWithNewline() bool
 	SupportsQuoteDelimitedString() bool
 	SupportsStringEscapeConstant() bool
+	SupportsDollarQuotedString() bool
 
 	// Aggregations and window functions
 	SupportsFilterDuringAggregation() bool

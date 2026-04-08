@@ -264,6 +264,12 @@ func (d *ClickHouseDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns true if the dialect supports
+// dollar-quoted string literals (e.g., $$...$$) for PostgreSQL-style strings.
+func (d *ClickHouseDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true if the dialect supports
 // FILTER (WHERE expr) for aggregate queries.
 func (d *ClickHouseDialect) SupportsFilterDuringAggregation() bool {

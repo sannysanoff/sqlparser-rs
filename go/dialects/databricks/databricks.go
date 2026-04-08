@@ -275,6 +275,11 @@ func (d *DatabricksDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for DatabricksDialect.
+func (d *DatabricksDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for DatabricksDialect.
 // See https://docs.databricks.com/en/sql/language-manual/sql-ref-syntax-qry-select-groupby.html
 func (d *DatabricksDialect) SupportsFilterDuringAggregation() bool {

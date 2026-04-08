@@ -503,6 +503,11 @@ func (d *SnowflakeDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for Snowflake.
+func (d *SnowflakeDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for Snowflake.
 func (d *SnowflakeDialect) SupportsFilterDuringAggregation() bool {
 	return true

@@ -306,6 +306,12 @@ func (d *MySqlDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns true if the dialect supports
+// dollar-quoted string literals (e.g., $$...$$) for PostgreSQL-style strings.
+func (d *MySqlDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true if the dialect supports
 // FILTER (WHERE expr) for aggregate queries.
 func (d *MySqlDialect) SupportsFilterDuringAggregation() bool {

@@ -325,6 +325,12 @@ func (d *RedshiftSqlDialect) SupportsStringEscapeConstant() bool {
 	return true
 }
 
+// SupportsDollarQuotedString returns true for RedshiftSqlDialect.
+// Redshift is based on PostgreSQL and supports dollar-quoted strings.
+func (d *RedshiftSqlDialect) SupportsDollarQuotedString() bool {
+	return true
+}
+
 // SupportsFilterDuringAggregation returns true for RedshiftSqlDialect.
 func (d *RedshiftSqlDialect) SupportsFilterDuringAggregation() bool {
 	return true

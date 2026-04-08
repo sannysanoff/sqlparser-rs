@@ -265,6 +265,11 @@ func (d *SQLiteDialect) SupportsStringEscapeConstant() bool {
 	return false
 }
 
+// SupportsDollarQuotedString returns false for SQLite.
+func (d *SQLiteDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for SQLite.
 func (d *SQLiteDialect) SupportsFilterDuringAggregation() bool {
 	return true

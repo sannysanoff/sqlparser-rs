@@ -256,6 +256,12 @@ func (d *GenericDialect) SupportsStringEscapeConstant() bool {
 	return true
 }
 
+// SupportsDollarQuotedString returns false for GenericDialect.
+// Only PostgreSQL dialect supports dollar-quoted strings.
+func (d *GenericDialect) SupportsDollarQuotedString() bool {
+	return false
+}
+
 // SupportsFilterDuringAggregation returns true for GenericDialect.
 func (d *GenericDialect) SupportsFilterDuringAggregation() bool {
 	return true
