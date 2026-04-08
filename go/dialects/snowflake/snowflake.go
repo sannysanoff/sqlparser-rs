@@ -2027,17 +2027,196 @@ func (d *SnowflakeDialect) tryParseStageLoadSelectItem(parser dialects.ParserAcc
 	return item, nil
 }
 
-// ParseColumnOption returns false to fall back to default behavior.
-// Snowflake supports special column options like IDENTITY, AUTOINCREMENT,
-// MASKING POLICY, PROJECTION POLICY, and TAG.
+// ParseColumnOption parses Snowflake-specific column options.
+// Supports: [WITH] MASKING POLICY, [WITH] PROJECTION POLICY, [WITH] TAG
 func (d *SnowflakeDialect) ParseColumnOption(parser dialects.ParserAccessor) (dialects.ColumnOption, bool, error) {
-	// TODO: Implement Snowflake-specific column options:
-	// - WITH IDENTITY / IDENTITY
-	// - AUTOINCREMENT
-	// - [WITH] MASKING POLICY
-	// - [WITH] PROJECTION POLICY
-	// - [WITH] TAG
+	// Try to parse WITH prefix (optional for most options)
+	with := parser.ParseKeyword("WITH")
+
+	// Try MASKING POLICY
+	if parser.ParseKeywords([]string{"MASKING", "POLICY"}) {
+		policy, err := parseColumnPolicyProperty(parser, with)
+		if err != nil {
+			return nil, true, err
+		}
+		return policy, true, nil
+	}
+
+	// Try PROJECTION POLICY
+	if parser.ParseKeywords([]string{"PROJECTION", "POLICY"}) {
+		policy, err := parseColumnPolicyProperty(parser, with)
+		if err != nil {
+			return nil, true, err
+		}
+		return policy, true, nil
+	}
+
+	// Try TAG
+	if parser.ParseKeyword("TAG") {
+		tagOpt, err := parseColumnTags(parser, with)
+		if err != nil {
+			return nil, true, err
+		}
+		return tagOpt, true, nil
+	}
+
+	// If we consumed WITH but didn't find a recognized option, put it back
+	if with {
+		parser.PrevToken()
+	}
+
 	return nil, false, nil
+}
+
+// parseColumnPolicyProperty parses a policy property (policy name and optional USING clause).
+func parseColumnPolicyProperty(parser dialects.ParserAccessor, with bool) (*expr.ColumnPolicy, error) {
+	// Parse policy name - can be multi-part (schema.policy)
+	policyName, err := parseObjectName(parser)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for optional USING (col1, col2, ...) clause
+	var usingCols []*ast.Ident
+	if parser.ParseKeyword("USING") {
+		cols, err := parseParenthesizedIdentifierList(parser)
+		if err != nil {
+			return nil, err
+		}
+		usingCols = cols
+	}
+
+	return &expr.ColumnPolicy{
+		With:       with,
+		PolicyName: policyName,
+		UsingCols:  usingCols,
+	}, nil
+}
+
+// parseColumnTags parses TAG (tag_name = 'value', ...).
+// Tag names can be multi-part: foo.bar.baz.pii='email'
+func parseColumnTags(parser dialects.ParserAccessor, with bool) (*expr.TagsColumnOption, error) {
+	// Expect opening parenthesis
+	if _, err := parser.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var tags []*expr.SnowflakeTag
+	for {
+		// Parse tag name (can be multi-part with dots)
+		tagName, err := parseObjectName(parser)
+		if err != nil {
+			return nil, err
+		}
+
+		// Expect =
+		if _, err := parser.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+
+		// Parse tag value (string literal or expression)
+		tagValue, err := parser.ParseExpression()
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert ast.Expr to expr.Expr
+		var exprValue expr.Expr
+		if tagValue != nil {
+			exprValue = astExprToExpr(tagValue)
+		}
+
+		tags = append(tags, &expr.SnowflakeTag{
+			Name:  &ast.Ident{Value: tagName.String()},
+			Value: exprValue,
+		})
+
+		// Check for comma or closing parenthesis
+		if parser.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		break
+	}
+
+	return &expr.TagsColumnOption{
+		With: with,
+		Tags: tags,
+	}, nil
+}
+
+// parseIdent parses a single identifier.
+func parseIdent(parser dialects.ParserAccessor) (*ast.Ident, error) {
+	tok := parser.NextToken()
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		return &ast.Ident{Value: word.Word.Value}, nil
+	}
+	return nil, fmt.Errorf("expected identifier, got %v", tok)
+}
+
+// parseObjectName parses a potentially multi-part object name.
+func parseObjectName(parser dialects.ParserAccessor) (*ast.ObjectName, error) {
+	parts := []ast.ObjectNamePart{}
+
+	// Parse first identifier
+	first, err := parseIdent(parser)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: first})
+
+	// Parse additional .identifier parts
+	for {
+		if !parser.ConsumeToken(token.TokenPeriod{}) {
+			break
+		}
+		next, err := parseIdent(parser)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: next})
+	}
+
+	return &ast.ObjectName{Parts: parts}, nil
+}
+
+// parseParenthesizedIdentifierList parses (col1, col2, ...).
+func parseParenthesizedIdentifierList(parser dialects.ParserAccessor) ([]*ast.Ident, error) {
+	// Expect opening parenthesis
+	if _, err := parser.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	var idents []*ast.Ident
+	for {
+		ident, err := parseIdent(parser)
+		if err != nil {
+			return nil, err
+		}
+		idents = append(idents, ident)
+
+		if parser.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, err := parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		break
+	}
+
+	return idents, nil
+}
+
+// astExprToExpr converts ast.Expr to expr.Expr.
+// Since ast.Expr and expr.Expr are different interfaces, we wrap the string representation.
+func astExprToExpr(e ast.Expr) expr.Expr {
+	if e == nil {
+		return nil
+	}
+	// Wrap the string representation in a ValueExpr
+	return &expr.ValueExpr{Value: e.String()}
 }
 
 // parseMultiTableInsert parses a Snowflake multi-table INSERT statement.

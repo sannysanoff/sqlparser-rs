@@ -1,5 +1,31 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 21 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 82,751 lines | 123% |
+| Tests | 45,672 lines | 14,150 lines | 31% |
+| **Test Status** | - | **557 passing** / **256 failing** (~69%) |
+
+**Summary of Session 21:**
+
+1. **Implemented Snowflake CREATE VIEW with Tags/Policies** (3 tests now passing - major feature!)
+   - Fixed `CREATE VIEW X (COL WITH TAG (pii='email')) AS SELECT * FROM Y`
+   - Fixed `CREATE VIEW X (COL WITH MASKING POLICY foo.bar.baz) AS SELECT * FROM Y`
+   - **Implementation**: Added `ColumnPolicy`, `TagsColumnOption`, `SnowflakeTag` AST types
+   - **Implementation**: Added `ParseViewColumns()`, `ParseViewColumn()`, `ParseViewColumnOptions()` parser functions
+   - **Implementation**: Added `ParseColumnOption()` to Snowflake dialect for TAG/MASKING POLICY/PROJECTION POLICY
+   - Changed `CreateView.Columns` from `[]*ast.Ident` to `[]*expr.ViewColumnDef` to support column options
+   - Reference: `go/dialects/snowflake/snowflake.go`, `go/parser/create.go`, `go/ast/expr/ddl.go`
+   - Tests Fixed: TestSnowflakeCreateViewWithTags (2 subtests), TestSnowflakeCreateViewWithPolicy
+
+**New Patterns Documented:**
+- **Pattern E100**: View column options architecture - For dialects that support column options in CREATE VIEW (like Snowflake's TAG/POLICY), use `ViewColumnDef` instead of simple identifiers. The parser should call `ParseViewColumns()` which uses dialect-specific `ParseColumnOption()` for custom options.
+- **Pattern E101**: Multi-part tag name parsing - Tag names like `foo.bar.baz.pii` should be parsed as object names (with dots), not simple identifiers, then converted to string representation for storage.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 20 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -2300,6 +2326,34 @@ relationships, err := parseCommaSeparatedExpressions(ep)
 p.SetState(oldState)
 ```
 
+### Error E100: ParserAccessor interface missing methods
+**Cause**: The ParserAccessor interface (parseriface.Parser) doesn't expose high-level methods like `ParseObjectName()`, `ParseParenthesizedColumnList()`, etc. Code trying to call these on the parser fails.
+
+**Solution**: Use lower-level token operations or add helper functions that use the available interface methods:
+```go
+// DON'T: parser.ParseObjectName() - method not in interface
+// DO: Implement using available methods
+func parseObjectName(parser dialects.ParserAccessor) (*ast.ObjectName, error) {
+    parts := []ast.ObjectNamePart{}
+    first, err := parseIdent(parser)
+    if err != nil { return nil, err }
+    parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: first})
+    // Continue with parser.ConsumeToken(token.TokenPeriod{})
+    return &ast.ObjectName{Parts: parts}, nil
+}
+```
+
+### Error E101: ast.Expr to expr.Expr conversion
+**Cause**: `ast.Expr` and `expr.Expr` are different interfaces. Type switches between them don't work because they have different internal method sets.
+
+**Solution**: Convert by wrapping the string representation:
+```go
+func astExprToExpr(e ast.Expr) expr.Expr {
+    if e == nil { return nil }
+    return &expr.ValueExpr{Value: e.String()}
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -2318,9 +2372,14 @@ p.SetState(oldState)
 | Snowflake Specific | ~70 | ~49 | ~21 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~813 tests across all packages, 552 passing, 261 failing (~68% pass rate)
+**Total**: ~813 tests across all packages, 557 passing, 256 failing (~69% pass rate)
 
 **Recent Fixes**:
+- **Session 21 (April 8, 2026)**:
+  - TestSnowflakeCreateViewWithTags: ✅ 2 subtests now passing (Snowflake TAG column option)
+  - TestSnowflakeCreateViewWithPolicy: ✅ Now passing (MASKING POLICY column option)
+  - Implementation: Added ViewColumnDef, ColumnPolicy, TagsColumnOption AST types
+  - Implementation: Added ParseViewColumns() and dialect-specific ParseColumnOption()
 - **Session 20 (April 8, 2026)**:
   - TestSnowflakeStageNameWithSpecialChars: ✅ 4 subtests now passing
   - Fixed stage name parsing with file extensions (23.parquet)
@@ -2349,10 +2408,10 @@ p.SetState(oldState)
   - TestSnowflakeTimeTravel: ✅ Now passes
 
 **Notes**:
-- Source: 67,345 lines Rust → 81,596 lines Go (121% ratio)
-- Tests: 49,886 lines Rust → 14,150 lines Go (28% ratio)
-- Current status: 552 passing, 261 failing (~68% pass rate)
-- Major remaining work: Snowflake Stage Names (5 tests), PIVOT (1 test), CHANGES (1 test), FETCH (1 test), Multi-Table INSERT placeholders (1 test)
+- Source: 67,345 lines Rust → 82,200 lines Go (122% ratio)
+- Tests: 45,672 lines Rust → 14,150 lines Go (31% ratio)
+- Current status: 557 passing, 256 failing (~69% pass rate)
+- Major remaining work: PostgreSQL CREATE FUNCTION attributes (~10 tests), Snowflake Multi-Table INSERT placeholders (1 test), PIVOT (1 test)
 - Many remaining failures are span/column position mismatches rather than parsing logic errors
-- Remaining failing tests by category: PostgreSQL (~75), DDL (~60), Snowflake (~21)
+- Remaining failing tests by category: PostgreSQL (~75), DDL (~60), Snowflake (~18)
 

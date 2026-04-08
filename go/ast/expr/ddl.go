@@ -874,6 +874,28 @@ func (c *ColumnOptionDef) String() string {
 		return sb.String()
 	}
 
+	// Handle Snowflake TAG option
+	if c.Name == "TAG" {
+		if c.Value != nil {
+			if tagOpt, ok := c.Value.(*TagsColumnOption); ok {
+				sb.WriteString(tagOpt.String())
+				return sb.String()
+			}
+		}
+		return sb.String()
+	}
+
+	// Handle Snowflake MASKING POLICY and PROJECTION POLICY options
+	if c.Name == "MASKING POLICY" || c.Name == "PROJECTION POLICY" {
+		if c.Value != nil {
+			if policy, ok := c.Value.(*ColumnPolicy); ok {
+				sb.WriteString(policy.String())
+				return sb.String()
+			}
+		}
+		return sb.String()
+	}
+
 	// Default: Name + Value
 	sb.WriteString(c.Name)
 	if c.Value != nil {
@@ -904,6 +926,140 @@ func (g *GeneratedColumnOption) String() string {
 		sb.WriteString(g.GeneratedType)
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// ============================================================================
+// Snowflake Column Policy and Tag Types
+// ============================================================================
+
+// ColumnPolicyType represents the type of column policy (masking or projection).
+type ColumnPolicyType int
+
+const (
+	ColumnPolicyTypeMasking ColumnPolicyType = iota
+	ColumnPolicyTypeProjection
+)
+
+// ColumnPolicy represents a column policy (MASKING POLICY or PROJECTION POLICY).
+type ColumnPolicy struct {
+	Type       ColumnPolicyType
+	With       bool // Whether WITH prefix was used
+	PolicyName *ast.ObjectName
+	UsingCols  []*ast.Ident // Optional USING (col1, col2, ...)
+}
+
+func (c *ColumnPolicy) exprNode()        {}
+func (c *ColumnPolicy) expr()            {}
+func (c *ColumnPolicy) IsExpr()          {}
+func (c *ColumnPolicy) Span() token.Span { return token.Span{} }
+func (c *ColumnPolicy) IsColumnOption()  {}
+
+func (c *ColumnPolicy) String() string {
+	var sb strings.Builder
+	if c.With {
+		sb.WriteString("WITH ")
+	}
+	if c.Type == ColumnPolicyTypeMasking {
+		sb.WriteString("MASKING POLICY ")
+	} else {
+		sb.WriteString("PROJECTION POLICY ")
+	}
+	if c.PolicyName != nil {
+		sb.WriteString(c.PolicyName.String())
+	}
+	if len(c.UsingCols) > 0 {
+		sb.WriteString(" USING (")
+		for i, col := range c.UsingCols {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(col.String())
+		}
+		sb.WriteString(")")
+	}
+	return sb.String()
+}
+
+// SnowflakeTag represents a Snowflake tag assignment (tag_name = 'tag_value').
+// This is distinct from the generic Tag type used elsewhere.
+type SnowflakeTag struct {
+	Name  *ast.Ident
+	Value Expr
+}
+
+func (t *SnowflakeTag) exprNode()        {}
+func (t *SnowflakeTag) expr()            {}
+func (t *SnowflakeTag) IsExpr()          {}
+func (t *SnowflakeTag) Span() token.Span { return token.Span{} }
+
+func (t *SnowflakeTag) String() string {
+	var sb strings.Builder
+	if t.Name != nil {
+		sb.WriteString(t.Name.String())
+	}
+	if t.Value != nil {
+		sb.WriteString("=")
+		sb.WriteString(t.Value.String())
+	}
+	return sb.String()
+}
+
+// TagsColumnOption represents Snowflake TAG option for columns.
+type TagsColumnOption struct {
+	With bool            // Whether WITH prefix was used
+	Tags []*SnowflakeTag // List of tag assignments
+}
+
+func (t *TagsColumnOption) exprNode()        {}
+func (t *TagsColumnOption) expr()            {}
+func (t *TagsColumnOption) IsExpr()          {}
+func (t *TagsColumnOption) Span() token.Span { return token.Span{} }
+func (t *TagsColumnOption) IsColumnOption()  {}
+
+func (t *TagsColumnOption) String() string {
+	var sb strings.Builder
+	if t.With {
+		sb.WriteString("WITH ")
+	}
+	sb.WriteString("TAG (")
+	for i, tag := range t.Tags {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(tag.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// ============================================================================
+// View Column Definition (for CREATE VIEW with column options)
+// ============================================================================
+
+// ViewColumnDef represents a column definition in a CREATE VIEW statement.
+// Unlike table columns, view columns can have options like TAG and POLICY (Snowflake).
+type ViewColumnDef struct {
+	Name     *ast.Ident
+	DataType interface{}        // Optional data type (ClickHouse)
+	Options  []*ColumnOptionDef // Column options (TAG, POLICY, COMMENT, etc.)
+	SpanVal  token.Span
+}
+
+func (v *ViewColumnDef) exprNode()        {}
+func (v *ViewColumnDef) expr()            {}
+func (v *ViewColumnDef) IsExpr()          {}
+func (v *ViewColumnDef) Span() token.Span { return v.SpanVal }
+
+func (v *ViewColumnDef) String() string {
+	var sb strings.Builder
+	if v.Name != nil {
+		sb.WriteString(v.Name.String())
+	}
+	for _, opt := range v.Options {
+		sb.WriteString(" ")
+		sb.WriteString(opt.String())
+	}
+	return sb.String()
 }
 
 // ============================================================================

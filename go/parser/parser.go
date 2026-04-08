@@ -1927,6 +1927,141 @@ func (p *Parser) ParseParenthesizedColumnList() ([]*ast.Ident, error) {
 	return columns, nil
 }
 
+// ParseViewColumns parses a parenthesized list of view column definitions: (col1, col2 WITH TAG (...), ...)
+// This is used for CREATE VIEW statements that support column options (Snowflake, etc.).
+func (p *Parser) ParseViewColumns() ([]*expr.ViewColumnDef, error) {
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for empty list
+	if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
+		p.AdvanceToken()
+		return nil, nil
+	}
+
+	var columns []*expr.ViewColumnDef
+	for {
+		col, err := p.ParseViewColumn()
+		if err != nil {
+			return nil, err
+		}
+		columns = append(columns, col)
+
+		// Check for comma or closing parenthesis
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		break
+	}
+
+	return columns, nil
+}
+
+// ParseViewColumn parses a single view column definition with options.
+func (p *Parser) ParseViewColumn() (*expr.ViewColumnDef, error) {
+	// Parse column name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse column options (TAG, POLICY, COMMENT, etc.)
+	options, err := p.ParseViewColumnOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	// For ClickHouse, also parse data type (but we don't support that yet)
+	return &expr.ViewColumnDef{
+		Name:    name,
+		Options: options,
+	}, nil
+}
+
+// ParseViewColumnOptions parses a sequence of column options for view columns.
+func (p *Parser) ParseViewColumnOptions() ([]*expr.ColumnOptionDef, error) {
+	var options []*expr.ColumnOptionDef
+
+	for {
+		// First, let the dialect try to parse a dialect-specific option
+		colOpt, handled, err := p.GetDialect().ParseColumnOption(p)
+		if err != nil {
+			return nil, err
+		}
+		if handled {
+			// Convert the dialect's ColumnOption to ColumnOptionDef
+			optDef := convertColumnOptionToDef(colOpt)
+			if optDef != nil {
+				options = append(options, optDef)
+				continue
+			}
+		}
+
+		// Try to parse standard options
+		opt, err := p.ParseStandardColumnOption()
+		if err != nil {
+			return nil, err
+		}
+		if opt == nil {
+			break
+		}
+		options = append(options, opt)
+	}
+
+	return options, nil
+}
+
+// convertColumnOptionToDef converts a dialect ColumnOption to ColumnOptionDef.
+func convertColumnOptionToDef(opt parseriface.ColumnOption) *expr.ColumnOptionDef {
+	// Handle different column option types
+	if opt == nil {
+		return nil
+	}
+
+	// Check for specific types
+	switch o := opt.(type) {
+	case *expr.ColumnPolicy:
+		name := "MASKING POLICY"
+		if o.Type == expr.ColumnPolicyTypeProjection {
+			name = "PROJECTION POLICY"
+		}
+		return &expr.ColumnOptionDef{
+			Name:  name,
+			Value: o,
+		}
+	case *expr.TagsColumnOption:
+		return &expr.ColumnOptionDef{
+			Name:  "TAG",
+			Value: o,
+		}
+	}
+
+	return nil
+}
+
+// ParseStandardColumnOption parses standard column options like COMMENT.
+func (p *Parser) ParseStandardColumnOption() (*expr.ColumnOptionDef, error) {
+	// COMMENT 'string'
+	if p.ParseKeyword("COMMENT") {
+		comment, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		return &expr.ColumnOptionDef{
+			Name:  "COMMENT",
+			Value: &expr.ValueExpr{Value: comment},
+		}, nil
+	}
+
+	// No option found
+	return nil, nil
+}
+
 // ParseIdentifier parses a single identifier
 // TODO: Implement proper identifier parsing
 func (p *Parser) ParseIdentifier() (*ast.Ident, error) {

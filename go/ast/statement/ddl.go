@@ -352,7 +352,7 @@ type CreateView struct {
 	IfNotExists         bool
 	Temporary           bool
 	Name                *ast.ObjectName
-	Columns             []*ast.Ident
+	Columns             []*expr.ViewColumnDef // View columns with optional options (TAG, POLICY, etc.)
 	Query               *query.Query
 	Options             []*expr.SqlOption
 	ClusterBy           []expr.Expr
@@ -404,7 +404,14 @@ func (c *CreateView) String() string {
 
 	if len(c.Columns) > 0 {
 		f.WriteString(" (")
-		f.WriteString(formatIdents(c.Columns, ", "))
+		for i, col := range c.Columns {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			if col != nil {
+				f.WriteString(col.String())
+			}
+		}
 		f.WriteString(")")
 	}
 

@@ -1295,10 +1295,10 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 	// Parse COPY GRANTS (Snowflake)
 	copyGrants := p.ParseKeywords([]string{"COPY", "GRANTS"})
 
-	// Parse optional column list: (col1, col2, ...)
-	var columns []*ast.Ident
+	// Parse optional column list: (col1, col2, ...) or (col1 WITH TAG (...), ...)
+	var columns []*expr.ViewColumnDef
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
-		columns, err = p.ParseParenthesizedColumnList()
+		columns, err = p.ParseViewColumns()
 		if err != nil {
 			return nil, err
 		}
