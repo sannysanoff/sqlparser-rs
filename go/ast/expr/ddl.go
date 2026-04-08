@@ -169,7 +169,9 @@ func (u *UniqueConstraint) String() string {
 	if u.NullsDistinct != NullsDistinctOptionNone {
 		parts = append(parts, u.NullsDistinct.String())
 	}
+	// Include INDEX keyword before index name (MySQL style: UNIQUE INDEX index_name)
 	if u.IndexName != nil {
+		parts = append(parts, "INDEX")
 		parts = append(parts, u.IndexName.String())
 	}
 	if u.IndexType != nil {
@@ -433,6 +435,19 @@ type IndexOption struct {
 
 func (i *IndexOption) String() string {
 	if i.Value != nil {
+		// Special handling for USING option: output "USING BTREE" not "USING = BTREE"
+		if i.Name == "USING" {
+			return fmt.Sprintf("USING %s", i.Value.String())
+		}
+		// Special handling for COMMENT option: output "COMMENT 'string'" with quotes
+		if i.Name == "COMMENT" {
+			if strVal, ok := i.Value.(*ValueExpr); ok {
+				if str, ok := strVal.Value.(string); ok {
+					return fmt.Sprintf("COMMENT '%s'", str)
+				}
+			}
+			return fmt.Sprintf("COMMENT '%s'", i.Value.String())
+		}
 		return fmt.Sprintf("%s = %s", i.Name, i.Value.String())
 	}
 	return i.Name

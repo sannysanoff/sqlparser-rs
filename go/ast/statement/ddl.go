@@ -596,7 +596,7 @@ func (c *CreateIndex) String() string {
 		f.WriteString(c.Using.String())
 	}
 
-	f.WriteString("(")
+	f.WriteString(" (")
 	for i, col := range c.Columns {
 		if i > 0 {
 			f.WriteString(", ")

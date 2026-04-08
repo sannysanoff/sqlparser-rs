@@ -657,18 +657,19 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 			}
 		}
 
-		// Parse column list
-		cols, err := p.ParseParenthesizedColumnList()
+		// Parse column list with ASC/DESC support
+		cols, err := parseParenthesizedIndexColumnList(p)
 		if err != nil {
 			return nil, err
 		}
-		// Convert []*ast.Ident to []*expr.IndexColumn
-		pkConstraint.Columns = make([]*expr.IndexColumn, len(cols))
-		for i, col := range cols {
-			pkConstraint.Columns[i] = &expr.IndexColumn{
-				Expr: &expr.Ident{Value: col.Value},
-			}
+		pkConstraint.Columns = cols
+
+		// Parse index options
+		indexOptions, err := parseIndexOptions(p)
+		if err != nil {
+			return nil, err
 		}
+		pkConstraint.IndexOptions = indexOptions
 
 		// Parse constraint characteristics
 		characteristics, err := parseConstraintCharacteristics(p)
@@ -695,6 +696,10 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 			}
 		}
 
+		// Optional INDEX/KEY keyword (MySQL) - for UNIQUE INDEX index_name syntax
+		p.ParseKeyword("INDEX")
+		p.ParseKeyword("KEY")
+
 		// Optional index name (MySQL)
 		if !p.PeekKeyword("USING") && !p.PeekKeyword("(") {
 			if ident, err := p.ParseIdentifier(); err == nil {
@@ -716,18 +721,19 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 			}
 		}
 
-		// Parse column list
-		cols, err := p.ParseParenthesizedColumnList()
+		// Parse column list with ASC/DESC support
+		cols, err := parseParenthesizedIndexColumnList(p)
 		if err != nil {
 			return nil, err
 		}
-		// Convert []*ast.Ident to []*expr.IndexColumn
-		uniqueConstraint.Columns = make([]*expr.IndexColumn, len(cols))
-		for i, col := range cols {
-			uniqueConstraint.Columns[i] = &expr.IndexColumn{
-				Expr: &expr.Ident{Value: col.Value},
-			}
+		uniqueConstraint.Columns = cols
+
+		// Parse index options
+		indexOptions, err := parseIndexOptions(p)
+		if err != nil {
+			return nil, err
 		}
+		uniqueConstraint.IndexOptions = indexOptions
 
 		// Parse constraint characteristics
 		characteristics, err := parseConstraintCharacteristics(p)
@@ -861,24 +867,12 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 				}
 			}
 
-			// Parse column list: (col1, col2, ...)
-			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
-				return nil, err
-			}
-			cols, err := parseCommaSeparatedIdents(p)
+			// Parse column list with ASC/DESC support
+			cols, err := parseParenthesizedIndexColumnList(p)
 			if err != nil {
 				return nil, err
 			}
-			// Convert []*ast.Ident to []*expr.IndexColumn
-			indexConstraint.Columns = make([]*expr.IndexColumn, len(cols))
-			for i, col := range cols {
-				indexConstraint.Columns[i] = &expr.IndexColumn{
-					Expr: &expr.Ident{Value: col.Value},
-				}
-			}
-			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-				return nil, err
-			}
+			indexConstraint.Columns = cols
 
 			constraint.Constraint = indexConstraint
 			return constraint, nil
@@ -902,25 +896,12 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		// Optional index name
 		p.ParseIdentifier()
 
-		// Parse column list: (col1, col2, ...)
-		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
-			return nil, err
-		}
-		cols, err := parseCommaSeparatedIdents(p)
+		// Parse column list with ASC/DESC support
+		cols, err := parseParenthesizedIndexColumnList(p)
 		if err != nil {
 			return nil, err
 		}
-		// Convert []*ast.Ident to []*expr.IndexColumn
-		ftsConstraint.Columns = make([]*expr.IndexColumn, len(cols))
-		for i, col := range cols {
-			ftsConstraint.Columns[i] = &expr.IndexColumn{
-				Expr: &expr.Ident{Value: col.Value},
-			}
-		}
-
-		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
+		ftsConstraint.Columns = cols
 
 		constraint.Constraint = ftsConstraint
 		return constraint, nil
@@ -1156,4 +1137,106 @@ func parseBitVaryingType(p *Parser, span token.Span) (*datatype.BitVaryingType, 
 	}
 
 	return result, nil
+}
+
+// parseParenthesizedIndexColumnList parses a parenthesized list of index columns
+// that can include expressions with ASC/DESC and functional key parts.
+// Examples: (col1), (col1 ASC, col2 DESC), (CAST(col AS UNSIGNED) ASC)
+func parseParenthesizedIndexColumnList(p *Parser) ([]*expr.IndexColumn, error) {
+	// Expect opening parenthesis
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Check for empty list
+	if _, ok := p.PeekToken().Token.(token.TokenRParen); ok {
+		p.AdvanceToken()
+		return nil, nil
+	}
+
+	var columns []*expr.IndexColumn
+	for {
+		// Parse the expression (can be a column name, function call, or complex expression)
+		ep := NewExpressionParser(p)
+		colExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("expected expression in index column list: %w", err)
+		}
+
+		indexCol := &expr.IndexColumn{
+			Expr: colExpr,
+		}
+
+		// Check for ASC/DESC
+		if p.ParseKeyword("ASC") {
+			asc := true
+			indexCol.Asc = &asc
+		} else if p.ParseKeyword("DESC") {
+			desc := false
+			indexCol.Asc = &desc
+		}
+
+		// Check for NULLS FIRST/LAST (PostgreSQL)
+		if p.ParseKeywords([]string{"NULLS", "FIRST"}) {
+			nullsFirst := true
+			indexCol.NullsFirst = &nullsFirst
+		} else if p.ParseKeywords([]string{"NULLS", "LAST"}) {
+			nullsFirst := false
+			indexCol.NullsFirst = &nullsFirst
+		}
+
+		columns = append(columns, indexCol)
+
+		// Check for comma or closing parenthesis
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		break
+	}
+
+	return columns, nil
+}
+
+// parseIndexOptions parses optional index options like USING BTREE, COMMENT 'string'.
+// Returns a slice of IndexOption and any error encountered.
+func parseIndexOptions(p *Parser) ([]*expr.IndexOption, error) {
+	var options []*expr.IndexOption
+
+	for {
+		// Check for USING index_type
+		if p.PeekKeyword("USING") {
+			// Check if we already have a USING clause (which is handled separately in the constraint parsing)
+			// This handles the case where USING appears after the column list
+			savedIdx := p.GetCurrentIndex()
+			p.ParseKeyword("USING")
+			if typeIdent, err := p.ParseIdentifier(); err == nil {
+				indexTypeStr := strings.ToUpper(typeIdent.Value)
+				options = append(options, &expr.IndexOption{
+					Name:  "USING",
+					Value: &expr.Ident{Value: indexTypeStr},
+				})
+				continue
+			}
+			p.SetCurrentIndex(savedIdx)
+		}
+
+		// Check for COMMENT 'string'
+		if p.ParseKeyword("COMMENT") {
+			if commentStr, err := p.ParseStringLiteral(); err == nil {
+				options = append(options, &expr.IndexOption{
+					Name:  "COMMENT",
+					Value: &expr.ValueExpr{Value: commentStr},
+				})
+				continue
+			}
+		}
+
+		// No more options recognized
+		break
+	}
+
+	return options, nil
 }
