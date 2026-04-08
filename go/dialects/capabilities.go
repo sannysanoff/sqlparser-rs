@@ -850,3 +850,12 @@ func SupportsEqAliasAssignment(d CoreDialect) bool {
 	}
 	return false
 }
+
+// SupportsBinaryKwAsCast returns true if the dialect supports using BINARY
+// keyword as a cast operator (e.g., SELECT BINARY 'text').
+func SupportsBinaryKwAsCast(d CoreDialect) bool {
+	if bd, ok := d.(interface{ SupportsBinaryKwAsCast() bool }); ok {
+		return bd.SupportsBinaryKwAsCast()
+	}
+	return false
+}

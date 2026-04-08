@@ -1,6 +1,38 @@
 ---
 
-## Latest Update: April 16, 2026 - Session 38 (PIVOT Serialization, FETCH Clause, ALTER SESSION)
+## Latest Update: April 18, 2026 - Session 39 (BINARY Keyword as Cast, Test Fixes)
+
+**Line Counts (Updated April 18, 2026 - Session 39):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,223 lines | 125% |
+| Tests | 49,886 lines | 14,169 lines | 28% |
+| **Test Status** | - | **~600 tests passing** / **~219 tests failing** (~73%) |
+| **Total Test Cases** | - | 813+ test functions |
+
+### Session 39 Summary:
+
+**Fixed BINARY Keyword as Cast** (1 test now passing - TestParseBinaryKwAsCast)
+- Fixed `SELECT BINARY 1+1` to parse as `CAST(1 + 1 AS BINARY)` for dialects that support it
+- **Implementation**: Modified `tryParseTypedString()` in `parser/prefix.go` to handle BINARY as cast:
+  - When data type is BINARY and dialect supports `SupportsBinaryKwAsCast()`, parse following expression
+  - Create `expr.Cast` AST node with `CastStandard` kind and "BINARY" data type
+- **Root Cause**: BINARY keyword was only handled for typed string literals (BINARY 'string'), not as a cast operator
+- **Pattern E153**: BINARY as cast parsing - When parsing typed strings, check if data type is BINARY and dialect supports binary keyword as cast. If next token is not a string literal but an expression, parse it as a Cast expression instead of failing.
+
+**Added Helper Function for Binary Cast Support**
+- Added `SupportsBinaryKwAsCast()` helper to `dialects/capabilities.go`
+- Enables checking dialect capability for MySQL, MSSQL, Hive, DuckDB, ClickHouse dialects
+
+**Updated Test for Dialect-Specific Features**
+- Fixed `TestParseBinaryKwAsCast` to use `NewTestedDialectsWithFilter()` with `SupportsBinaryKwAsCast()` predicate
+- This matches the Rust test behavior: `all_dialects_where(|d| d.supports_binary_kw_as_cast())`
+- **Pattern E154**: Dialect-specific test filtering - When testing dialect-specific syntax, filter dialects using capability predicates rather than testing all dialects
+
+---
+
+## Previous Update: April 16, 2026 - Session 38 (PIVOT Serialization, FETCH Clause, ALTER SESSION)
 
 **Line Counts (Updated April 16, 2026 - Session 38):**
 
@@ -396,6 +428,34 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 - **Pattern E151**: ALTER SESSION parsing - Parse SET or UNSET keyword after ALTER SESSION, then parse space/comma-separated key=value options. For SET: each option is `key=value` format. For UNSET: each option is just the key name without a value. Use `KeyValueOptions` struct with appropriate delimiter tracking.
 
 - **Pattern E152**: Key-value option quoting - Add a `Quoted bool` field to `KeyValueOption` struct to track whether the value was originally a quoted string. In `String()`, only add quotes when `Quoted` is true. This allows correct serialization of both `AUTOCOMMIT=TRUE` (bare identifier, no quotes) and `QUERY_TAG='mytag'` (quoted string, with quotes).
+
+---
+
+### Session 39 Patterns (New):
+
+- **Pattern E153**: BINARY as cast parsing - When parsing typed strings in `tryParseTypedString()`, check if the data type is BINARY and the dialect supports `SupportsBinaryKwAsCast()`. If the next token is not a string literal but an expression, parse it as a Cast expression instead of failing:
+  ```go
+  if dataTypeName == "BINARY" && dialects.SupportsBinaryKwAsCast(ep.parser.GetDialect()) {
+      innerExpr, err := ep.ParseExpr()
+      if err != nil {
+          restore()
+          return nil, false
+      }
+      return &expr.Cast{
+          SpanVal:  mergeSpans(peekTok.Span, innerExpr.Span()),
+          Kind:     expr.CastStandard,
+          Expr:     innerExpr,
+          DataType: "BINARY",
+      }, true
+  }
+  ```
+
+- **Pattern E154**: Dialect-specific test filtering - When testing dialect-specific syntax (like BINARY as cast), use `NewTestedDialectsWithFilter()` with a capability predicate rather than `NewTestedDialects()`. This matches the Rust test behavior using `all_dialects_where(|d| d.supports_feature())`:
+  ```go
+  dialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
+      return d.SupportsBinaryKwAsCast()
+  })
+  ```
 
 ---
 

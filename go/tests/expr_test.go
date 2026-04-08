@@ -1655,17 +1655,23 @@ func TestParseSemiStructuredDataTraversal(t *testing.T) {
 // ============================================================================
 
 // TestParseBinaryKwAsCast verifies BINARY keyword as CAST parsing.
+// Reference: tests/sqlparser_common.rs:18579 (test 168)
 func TestParseBinaryKwAsCast(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	dialects := utils.NewTestedDialectsWithFilter(func(d sqlparserDialects.Dialect) bool {
+		return d.SupportsBinaryKwAsCast()
+	})
 
-	sql := "SELECT BINARY 1+1"
-	canonical := "SELECT CAST(1 + 1 AS BINARY)"
-
-	stmts := dialects.ParseSQL(t, sql)
+	// Test that parsing succeeds for both forms
+	stmts := dialects.ParseSQL(t, "SELECT BINARY 1+1")
 	require.Len(t, stmts, 1)
 
-	stmts2 := dialects.ParseSQL(t, canonical)
+	// Verify serialization produces CAST form
+	assert.Equal(t, "SELECT CAST(1 + 1 AS BINARY)", stmts[0].String())
+
+	// Also test that the canonical form parses the same way
+	stmts2 := dialects.ParseSQL(t, "SELECT CAST(1 + 1 AS BINARY)")
 	require.Len(t, stmts2, 1)
+	assert.Equal(t, "SELECT CAST(1 + 1 AS BINARY)", stmts2[0].String())
 }
 
 // ============================================================================

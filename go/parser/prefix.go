@@ -1073,6 +1073,23 @@ func (ep *ExpressionParser) tryParseTypedString() (expr.Expr, bool) {
 	nextTok := ep.parser.PeekTokenRef()
 	_, isString := nextTok.Token.(token.TokenSingleQuotedString)
 	if !isString {
+		// Check for BINARY as cast: if dialect supports it and data type is BINARY,
+		// parse an expression and create a Cast
+		if dataTypeName == "BINARY" && dialects.SupportsBinaryKwAsCast(ep.parser.GetDialect()) {
+			// Parse the expression after BINARY keyword
+			innerExpr, err := ep.ParseExpr()
+			if err != nil {
+				restore()
+				return nil, false
+			}
+			// Create a Cast expression: CAST(expr AS BINARY)
+			return &expr.Cast{
+				SpanVal:  mergeSpans(peekTok.Span, innerExpr.Span()),
+				Kind:     expr.CastStandard,
+				Expr:     innerExpr,
+				DataType: "BINARY",
+			}, true
+		}
 		restore()
 		return nil, false
 	}
