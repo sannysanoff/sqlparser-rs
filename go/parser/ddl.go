@@ -52,6 +52,11 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 		DataType: dataType,
 	}
 
+	// Set parser state to ColumnDefinition for constraint parsing
+	// This ensures NOT NULL is parsed as a column constraint, not an IS NOT NULL expression
+	oldState := p.GetState()
+	p.SetState(StateColumnDefinition)
+
 	// Parse column constraints
 	for {
 		// Check for constraint keywords
@@ -65,6 +70,7 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 
 			constraint, err := parseColumnConstraint(p)
 			if err != nil {
+				p.SetState(oldState)
 				return nil, err
 			}
 			col.Options = append(col.Options, constraint)
@@ -72,6 +78,9 @@ func parseColumnDef(p *Parser) (*expr.ColumnDef, error) {
 			break
 		}
 	}
+
+	// Restore parser state
+	p.SetState(oldState)
 
 	return col, nil
 }

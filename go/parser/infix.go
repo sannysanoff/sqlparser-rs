@@ -547,6 +547,14 @@ func (ep *ExpressionParser) parseNotPrefixedInfix(left expr.Expr, precedence uin
 		return ep.parseRLikeExpr(left, true, kw == "REGEXP")
 	}
 
+	// In column definition context, NOT followed by something other than
+	// IN, BETWEEN, LIKE, etc. is likely a column constraint (e.g., NOT NULL).
+	// Put back the NOT token and return nil to signal that NOT is not an infix operator here.
+	if ep.parser.InColumnDefinitionState() {
+		ep.parser.PrevToken()
+		return nil, nil
+	}
+
 	return nil, fmt.Errorf("expected IN, BETWEEN, LIKE, ILIKE, or REGEXP after NOT")
 }
 

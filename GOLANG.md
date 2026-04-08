@@ -1,6 +1,50 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 60 (Massive Code Port: JSON_TABLE Support)
+## Latest Update: April 8, 2026 - Session 61 (Critical Bug Fix: NOT NULL Column Constraint Parsing)
+
+**Line Counts (Updated April 8, 2026 - Session 61):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 66,842 lines | 100,437 lines | 150% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **114 tests failing** (~86% success rate) |
+| **Total Test Cases** | - | ~1,212 test outcomes |
+| **Tests Passing** | - | **~699 tests** |
+
+### Session 61 Summary: NOT NULL Constraint Parsing Fix (+4 tests passing, critical bug fix)
+
+**Fixed Critical Bug: NOT NULL Column Constraints**
+
+Fixed the long-standing issue where `NOT NULL` column constraints were being serialized as `IS NOT NULL` or just `NULL`:
+
+1. **Root Cause**: When parsing column constraints like `DEFAULT uuid_generate_v4() NOT NULL`, the expression parser would treat `NOT` as an infix operator and create an `IsNotNull` expression instead of stopping and letting the constraint parser handle `NOT NULL` as a column constraint.
+
+2. **Solution**: 
+   - Set parser state to `StateColumnDefinition` when parsing column constraints in `parseColumnDef()`
+   - Modified `parseNotPrefixedInfix()` to detect when we're in column definition state and `NOT` is not followed by `IN`, `BETWEEN`, `LIKE`, etc.
+   - When this case is detected, put back the `NOT` token (using `PrevToken()`) and return `nil, nil` to signal the Pratt parser to stop expression parsing
+   - Modified the Pratt parser loop to break out when `parseInfix` returns `nil, nil`
+   - This allows the column constraint parser to correctly see and handle `NOT NULL`
+
+3. **Files Modified**:
+   - `parser/ddl.go`: Set/restore `StateColumnDefinition` in `parseColumnDef()`
+   - `parser/infix.go`: Modified `parseNotPrefixedInfix()` to put back token when in column definition state
+   - `parser/core.go`: Modified Pratt parser loop to handle `nil, nil` return from `parseInfix()`
+
+**Tests Now Passing**:
+- `TestPostgresCreateTableWithInherit` (PostgreSQL table inheritance with NOT NULL)
+- Multiple `TestParseNotNullInColumnOptions` subtests
+- Any test with `DEFAULT <expr> NOT NULL` patterns
+
+**New Patterns Documented**:
+- **Pattern E228**: Column definition state management - Set `StateColumnDefinition` before parsing column constraints and restore after to ensure `NOT NULL` is treated as a constraint, not an expression
+- **Pattern E229**: Token put-back in infix parser - When an infix operator decides it's not actually an operator in the current context (e.g., `NOT` in column definition), use `PrevToken()` to put back the consumed token before returning `nil, nil`
+- **Pattern E230**: Pratt parser nil handling - When `parseInfix` returns `nil, nil`, break out of the expression parsing loop to allow the caller to handle the remaining tokens
+
+---
+
+## Previous Update: April 8, 2026 - Session 60 (Massive Code Port: JSON_TABLE Support)
 
 **Line Counts (Updated April 8, 2026 - Session 60):**
 
@@ -6227,6 +6271,63 @@ func (v *queryValueExpr) String() string {
 }
 
 // Usage: &queryValueExpr{value: dataType.String()}
+```
+
+---
+
+### Error E228: NOT NULL Serialized as IS NOT NULL
+**Cause**: When parsing column constraints like `DEFAULT uuid_generate_v4() NOT NULL`, the expression parser treats `NOT` as an infix operator and creates an `IsNotNull` expression instead of stopping at `NOT` and letting the constraint parser handle `NOT NULL`.
+
+**Solution**: Set parser state to `StateColumnDefinition` when parsing column constraints, and modify the infix parser to put back the token and return `nil, nil` when `NOT` should not be treated as an infix operator:
+
+```go
+// In parseColumnDef():
+oldState := p.GetState()
+p.SetState(StateColumnDefinition)
+// ... parse constraints ...
+p.SetState(oldState)
+
+// In parseNotPrefixedInfix():
+if ep.parser.InColumnDefinitionState() {
+    ep.parser.PrevToken() // Put back the NOT token
+    return nil, nil       // Signal to stop expression parsing
+}
+```
+
+### Error E229: Token Consumed Before Deciding Not to Process It
+**Cause**: The Pratt parser's `parseInfix()` calls `AdvanceToken()` to consume the operator token BEFORE calling `parseWordInfix()`. If `parseWordInfix` decides the token shouldn't be processed (e.g., `NOT` in column definition context), the token is already consumed.
+
+**Solution**: Use `PrevToken()` to put back the consumed token when returning `nil, nil` from the infix parser:
+
+```go
+func (ep *ExpressionParser) parseNotPrefixedInfix(left expr.Expr, precedence uint8) (expr.Expr, error) {
+    // ... check for NOT IN, NOT BETWEEN, etc. ...
+    
+    // In column definition context, put back the NOT token
+    if ep.parser.InColumnDefinitionState() {
+        ep.parser.PrevToken()
+        return nil, nil
+    }
+    return nil, fmt.Errorf("expected IN, BETWEEN, LIKE, etc. after NOT")
+}
+```
+
+### Error E230: Pratt Parser Doesn't Handle Stopping Mid-Expression
+**Cause**: The Pratt parser loop assumes `parseInfix` always returns a valid expression or an error. It doesn't handle the case where `parseInfix` wants to stop expression parsing and let the caller handle the remaining tokens.
+
+**Solution**: Modify the Pratt parser loop to break out when `parseInfix` returns `nil, nil`:
+
+```go
+// In ParseExprWithPrecedence():
+newLeft, err := ep.parseInfix(left, nextPrecedence)
+if err != nil {
+    return nil, err
+}
+// If parseInfix returns nil, stop parsing the expression
+if newLeft == nil {
+    break
+}
+left = newLeft
 ```
 
 ---

@@ -107,10 +107,16 @@ func (ep *ExpressionParser) ParseExprWithPrecedence(precedence uint8) (expr.Expr
 		}
 
 		// Parse the infix operator
-		left, err = ep.parseInfix(left, nextPrecedence)
+		newLeft, err := ep.parseInfix(left, nextPrecedence)
 		if err != nil {
 			return nil, err
 		}
+		// If parseInfix returns nil, it means we should stop parsing the expression
+		// (e.g., NOT in column definition context followed by NULL as a constraint)
+		if newLeft == nil {
+			break
+		}
+		left = newLeft
 	}
 
 	return left, nil
