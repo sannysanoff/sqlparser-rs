@@ -939,14 +939,53 @@ func (d *Drop) String() string {
 // TRUNCATE
 // ============================================================================
 
+// TruncateIdentityOption represents PostgreSQL identity options for TRUNCATE
+type TruncateIdentityOption int
+
+const (
+	TruncateIdentityNone TruncateIdentityOption = iota
+	TruncateIdentityRestart
+	TruncateIdentityContinue
+)
+
+// TruncateCascadeOption represents PostgreSQL cascade options for TRUNCATE
+type TruncateCascadeOption int
+
+const (
+	TruncateCascadeNone TruncateCascadeOption = iota
+	TruncateCascadeCascade
+	TruncateCascadeRestrict
+)
+
+// TruncateTableTarget represents a table target in TRUNCATE with optional ONLY and asterisk
+type TruncateTableTarget struct {
+	Name        *ast.ObjectName
+	Only        bool // ONLY keyword (PostgreSQL)
+	HasAsterisk bool // * after table name (PostgreSQL)
+}
+
+func (t *TruncateTableTarget) String() string {
+	var f strings.Builder
+	if t.Only {
+		f.WriteString("ONLY ")
+	}
+	f.WriteString(t.Name.String())
+	if t.HasAsterisk {
+		f.WriteString(" *")
+	}
+	return f.String()
+}
+
 // Truncate represents a TRUNCATE statement
 type Truncate struct {
 	BaseStatement
-	TableNames []*ast.ObjectName
+	TableNames []*TruncateTableTarget
 	Partitions []expr.Expr
 	OnCluster  *ast.Ident
-	Table      bool // Whether TABLE keyword is present
-	IfExists   bool // Snowflake/Redshift: IF EXISTS option
+	Table      bool                   // Whether TABLE keyword is present
+	IfExists   bool                   // Snowflake/Redshift: IF EXISTS option
+	Identity   TruncateIdentityOption // PostgreSQL: RESTART IDENTITY | CONTINUE IDENTITY
+	Cascade    TruncateCascadeOption  // PostgreSQL: CASCADE | RESTRICT
 }
 
 func (t *Truncate) statementNode() {}
@@ -960,7 +999,30 @@ func (t *Truncate) String() string {
 	if t.IfExists {
 		f.WriteString("IF EXISTS ")
 	}
-	f.WriteString(formatObjectNames(t.TableNames, ", "))
+
+	// Format table names
+	var tableStrs []string
+	for _, tn := range t.TableNames {
+		tableStrs = append(tableStrs, tn.String())
+	}
+	f.WriteString(strings.Join(tableStrs, ", "))
+
+	// PostgreSQL identity option
+	switch t.Identity {
+	case TruncateIdentityRestart:
+		f.WriteString(" RESTART IDENTITY")
+	case TruncateIdentityContinue:
+		f.WriteString(" CONTINUE IDENTITY")
+	}
+
+	// PostgreSQL cascade option
+	switch t.Cascade {
+	case TruncateCascadeCascade:
+		f.WriteString(" CASCADE")
+	case TruncateCascadeRestrict:
+		f.WriteString(" RESTRICT")
+	}
+
 	return f.String()
 }
 
@@ -1144,6 +1206,7 @@ func (c *CreateSequence) String() string {
 
 	// Add sequence options
 	for _, opt := range c.SequenceOptions {
+		f.WriteString(" ")
 		f.WriteString(opt.String())
 	}
 

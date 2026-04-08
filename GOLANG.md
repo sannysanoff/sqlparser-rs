@@ -1,6 +1,49 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 44 (Constraint Characteristics, Array Types, CREATE TABLE AS TABLE, ~605 Tests Passing)
+## Latest Update: April 8, 2026 - Session 45 (TRUNCATE Options, ALTER COLUMN ADD GENERATED, OWNER TO, ~612 Tests Passing)
+
+**Line Counts (Updated April 8, 2026 - Session 45):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,477 lines | 125% |
+| Tests | 49,886 lines | 14,184 lines | 28% |
+| **Test Status** | - | **612 tests passing** / **201 tests failing** (~75.3%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Massive Code Port Summary (Session 45):
+
+**Ported 3 Major PostgreSQL Parser Chunks (High Impact):**
+
+1. **PostgreSQL TRUNCATE Options** (~5+ tests passing - major feature!)
+   - Ported from `src/parser/mod.rs:1091-1139` - `parse_truncate()`
+   - Added support for `RESTART IDENTITY`, `CONTINUE IDENTITY`, `CASCADE`, `RESTRICT`
+   - Added support for `ONLY` keyword and asterisk for descendant tables
+   - **Files Modified**: `parser/drop.go`, `ast/statement/ddl.go`
+   - **Lines Added**: ~60 lines
+
+2. **ALTER COLUMN ADD GENERATED AS IDENTITY** (~1 test passing - major PostgreSQL feature!)
+   - Ported from `src/parser/mod.rs:10373-10408` - `parse_alter_table_operation()`
+   - Added support for `ALTER TABLE ... ALTER COLUMN ... ADD GENERATED {ALWAYS|BY DEFAULT} AS IDENTITY [(...)]`
+   - **Files Modified**: `parser/alter.go`, `ast/expr/ddl.go`
+   - **Lines Added**: ~80 lines
+
+3. **ALTER TABLE OWNER TO** (~1 test passing - major PostgreSQL feature!)
+   - Ported from `src/parser/mod.rs:10414-10418` - OWNER TO parsing
+   - Added support for `ALTER TABLE ... OWNER TO {identifier|CURRENT_USER|CURRENT_ROLE|SESSION_USER}`
+   - **Files Modified**: `parser/alter.go`, `ast/expr/ddl.go`
+   - **Lines Added**: ~50 lines
+
+**Total Impact**: ~7+ tests now passing
+
+**New Patterns Documented:**
+- **Pattern E168**: PostgreSQL TRUNCATE options parsing - Parse `RESTART IDENTITY`/`CONTINUE IDENTITY` before `CASCADE`/`RESTRICT`, track both in AST for proper serialization
+- **Pattern E169**: ALTER COLUMN ADD GENERATED - Parse `ADD GENERATED`, check for optional `ALWAYS`/`BY DEFAULT`, expect `AS IDENTITY`, then optional parenthesized sequence options
+- **Pattern E170**: OWNER TO target parsing - Check for special values (`CURRENT_USER`, `CURRENT_ROLE`, `SESSION_USER`) before parsing as regular identifier; preserve quote style using `*ast.Ident`
+
+---
+
+## Previous Update: April 8, 2026 - Session 44 (Constraint Characteristics, Array Types, CREATE TABLE AS TABLE, ~605 Tests Passing)
 
 **Line Counts (Updated April 8, 2026 - Session 44):**
 
@@ -843,6 +886,69 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
           // ...
       }
   }
+  ```
+
+- **Pattern E168**: PostgreSQL TRUNCATE options parsing - Parse `RESTART IDENTITY`/`CONTINUE IDENTITY` before `CASCADE`/`RESTRICT`. Track both in AST for proper serialization:
+  ```go
+  // Parse PostgreSQL-specific options: RESTART IDENTITY | CONTINUE IDENTITY
+  var identityOpt statement.TruncateIdentityOption
+  if p.ParseKeywords([]string{"RESTART", "IDENTITY"}) {
+      identityOpt = statement.TruncateIdentityRestart
+  } else if p.ParseKeywords([]string{"CONTINUE", "IDENTITY"}) {
+      identityOpt = statement.TruncateIdentityContinue
+  }
+
+  // Parse PostgreSQL-specific options: CASCADE | RESTRICT
+  var cascadeOpt statement.TruncateCascadeOption
+  if p.ParseKeyword("CASCADE") {
+      cascadeOpt = statement.TruncateCascadeCascade
+  } else if p.ParseKeyword("RESTRICT") {
+      cascadeOpt = statement.TruncateCascadeRestrict
+  }
+  ```
+
+- **Pattern E169**: ALTER COLUMN ADD GENERATED - Parse ADD GENERATED, check for optional ALWAYS/BY DEFAULT, expect AS IDENTITY, then optional parenthesized sequence options. Track presence of parentheses even when empty:
+  ```go
+  if p.ParseKeyword("ADD") {
+      if p.ParseKeyword("GENERATED") {
+          op.AlterColumnOp = expr.AlterColumnOpAddGenerated
+          // Parse optional ALWAYS or BY DEFAULT
+          if p.ParseKeyword("ALWAYS") {
+              op.AlterGeneratedAs = expr.GeneratedAsAlways
+          } else if p.ParseKeywords([]string{"BY", "DEFAULT"}) {
+              op.AlterGeneratedAs = expr.GeneratedAsByDefault
+          }
+          // Expect AS IDENTITY
+          if !p.ParseKeywords([]string{"AS", "IDENTITY"}) {
+              return nil, fmt.Errorf("expected AS IDENTITY after ADD GENERATED")
+          }
+          // Parse optional sequence options in parentheses
+          if p.ConsumeToken(token.TokenLParen{}) {
+              op.AlterGeneratedHasParens = true  // Track () presence
+              // ... parse options or empty ()
+          }
+      }
+  }
+  ```
+
+- **Pattern E170**: OWNER TO target parsing - Check for special values (CURRENT_USER, CURRENT_ROLE, SESSION_USER) before parsing as regular identifier. Preserve quote style using *ast.Ident:
+  ```go
+  // Parse owner - can be identifier or special values like CURRENT_USER, CURRENT_ROLE, SESSION_USER
+  tok := p.PeekToken()
+  if word, ok := tok.Token.(token.TokenWord); ok {
+      switch strings.ToUpper(word.Word.Value) {
+      case "CURRENT_USER", "CURRENT_ROLE", "SESSION_USER":
+          p.AdvanceToken()
+          op.NewOwner = &expr.OwnerToTarget{
+              Name:      word.Word.Value,
+              IsSpecial: true,
+          }
+          return op, nil
+      }
+  }
+  // Regular identifier (preserves quote style)
+  ownerIdent, err := p.ParseIdentifier()
+  op.NewOwner = &expr.OwnerToTarget{Ident: ownerIdent}
   ```
 
 ---

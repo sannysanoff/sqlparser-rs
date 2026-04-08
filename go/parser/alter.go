@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
@@ -204,6 +205,11 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return parseAlterTableClusterBy(p, op)
 	}
 
+	// PostgreSQL OWNER TO
+	if p.ParseKeywords([]string{"OWNER", "TO"}) {
+		return parseAlterTableOwnerTo(p, op)
+	}
+
 	return nil, fmt.Errorf("unknown ALTER TABLE operation")
 }
 
@@ -248,6 +254,37 @@ func parseAlterTableClusterBy(p *Parser, op *expr.AlterTableOperation) (*expr.Al
 	}
 
 	op.Op = expr.AlterTableOpClusterBy
+	return op, nil
+}
+
+// parseAlterTableOwnerTo parses ALTER TABLE OWNER TO operation
+// Reference: src/parser/mod.rs:10414-10418
+func parseAlterTableOwnerTo(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpOwnerTo
+
+	// Parse owner - can be identifier or special values like CURRENT_USER, CURRENT_ROLE, SESSION_USER
+	tok := p.PeekToken()
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		switch strings.ToUpper(word.Word.Value) {
+		case "CURRENT_USER", "CURRENT_ROLE", "SESSION_USER":
+			p.AdvanceToken()
+			op.NewOwner = &expr.OwnerToTarget{
+				Name:      word.Word.Value,
+				IsSpecial: true,
+			}
+			return op, nil
+		}
+	}
+
+	// Regular identifier (preserves quote style)
+	ownerIdent, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected owner name after OWNER TO: %w", err)
+	}
+	op.NewOwner = &expr.OwnerToTarget{
+		Ident:     ownerIdent,
+		IsSpecial: false,
+	}
 	return op, nil
 }
 
@@ -634,8 +671,40 @@ func parseAlterTableAlterColumn(p *Parser, op *expr.AlterTableOperation) (*expr.
 				op.AlterUsing = usingExpr
 			}
 		}
+	} else if p.ParseKeyword("ADD") {
+		// PostgreSQL: ADD GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY [ ( sequence_options ) ]
+		if p.ParseKeyword("GENERATED") {
+			op.AlterColumnOp = expr.AlterColumnOpAddGenerated
+			// Parse optional ALWAYS or BY DEFAULT
+			if p.ParseKeyword("ALWAYS") {
+				op.AlterGeneratedAs = expr.GeneratedAsAlways
+			} else if p.ParseKeywords([]string{"BY", "DEFAULT"}) {
+				op.AlterGeneratedAs = expr.GeneratedAsByDefault
+			}
+			// Expect AS IDENTITY
+			if !p.ParseKeywords([]string{"AS", "IDENTITY"}) {
+				return nil, fmt.Errorf("expected AS IDENTITY after ADD GENERATED")
+			}
+			// Parse optional sequence options in parentheses
+			if p.ConsumeToken(token.TokenLParen{}) {
+				op.AlterGeneratedHasParens = true
+				if !p.ConsumeToken(token.TokenRParen{}) {
+					// Parse sequence options
+					opts, err := parseCreateSequenceOptions(p)
+					if err != nil {
+						return nil, err
+					}
+					op.AlterGeneratedSequenceOpts = opts
+					if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+						return nil, err
+					}
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("expected GENERATED after ADD")
+		}
 	} else {
-		return nil, fmt.Errorf("expected SET NOT NULL, DROP NOT NULL, SET DEFAULT, DROP DEFAULT, or SET DATA TYPE after ALTER COLUMN")
+		return nil, fmt.Errorf("expected SET NOT NULL, DROP NOT NULL, SET DEFAULT, DROP DEFAULT, SET DATA TYPE, or ADD GENERATED after ALTER COLUMN")
 	}
 
 	return op, nil

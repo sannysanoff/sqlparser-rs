@@ -446,21 +446,32 @@ func parseTruncate(p *Parser) (ast.Statement, error) {
 	// Parse optional IF EXISTS
 	hasIfExists := p.ParseKeywords([]string{"IF", "EXISTS"})
 
-	// Parse comma-separated table names
-	var tableNames []*ast.ObjectName
+	// Parse comma-separated table targets (with optional ONLY and asterisk for PostgreSQL)
+	var tableTargets []*statement.TruncateTableTarget
 	for {
+		// Check for ONLY keyword (PostgreSQL)
+		only := p.ParseKeyword("ONLY")
+
 		name, err := p.ParseObjectName()
 		if err != nil {
 			return nil, fmt.Errorf("expected table name in TRUNCATE: %w", err)
 		}
-		tableNames = append(tableNames, name)
+
+		// Check for asterisk after table name (PostgreSQL descendant tables)
+		hasAsterisk := p.ConsumeToken(token.TokenMul{})
+
+		tableTargets = append(tableTargets, &statement.TruncateTableTarget{
+			Name:        name,
+			Only:        only,
+			HasAsterisk: hasAsterisk,
+		})
 
 		if !p.ConsumeToken(token.TokenComma{}) {
 			break
 		}
 	}
 
-	if len(tableNames) == 0 {
+	if len(tableTargets) == 0 {
 		return nil, fmt.Errorf("expected at least one table name in TRUNCATE")
 	}
 
@@ -489,6 +500,22 @@ func parseTruncate(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse PostgreSQL-specific options: RESTART IDENTITY | CONTINUE IDENTITY
+	var identityOpt statement.TruncateIdentityOption
+	if p.ParseKeywords([]string{"RESTART", "IDENTITY"}) {
+		identityOpt = statement.TruncateIdentityRestart
+	} else if p.ParseKeywords([]string{"CONTINUE", "IDENTITY"}) {
+		identityOpt = statement.TruncateIdentityContinue
+	}
+
+	// Parse PostgreSQL-specific options: CASCADE | RESTRICT
+	var cascadeOpt statement.TruncateCascadeOption
+	if p.ParseKeyword("CASCADE") {
+		cascadeOpt = statement.TruncateCascadeCascade
+	} else if p.ParseKeyword("RESTRICT") {
+		cascadeOpt = statement.TruncateCascadeRestrict
+	}
+
 	// Parse optional ON CLUSTER (ClickHouse)
 	var onCluster *ast.Ident
 	if p.ParseKeyword("ON") {
@@ -502,15 +529,14 @@ func parseTruncate(p *Parser) (ast.Statement, error) {
 		onCluster = clusterName
 	}
 
-	// TODO: Parse RESTART IDENTITY / CONTINUE IDENTITY / CASCADE / RESTRICT
-	// These are dialect-specific (PostgreSQL)
-
 	return &statement.Truncate{
-		TableNames: tableNames,
+		TableNames: tableTargets,
 		Partitions: partitions,
 		OnCluster:  onCluster,
 		Table:      hasTableKeyword,
 		IfExists:   hasIfExists,
+		Identity:   identityOpt,
+		Cascade:    cascadeOpt,
 	}, nil
 }
 

@@ -1728,6 +1728,11 @@ type AlterTableOperation struct {
 	AlterUsing          Expr        // USING expression for SET DATA TYPE
 	AlterDataTypeHadSet bool        // Whether SET DATA TYPE (true) or just TYPE (false)
 
+	// Fields for AlterColumn ADD GENERATED (PostgreSQL)
+	AlterGeneratedAs           GeneratedAs        // ALWAYS, BY DEFAULT, or None
+	AlterGeneratedSequenceOpts []*SequenceOptions // Sequence options within parentheses
+	AlterGeneratedHasParens    bool               // Whether () was present (even if empty)
+
 	// Fields for SetTblProperties
 	TblProperties []*SqlOption
 
@@ -1768,8 +1773,26 @@ type AlterTableOperation struct {
 	// Fields for Refresh (Snowflake - ALTER EXTERNAL TABLE)
 	RefreshSubpath *string
 
+	// Fields for OwnerTo (PostgreSQL)
+	NewOwner *OwnerToTarget
+
 	// Span
 	SpanVal token.Span
+}
+
+// OwnerToTarget represents the new owner in OWNER TO statements
+// Can be an identifier or a special value like CURRENT_USER, CURRENT_ROLE, SESSION_USER
+type OwnerToTarget struct {
+	Ident     *ast.Ident // The owner identifier (preserves quote style)
+	Name      string     // The owner name (for special values or when ident is nil)
+	IsSpecial bool       // Whether this is a special value like CURRENT_USER
+}
+
+func (o *OwnerToTarget) String() string {
+	if o.Ident != nil {
+		return o.Ident.String()
+	}
+	return o.Name
 }
 
 // AlterTableOpType represents the type of ALTER TABLE operation
@@ -1805,6 +1828,8 @@ const (
 	AlterTableOpEnableReplicaTrigger
 	AlterTableOpReplicaIdentity
 	AlterTableOpValidateConstraint
+	// PostgreSQL OWNER TO
+	AlterTableOpOwnerTo
 	// Snowflake-specific clustering operations
 	AlterTableOpDropClusteringKey
 	AlterTableOpSuspendRecluster
@@ -1859,6 +1884,7 @@ const (
 	AlterColumnOpSetDefault
 	AlterColumnOpDropDefault
 	AlterColumnOpSetDataType
+	AlterColumnOpAddGenerated // PostgreSQL: ADD GENERATED {ALWAYS|BY DEFAULT} AS IDENTITY
 )
 
 func (a *AlterTableOperation) exprNode()        {}
@@ -1995,6 +2021,24 @@ func (a *AlterTableOperation) String() string {
 			if a.AlterUsing != nil {
 				buf.WriteString(" USING ")
 				buf.WriteString(a.AlterUsing.String())
+			}
+		case AlterColumnOpAddGenerated:
+			buf.WriteString(" ADD GENERATED")
+			if a.AlterGeneratedAs != GeneratedAsNone {
+				buf.WriteString(" ")
+				buf.WriteString(a.AlterGeneratedAs.String())
+			}
+			buf.WriteString(" AS IDENTITY")
+			// Output parentheses if present (with options or empty)
+			if a.AlterGeneratedHasParens {
+				buf.WriteString(" (")
+				for i, opt := range a.AlterGeneratedSequenceOpts {
+					if i > 0 {
+						buf.WriteString(" ")
+					}
+					buf.WriteString(opt.String())
+				}
+				buf.WriteString(")")
 			}
 		}
 		return buf.String()
@@ -2183,6 +2227,14 @@ func (a *AlterTableOperation) String() string {
 		buf.WriteString("VALIDATE CONSTRAINT ")
 		if a.DropConstraintName != nil {
 			buf.WriteString(a.DropConstraintName.String())
+		}
+		return buf.String()
+	// PostgreSQL OWNER TO
+	case AlterTableOpOwnerTo:
+		var buf strings.Builder
+		buf.WriteString("OWNER TO ")
+		if a.NewOwner != nil {
+			buf.WriteString(a.NewOwner.String())
 		}
 		return buf.String()
 	// Snowflake-specific clustering operations
@@ -2441,39 +2493,50 @@ type SequenceOptions struct {
 	NoValue bool
 }
 
-func (s *SequenceOptions) exprNode()        {}
-func (s *SequenceOptions) expr()            {}
-func (s *SequenceOptions) IsExpr()          {}
-func (s *SequenceOptions) Span() token.Span { return s.SpanVal }
+func (s *SequenceOptions) exprNode() {}
+func (s *SequenceOptions) expr()     {}
+
+// String returns the string representation without leading space
+// This is used for sequence options in various contexts (CREATE SEQUENCE, GENERATED AS IDENTITY)
 func (s *SequenceOptions) String() string {
 	switch s.Type {
 	case SeqOptIncrementBy:
 		if s.HasByOrWith {
-			return fmt.Sprintf(" INCREMENT BY %s", s.Expr.String())
+			return fmt.Sprintf("INCREMENT BY %s", s.Expr.String())
 		}
-		return fmt.Sprintf(" INCREMENT %s", s.Expr.String())
+		return fmt.Sprintf("INCREMENT %s", s.Expr.String())
 	case SeqOptMinValue:
 		if s.NoValue {
-			return " NO MINVALUE"
+			return "NO MINVALUE"
 		}
-		return fmt.Sprintf(" MINVALUE %s", s.Expr.String())
+		return fmt.Sprintf("MINVALUE %s", s.Expr.String())
 	case SeqOptMaxValue:
 		if s.NoValue {
-			return " NO MAXVALUE"
+			return "NO MAXVALUE"
 		}
-		return fmt.Sprintf(" MAXVALUE %s", s.Expr.String())
+		return fmt.Sprintf("MAXVALUE %s", s.Expr.String())
 	case SeqOptStartWith:
 		if s.HasByOrWith {
-			return fmt.Sprintf(" START WITH %s", s.Expr.String())
+			return fmt.Sprintf("START WITH %s", s.Expr.String())
 		}
-		return fmt.Sprintf(" START %s", s.Expr.String())
+		return fmt.Sprintf("START %s", s.Expr.String())
 	case SeqOptCache:
-		return fmt.Sprintf(" CACHE %s", s.Expr.String())
+		return fmt.Sprintf("CACHE %s", s.Expr.String())
 	case SeqOptCycle:
 		if s.NoCycle {
-			return " NO CYCLE"
+			return "NO CYCLE"
 		}
-		return " CYCLE"
+		return "CYCLE"
+	}
+	return ""
+}
+
+// StringWithLeadingSpace returns the string with a leading space for use in contexts
+// where the option needs to be separated from the previous text
+func (s *SequenceOptions) StringWithLeadingSpace() string {
+	str := s.String()
+	if str != "" {
+		return " " + str
 	}
 	return ""
 }
