@@ -398,6 +398,27 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		onCommit = parseOnCommitClause(p)
 	}
 
+	// PostgreSQL INHERITS clause - parse parent table(s)
+	var inherits []*ast.ObjectName
+	if p.ParseKeyword("INHERITS") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		for {
+			parentTable, err := p.ParseObjectName()
+			if err != nil {
+				return nil, err
+			}
+			inherits = append(inherits, parentTable)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
 	// STRICT (SQLite 3.37+)
 	strict := p.ParseKeyword("STRICT")
 
@@ -560,6 +581,8 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Diststyle:        diststyle,
 		Distkey:          distkey,
 		Sortkey:          sortkey,
+		// PostgreSQL-specific fields
+		Inherits: inherits,
 		// Snowflake-specific fields
 		CopyGrants:              copyGrants,
 		EnableSchemaEvolution:   enableSchemaEvolution,

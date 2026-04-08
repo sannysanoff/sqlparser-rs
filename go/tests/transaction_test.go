@@ -146,11 +146,13 @@ func TestParseSetTransaction(t *testing.T) {
 	stmts := dialects.ParseSQL(t, sql)
 	require.Len(t, stmts, 1)
 
-	setStmt, ok := stmts[0].(*statement.Set)
-	require.True(t, ok, "Expected Set statement, got %T", stmts[0])
+	setTransStmt, ok := stmts[0].(*statement.SetTransaction)
+	require.True(t, ok, "Expected SetTransaction statement, got %T", stmts[0])
 
-	// Verify it's a SET TRANSACTION
-	require.NotNil(t, setStmt, "Expected Set statement")
+	// Verify it's a SET TRANSACTION with expected modes
+	require.NotNil(t, setTransStmt, "Expected SetTransaction statement")
+	// Check that transaction modes were parsed
+	assert.NotEmpty(t, setTransStmt.Modes, "Expected transaction modes to be parsed")
 }
 
 // TestParseCommit verifies COMMIT statement parsing.

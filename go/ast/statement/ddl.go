@@ -170,6 +170,18 @@ func (c *CreateTable) String() string {
 		f.WriteString(")")
 	}
 
+	// PostgreSQL INHERITS clause
+	if len(c.Inherits) > 0 {
+		f.WriteString(" INHERITS (")
+		for i, parent := range c.Inherits {
+			if i > 0 {
+				f.WriteString(", ")
+			}
+			f.WriteString(parent.String())
+		}
+		f.WriteString(")")
+	}
+
 	if c.Comment != nil {
 		f.WriteString(" COMMENT '")
 		f.WriteString(c.Comment.String())

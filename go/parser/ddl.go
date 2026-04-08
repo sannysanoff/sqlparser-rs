@@ -909,8 +909,9 @@ func parseConstraintCharacteristics(p *Parser) (*expr.ConstraintCharacteristics,
 			enforced := true
 			characteristics.Enforced = &enforced
 			hasCharacteristics = true
-		case p.ParseKeyword("NOT") && p.PeekKeyword("VALID"):
+		case p.PeekKeyword("NOT") && p.PeekNthKeyword(1, "VALID"):
 			// Handle NOT VALID (PostgreSQL)
+			p.ParseKeyword("NOT")   // consume NOT
 			p.ParseKeyword("VALID") // consume VALID
 			characteristics.NotValid = true
 			hasCharacteristics = true
