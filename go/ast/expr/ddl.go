@@ -1759,6 +1759,13 @@ type AlterTableOperation struct {
 	DropConstraintIfExists bool
 	DropConstraintName     *ast.Ident
 
+	// Fields for RenameConstraint (PostgreSQL: RENAME CONSTRAINT)
+	RenameConstraintOldName *ast.Ident
+	RenameConstraintNewName *ast.Ident
+
+	// Fields for ValidateConstraint (PostgreSQL: VALIDATE CONSTRAINT)
+	ValidateConstraintName *ast.Ident
+
 	// Fields for RenameColumn
 	RenameOldColumn *ast.Ident
 	RenameNewColumn *ast.Ident
@@ -1850,6 +1857,7 @@ const (
 	AlterTableOpDropColumn
 	AlterTableOpAddConstraint
 	AlterTableOpDropConstraint
+	AlterTableOpRenameConstraint
 	AlterTableOpRenameColumn
 	AlterTableOpRenameTable
 	AlterTableOpAlterColumn
@@ -2009,6 +2017,17 @@ func (a *AlterTableOperation) String() string {
 		if a.DropBehavior != DropBehaviorNone {
 			buf.WriteString(" ")
 			buf.WriteString(a.DropBehavior.String())
+		}
+		return buf.String()
+	case AlterTableOpRenameConstraint:
+		var buf strings.Builder
+		buf.WriteString("RENAME CONSTRAINT ")
+		if a.RenameConstraintOldName != nil {
+			buf.WriteString(a.RenameConstraintOldName.String())
+		}
+		buf.WriteString(" TO ")
+		if a.RenameConstraintNewName != nil {
+			buf.WriteString(a.RenameConstraintNewName.String())
 		}
 		return buf.String()
 	case AlterTableOpRenameColumn:
@@ -2272,8 +2291,8 @@ func (a *AlterTableOperation) String() string {
 	case AlterTableOpValidateConstraint:
 		var buf strings.Builder
 		buf.WriteString("VALIDATE CONSTRAINT ")
-		if a.DropConstraintName != nil {
-			buf.WriteString(a.DropConstraintName.String())
+		if a.ValidateConstraintName != nil {
+			buf.WriteString(a.ValidateConstraintName.String())
 		}
 		return buf.String()
 	// PostgreSQL OWNER TO

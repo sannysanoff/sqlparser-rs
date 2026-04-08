@@ -1756,7 +1756,7 @@ func isJoinKeyword(tok token.TokenWithSpan) bool {
 		return kw == "JOIN" || kw == "CROSS" || kw == "INNER" ||
 			kw == "LEFT" || kw == "RIGHT" || kw == "FULL" ||
 			kw == "NATURAL" || kw == "ANTI" || kw == "SEMI" ||
-			kw == "GLOBAL" || kw == "ASOF"
+			kw == "GLOBAL" || kw == "ASOF" || kw == "STRAIGHT_JOIN"
 	}
 	return false
 }
@@ -1835,9 +1835,13 @@ func parseJoin(p *Parser) (query.Join, error) {
 		joinTypeStr = "ANTI JOIN"
 	}
 
-	// Expect JOIN
-	if !p.ParseKeyword("JOIN") {
-		return query.Join{}, p.Expected("JOIN", p.PeekToken())
+	// Check for STRAIGHT_JOIN (MySQL-specific, no space between words)
+	if p.ParseKeyword("STRAIGHT_JOIN") {
+		joinTypeStr = "STRAIGHT_JOIN"
+	} else if p.ParseKeyword("JOIN") {
+		// Already handled as part of join type parsing
+	} else {
+		return query.Join{}, p.Expected("JOIN or STRAIGHT_JOIN", p.PeekToken())
 	}
 
 	// Parse table
@@ -3951,6 +3955,8 @@ func isReservedForTableAlias(keyword string) bool {
 		"SORT": true, "LATERAL": true, "VIEW": true,
 		"OFFSET": true, "FETCH": true, "MINUS": true,
 		"NATURAL": true, "CLUSTER": true, "DISTRIBUTE": true, "GLOBAL": true, "ANTI": true,
+		// MySQL STRAIGHT_JOIN - this is a join operator, not an alias
+		"STRAIGHT_JOIN": true,
 		// Snowflake time travel keywords - these start time travel clauses, not aliases
 		"AT": true, "BEFORE": true, "CHANGES": true,
 		// File format keywords - these can appear in Snowflake stage paths

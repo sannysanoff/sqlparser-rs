@@ -942,6 +942,11 @@ func (d *MySqlDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for MySqlDialect.
+func (d *MySqlDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns true if the dialect supports ORDER BY ALL.
 func (d *MySqlDialect) SupportsOrderByAll() bool {
 	return false

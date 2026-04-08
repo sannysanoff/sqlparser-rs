@@ -812,6 +812,11 @@ func (d *AnsiDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for AnsiDialect.
+func (d *AnsiDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for AnsiDialect.
 func (d *AnsiDialect) SupportsOrderByAll() bool {
 	return false

@@ -854,6 +854,11 @@ func (d *PostgreSqlDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns true for PostgreSqlDialect (PostgreSQL-specific feature).
+func (d *PostgreSqlDialect) SupportsRenameConstraint() bool {
+	return true
+}
+
 // SupportsOrderByAll returns false for PostgreSqlDialect.
 func (d *PostgreSqlDialect) SupportsOrderByAll() bool {
 	return false

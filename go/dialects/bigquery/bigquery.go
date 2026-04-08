@@ -848,6 +848,11 @@ func (d *BigQueryDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for BigQueryDialect.
+func (d *BigQueryDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for BigQueryDialect.
 func (d *BigQueryDialect) SupportsOrderByAll() bool {
 	return false

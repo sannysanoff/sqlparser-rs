@@ -799,6 +799,11 @@ func (d *GenericDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for GenericDialect.
+func (d *GenericDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for GenericDialect.
 func (d *GenericDialect) SupportsOrderByAll() bool {
 	return false

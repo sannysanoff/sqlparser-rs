@@ -791,6 +791,10 @@ type AlterTableDialect interface {
 	// SupportsCommaSeparatedDropColumnList returns true if the dialect supports
 	// ALTER TABLE tbl DROP COLUMN c1, ..., cn.
 	SupportsCommaSeparatedDropColumnList() bool
+
+	// SupportsRenameConstraint returns true if the dialect supports
+	// ALTER TABLE ... RENAME CONSTRAINT (PostgreSQL-specific).
+	SupportsRenameConstraint() bool
 }
 
 // OrderByDialect defines ORDER BY clause capabilities.

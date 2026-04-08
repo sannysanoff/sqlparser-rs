@@ -823,6 +823,11 @@ func (d *DatabricksDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return true
 }
 
+// SupportsRenameConstraint returns false for DatabricksDialect.
+func (d *DatabricksDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns true for DatabricksDialect.
 func (d *DatabricksDialect) SupportsOrderByAll() bool {
 	return true

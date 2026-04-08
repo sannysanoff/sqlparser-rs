@@ -676,6 +676,15 @@ func SupportsCommaSeparatedDropColumnList(d CoreDialect) bool {
 	return false
 }
 
+// SupportsRenameConstraint returns true if the dialect supports
+// ALTER TABLE ... RENAME CONSTRAINT (PostgreSQL-specific).
+func SupportsRenameConstraint(d CoreDialect) bool {
+	if atd, ok := d.(AlterTableDialect); ok {
+		return atd.SupportsRenameConstraint()
+	}
+	return false
+}
+
 // ============================================================================
 // SET Statement Capability Helpers
 // ============================================================================

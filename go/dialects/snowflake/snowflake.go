@@ -1071,6 +1071,11 @@ func (d *SnowflakeDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return true
 }
 
+// SupportsRenameConstraint returns false for SnowflakeDialect.
+func (d *SnowflakeDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for Snowflake.
 func (d *SnowflakeDialect) SupportsOrderByAll() bool {
 	return false

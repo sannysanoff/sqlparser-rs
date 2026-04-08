@@ -226,6 +226,11 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return parseAlterTableOwnerTo(p, op)
 	}
 
+	// PostgreSQL VALIDATE CONSTRAINT
+	if p.ParseKeywords([]string{"VALIDATE", "CONSTRAINT"}) {
+		return parseAlterTableValidateConstraint(p, op)
+	}
+
 	return nil, fmt.Errorf("unknown ALTER TABLE operation")
 }
 
@@ -578,8 +583,39 @@ func parseAlterTableRename(p *Parser, op *expr.AlterTableOperation) (*expr.Alter
 		return parseAlterTableRenameTable(p, op)
 	}
 
+	// RENAME CONSTRAINT (PostgreSQL-specific)
+	if p.GetDialect().SupportsRenameConstraint() && p.ParseKeyword("CONSTRAINT") {
+		return parseAlterTableRenameConstraint(p, op)
+	}
+
 	// RENAME [COLUMN] <old_name> TO <new_name>
 	return parseAlterTableRenameColumn(p, op)
+}
+
+// parseAlterTableRenameConstraint parses RENAME CONSTRAINT <old_name> TO <new_name> (PostgreSQL)
+func parseAlterTableRenameConstraint(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpRenameConstraint
+
+	// Parse old constraint name
+	oldName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected constraint name: %w", err)
+	}
+	op.RenameConstraintOldName = oldName
+
+	// Expect TO
+	if !p.ParseKeyword("TO") {
+		return nil, fmt.Errorf("expected TO after constraint name")
+	}
+
+	// Parse new constraint name
+	newName, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected new constraint name: %w", err)
+	}
+	op.RenameConstraintNewName = newName
+
+	return op, nil
 }
 
 // parseAlterTableRenameTable parses RENAME TO/AS <new_table_name>
@@ -2378,4 +2414,19 @@ func parseSnowflakeSessionOptions(p *Parser, set bool) (*expr.KeyValueOptions, e
 	}
 
 	return options, nil
+}
+
+// parseAlterTableValidateConstraint parses VALIDATE CONSTRAINT <name> (PostgreSQL)
+// Reference: src/parser/mod.rs:10525-10527
+func parseAlterTableValidateConstraint(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	op.Op = expr.AlterTableOpValidateConstraint
+
+	// Parse constraint name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, fmt.Errorf("expected constraint name: %w", err)
+	}
+	op.ValidateConstraintName = name
+
+	return op, nil
 }

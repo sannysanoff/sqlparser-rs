@@ -893,6 +893,11 @@ func (d *DuckDbDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for DuckDbDialect.
+func (d *DuckDbDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns true if the dialect supports ORDER BY ALL.
 // See https://duckdb.org/docs/sql/query_syntax/orderby.html#order-by-all-examples
 func (d *DuckDbDialect) SupportsOrderByAll() bool {

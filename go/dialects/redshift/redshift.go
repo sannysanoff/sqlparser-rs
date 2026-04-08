@@ -869,6 +869,12 @@ func (d *RedshiftSqlDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns true for RedshiftSqlDialect.
+// Redshift is based on PostgreSQL and supports RENAME CONSTRAINT.
+func (d *RedshiftSqlDialect) SupportsRenameConstraint() bool {
+	return true
+}
+
 // SupportsOrderByAll returns false for RedshiftSqlDialect.
 func (d *RedshiftSqlDialect) SupportsOrderByAll() bool {
 	return false

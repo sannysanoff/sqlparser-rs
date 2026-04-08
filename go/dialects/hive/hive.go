@@ -897,6 +897,11 @@ func (d *HiveDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for HiveDialect.
+func (d *HiveDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns true if the dialect supports ORDER BY ALL.
 func (d *HiveDialect) SupportsOrderByAll() bool {
 	return false

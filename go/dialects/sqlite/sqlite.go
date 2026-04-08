@@ -815,6 +815,11 @@ func (d *SQLiteDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return true
 }
 
+// SupportsRenameConstraint returns false for SQLite.
+func (d *SQLiteDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for SQLite.
 func (d *SQLiteDialect) SupportsOrderByAll() bool {
 	return false

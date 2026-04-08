@@ -899,6 +899,11 @@ func (d *ClickHouseDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for ClickHouseDialect.
+func (d *ClickHouseDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns true if the dialect supports ORDER BY ALL.
 // See https://clickhouse.com/docs/en/sql-reference/statements/select/order-by
 func (d *ClickHouseDialect) SupportsOrderByAll() bool {

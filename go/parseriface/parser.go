@@ -443,6 +443,7 @@ type CompleteDialect interface {
 	// ALTER TABLE support
 	SupportsAlterColumnTypeUsing() bool
 	SupportsCommaSeparatedDropColumnList() bool
+	SupportsRenameConstraint() bool
 
 	// ORDER BY support
 	SupportsOrderByAll() bool

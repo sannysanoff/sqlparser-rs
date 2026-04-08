@@ -48,23 +48,69 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 8, 2026 - Session 74 Complete**
+**Latest Update: April 9, 2026 - Session 75 Complete**
 
 **Summary:**
-- **Test Functions:** 726 passing, 87 failing (~89.3% pass rate)
-- **Critical Finding:** GOLANG.md previously reported only 4 failing subtests, but actual count is 87 failing test functions
+- **Test Functions:** 729 passing, 84 failing (~89.7% pass rate)
+- **Critical Finding:** GOLANG.md previously reported only 4 failing subtests, but actual count is 84 failing test functions
 - **Major Areas Needing Implementation:**
   1. **PostgreSQL features** (~35+ failures): ALTER TABLE, custom operators, escaped strings, table functions, CREATE TABLE options
-  2. **MySQL features** (~15+ failures): STRAIGHT_JOIN, optimizer hints, quoted identifiers
+  2. **MySQL features** (~15+ failures): STRAIGHT_JOIN, optimizer hints, quoted identifiers  
   3. **DDL features** (~8 failures): ALTER INDEX, CREATE TABLE options, index options
   4. **DML features** (~3 failures): INSERT RETURNING, SQLite OR clause
-- **Recently Fixed (Session 74):**
-  1. **CHARACTER VARYING type parsing** - Now properly parses `CHARACTER VARYING(n)` and `CHAR VARYING(n)`
-  2. **CREATE INDEX spacing** - Fixed serialization to not include space before column list
-  3. **MySQL := assignment operator** - Added precedence support for `:=` operator
+- **Recently Fixed (Session 75):**
+  1. **ALTER TABLE RENAME CONSTRAINT** - Added PostgreSQL-specific `ALTER TABLE ... RENAME CONSTRAINT old_name TO new_name`
+  2. **ALTER TABLE VALIDATE CONSTRAINT** - Added PostgreSQL-specific `ALTER TABLE ... VALIDATE CONSTRAINT name`
+  3. **MySQL STRAIGHT_JOIN** - Fixed STRAIGHT_JOIN as table join operator (was being parsed as table alias)
 - **Line Counts:**
-  - Rust source: 67,345 lines | Go source: 102,199 lines (152%)
+  - Rust source: 67,345 lines | Go source: 88,115 lines (131%)
   - Rust tests: 49,886 lines | Go tests: 14,245 lines (29%)
+
+---
+
+## Session 75 Summary: ALTER TABLE RENAME/VALIDATE CONSTRAINT and STRAIGHT_JOIN (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented three major PostgreSQL and MySQL features:
+
+1. **ALTER TABLE RENAME CONSTRAINT** (ast/expr/ddl.go, parser/alter.go, dialects/)
+   - Added `AlterTableOpRenameConstraint` operation type
+   - Added `RenameConstraintOldName` and `RenameConstraintNewName` fields to `AlterTableOperation`
+   - Added `parseAlterTableRenameConstraint()` function in parser/alter.go
+   - Added `SupportsRenameConstraint()` dialect capability (PostgreSQL-specific)
+   - Syntax: `ALTER TABLE ... RENAME CONSTRAINT old_name TO new_name`
+
+2. **ALTER TABLE VALIDATE CONSTRAINT** (ast/expr/ddl.go, parser/alter.go)
+   - Added `ValidateConstraintName` field to `AlterTableOperation`
+   - Added `parseAlterTableValidateConstraint()` function in parser/alter.go
+   - Fixed String() method to use dedicated field instead of reusing `DropConstraintName`
+   - Syntax: `ALTER TABLE ... VALIDATE CONSTRAINT name`
+
+3. **MySQL STRAIGHT_JOIN as Join Operator** (parser/query.go)
+   - Fixed STRAIGHT_JOIN parsing in join clauses
+   - Added "STRAIGHT_JOIN" to `isJoinKeyword()` function
+   - Added "STRAIGHT_JOIN" to `isReservedForTableAlias()` to prevent it being parsed as table alias
+   - Modified `parseJoin()` to handle STRAIGHT_JOIN as a join type
+   - **Root cause**: STRAIGHT_JOIN was being parsed as an implicit table alias instead of a join keyword
+
+**Tests Fixed:**
+- TestPostgresAlterTableConstraintsRename: Now passing (RENAME CONSTRAINT)
+- TestPostgresAlterTableValidateConstraint: Now passing (VALIDATE CONSTRAINT)
+- TestParseStraightJoin: Now passing (STRAIGHT_JOIN as join operator)
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,115 lines | 131% |
+| Tests | 49,886 lines | 14,245 lines | 29% |
+| **Test Status** | - | **729 passing, 84 failing** (was 726 passing, 87 failing) |
+
+**New Patterns Documented:**
+- **Pattern E270**: ALTER TABLE RENAME CONSTRAINT - Add new operation type, fields for old/new names, and dialect capability. String() should output "RENAME CONSTRAINT old TO new".
+- **Pattern E271**: ALTER TABLE VALIDATE CONSTRAINT - Add dedicated field for constraint name, parse function that sets the field. PostgreSQL-specific.
+- **Pattern E272**: Join keywords as table aliases - Join keywords like STRAIGHT_JOIN can be incorrectly parsed as implicit table aliases. Add them to `isReservedForTableAlias()` map.
+- **Pattern E273**: Join keyword detection - Add join keywords to `isJoinKeyword()` function in parser/query.go so they're recognized as starting join clauses.
 
 ---
 
@@ -145,29 +191,30 @@ Implemented two major PostgreSQL features that were causing test failures:
 
 ---
 
-## Session 74 Plan: Massive Code Port - PostgreSQL & MySQL Features (Continued)
+## Session 76 Plan: Massive Code Port - PostgreSQL & MySQL Features (Continued)
 
-**Goal:** Port major missing PostgreSQL and MySQL features to fix remaining ~85 failing tests
+**Goal:** Port major missing PostgreSQL and MySQL features to fix remaining ~84 failing tests
 
 **Remaining High-Priority Features:**
-1. **ALTER TABLE operations** - RENAME CONSTRAINT, ADD COLUMN, etc. (~8 tests)
-2. **STRAIGHT_JOIN** - MySQL specific join type (~2 tests)
-3. **Escaped string literals** - PostgreSQL E'...' syntax (~2 tests)
-4. **Custom operators** - PostgreSQL custom operators (~5 tests)
-5. **TIMESTAMP WITHOUT TIME ZONE** - PostgreSQL timestamp parsing (~3 tests)
-6. **ANALYZE statement** - PostgreSQL ANALYZE (~1 test)
+1. **ALTER TABLE operations** - ADD COLUMN with multiple columns, IF EXISTS/ONLY modifiers (~3 tests)
+2. **Escaped string literals** - PostgreSQL E'...' syntax (~2 tests)
+3. **Custom operators** - PostgreSQL custom operators (~5 tests)
+4. **TIMESTAMP WITHOUT TIME ZONE** - PostgreSQL timestamp parsing (~3 tests)
+5. **ANALYZE statement** - PostgreSQL ANALYZE with columns (~1 test)
+6. **CREATE TABLE options** - WITH options, IF NOT EXISTS empty tables, constraints only (~5 tests)
+7. **Optimizer hints** - MySQL /*+ ... */ comment hints (~1 test)
 
 ---
 
-## Line Counts (Updated April 8, 2026 - Session 74 Complete)
+## Line Counts (Updated April 9, 2026 - Session 75 Complete)
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 102,199 lines | 152% |
+| Source (parser+ast+dialects) | 67,345 lines | 88,115 lines | 131% |
 | Tests | 49,886 lines | 14,245 lines | 29% |
 | **Test Status - Snowflake** | - | **100% passing** |
 | **Test Status - Regression** | - | **100% passing** |
-| **Test Status - All Others** | - | **726 test functions passing, 87 failing** |
+| **Test Status - All Others** | - | **729 test functions passing, 84 failing** |
 
 ---
 
@@ -580,7 +627,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 61-74 (April 8, 2026)
+### Sessions 61-75 (April 8-9, 2026)
+- **Session 75**: ALTER TABLE RENAME/VALIDATE CONSTRAINT, STRAIGHT_JOIN (+3 tests) - ~729 tests passing, 84 failing
 - **Session 74**: CHARACTER VARYING, CREATE INDEX spacing, MySQL := operator (+10 tests) - ~726 tests passing, 87 failing
 - **Session 73**: PostgreSQL JSON_OBJECT VALUE keyword, ARRAY subquery (+2 tests) - ~716 tests passing
 - **Session 72**: Reserved keywords as identifiers fallback (~96 tests fixed!) - ~715 tests passing, 98.5% pass rate
@@ -794,6 +842,65 @@ Pattern E269: Assignment Operator Precedence
       return dialect.PrecValue(parseriface.PrecedenceAssignment), nil
   ```
 - Files typically modified: parser/core.go, parseriface/parser.go
+
+Pattern E270: ALTER TABLE RENAME CONSTRAINT
+- When: Implementing PostgreSQL ALTER TABLE ... RENAME CONSTRAINT
+- Problem: Need to add support for renaming constraints in ALTER TABLE
+- Solution: Add AlterTableOpRenameConstraint operation, fields for old/new constraint names, and dialect capability SupportsRenameConstraint()
+- Example:
+  ```go
+  case AlterTableOpRenameConstraint:
+      buf.WriteString("RENAME CONSTRAINT ")
+      if a.RenameConstraintOldName != nil {
+          buf.WriteString(a.RenameConstraintOldName.String())
+      }
+      buf.WriteString(" TO ")
+      if a.RenameConstraintNewName != nil {
+          buf.WriteString(a.RenameConstraintNewName.String())
+      }
+  ```
+- Files typically modified: ast/expr/ddl.go, parser/alter.go, dialects/
+
+Pattern E271: ALTER TABLE VALIDATE CONSTRAINT
+- When: Implementing PostgreSQL ALTER TABLE ... VALIDATE CONSTRAINT
+- Problem: Need to add support for validating constraints in ALTER TABLE
+- Solution: Add dedicated field ValidateConstraintName, parse function that sets the field
+- Example:
+  ```go
+  if p.ParseKeywords([]string{"VALIDATE", "CONSTRAINT"}) {
+      return parseAlterTableValidateConstraint(p, op)
+  }
+  ```
+- Files typically modified: ast/expr/ddl.go, parser/alter.go
+
+Pattern E272: Join Keywords as Table Aliases
+- When: Join keywords like STRAIGHT_JOIN are being parsed as table aliases instead of join operators
+- Problem: When parsing `FROM table_a STRAIGHT_JOIN table_b`, STRAIGHT_JOIN is consumed as an alias for table_a
+- Solution: Add join keywords to `isReservedForTableAlias()` map to prevent them being used as implicit aliases
+- Example:
+  ```go
+  reserved := map[string]bool{
+      // ... other reserved keywords ...
+      "STRAIGHT_JOIN": true,
+  }
+  ```
+- Files typically modified: parser/query.go (isReservedForTableAlias function)
+
+Pattern E273: Join Keyword Detection
+- When: New join keywords like STRAIGHT_JOIN are not recognized as starting join clauses
+- Problem: Parser doesn't recognize STRAIGHT_JOIN as a join keyword, so it doesn't enter join parsing logic
+- Solution: Add join keywords to `isJoinKeyword()` function in parser/query.go
+- Example:
+  ```go
+  func isJoinKeyword(tok token.TokenWithSpan) bool {
+      if word, ok := tok.Token.(token.TokenWord); ok {
+          kw := strings.ToUpper(string(word.Word.Keyword))
+          return kw == "JOIN" || kw == "CROSS" || ... || kw == "STRAIGHT_JOIN"
+      }
+      return false
+  }
+  ```
+- Files typically modified: parser/query.go
 ```
 
 **See full pattern catalog in code comments and previous session notes.**

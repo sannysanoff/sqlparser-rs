@@ -826,6 +826,11 @@ func (d *OracleDialect) SupportsCommaSeparatedDropColumnList() bool {
 	return false
 }
 
+// SupportsRenameConstraint returns false for OracleDialect.
+func (d *OracleDialect) SupportsRenameConstraint() bool {
+	return false
+}
+
 // SupportsOrderByAll returns false for OracleDialect.
 func (d *OracleDialect) SupportsOrderByAll() bool {
 	return false
