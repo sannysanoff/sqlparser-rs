@@ -1496,6 +1496,41 @@ func (c *CreateStage) String() string {
 		f.WriteString("IF NOT EXISTS ")
 	}
 	f.WriteString(c.Name.String())
+
+	// Stage params
+	if c.StageParams != nil {
+		if str := c.StageParams.String(); str != "" {
+			f.WriteString(" ")
+			f.WriteString(str)
+		}
+	}
+
+	// Directory table params
+	if c.DirectoryTableParams != nil && len(c.DirectoryTableParams.Options) > 0 {
+		f.WriteString(" DIRECTORY=(")
+		f.WriteString(c.DirectoryTableParams.String())
+		f.WriteString(")")
+	}
+
+	// File format
+	if c.FileFormat != nil && len(c.FileFormat.Options) > 0 {
+		f.WriteString(" FILE_FORMAT=(")
+		f.WriteString(c.FileFormat.String())
+		f.WriteString(")")
+	}
+
+	// Copy options
+	if c.CopyOptions != nil && len(c.CopyOptions.Options) > 0 {
+		f.WriteString(" COPY_OPTIONS=(")
+		f.WriteString(c.CopyOptions.String())
+		f.WriteString(")")
+	}
+
+	// Comment
+	if c.Comment != nil {
+		f.WriteString(fmt.Sprintf(" COMMENT='%s'", *c.Comment))
+	}
+
 	return f.String()
 }
 

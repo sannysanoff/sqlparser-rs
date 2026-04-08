@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/user/sqlparser/ast"
@@ -4495,14 +4496,233 @@ func parseCreateStage(p *Parser, orReplace bool, temporary bool, transient bool)
 		return nil, err
 	}
 
-	// TODO: Parse stage params, directory table params, file_format, copy_options, comment
-	// For now, return a basic CreateStage statement
+	// Parse stage parameters (URL, STORAGE_INTEGRATION, ENDPOINT, CREDENTIALS, ENCRYPTION)
+	stageParams := &expr.StageParamsObject{}
+
+	for {
+		if p.ParseKeyword("URL") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			urlStr, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			stageParams.Url = &urlStr
+		} else if p.ParseKeyword("STORAGE_INTEGRATION") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			siStr, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			siVal := siStr.String()
+			stageParams.StorageIntegration = &siVal
+		} else if p.ParseKeyword("ENDPOINT") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			endpointStr, err := p.ParseStringLiteral()
+			if err != nil {
+				return nil, err
+			}
+			stageParams.Endpoint = &endpointStr
+		} else if p.ParseKeyword("CREDENTIALS") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			creds, err := parseKeyValueOptions(p, token.TokenRParen{})
+			if err != nil {
+				return nil, err
+			}
+			stageParams.Credentials = creds
+		} else if p.ParseKeyword("ENCRYPTION") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
+			encryption, err := parseKeyValueOptions(p, token.TokenRParen{})
+			if err != nil {
+				return nil, err
+			}
+			stageParams.Encryption = encryption
+		} else {
+			break
+		}
+	}
+
+	// Parse DIRECTORY TABLE options
+	var directoryTableParams *expr.KeyValueOptions
+	if p.ParseKeyword("DIRECTORY") {
+		if p.ParseKeyword("ENABLE") {
+			if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+				return nil, err
+			}
+			// Parse boolean or string value
+			tok := p.PeekTokenRef()
+			var val string
+			if word, ok := tok.Token.(token.TokenWord); ok {
+				val = strings.ToUpper(word.Word.Value)
+				p.AdvanceToken()
+			} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+				val = str.Value
+				p.AdvanceToken()
+			}
+			directoryTableParams = &expr.KeyValueOptions{
+				Options: []*expr.KeyValueOption{
+					{OptionName: "ENABLE", OptionValue: val, Kind: expr.KeyValueOptionKindSingle},
+				},
+			}
+		}
+	}
+
+	// Parse FILE_FORMAT options
+	var fileFormat *expr.KeyValueOptions
+	if p.ParseKeyword("FILE_FORMAT") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		// Can be a format name or (type = ...)
+		if p.ConsumeToken(token.TokenLParen{}) {
+			fmt, err := parseKeyValueOptions(p, token.TokenRParen{})
+			if err != nil {
+				return nil, err
+			}
+			fileFormat = fmt
+		} else {
+			// Single format name
+			fmtName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			fileFormat = &expr.KeyValueOptions{
+				Options: []*expr.KeyValueOption{
+					{OptionName: "FORMAT_NAME", OptionValue: fmtName.String(), Kind: expr.KeyValueOptionKindSingle},
+				},
+			}
+		}
+	}
+
+	// Parse COPY_OPTIONS
+	var copyOptions *expr.KeyValueOptions
+	if p.ParseKeyword("COPY_OPTIONS") {
+		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		opts, err := parseKeyValueOptions(p, token.TokenRParen{})
+		if err != nil {
+			return nil, err
+		}
+		copyOptions = opts
+	}
+
+	// Parse COMMENT
+	var comment *string
+	if p.ParseKeyword("COMMENT") {
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+		commentStr, err := p.ParseStringLiteral()
+		if err != nil {
+			return nil, err
+		}
+		comment = &commentStr
+	}
 
 	return &statement.CreateStage{
-		OrReplace:   orReplace,
-		Temporary:   temporary,
-		IfNotExists: ifNotExists,
-		Name:        name,
-		StageParams: &expr.StageParamsObject{},
+		OrReplace:            orReplace,
+		Temporary:            temporary,
+		IfNotExists:          ifNotExists,
+		Name:                 name,
+		StageParams:          stageParams,
+		DirectoryTableParams: directoryTableParams,
+		FileFormat:           fileFormat,
+		CopyOptions:          copyOptions,
+		Comment:              comment,
 	}, nil
+}
+
+// parseKeyValueOptions parses key=value options until a closing token is found
+func parseKeyValueOptions(p *Parser, closeTok token.Token) (*expr.KeyValueOptions, error) {
+	opts := &expr.KeyValueOptions{
+		Options:   []*expr.KeyValueOption{},
+		Delimiter: expr.KeyValueOptionsDelimiterSpace,
+	}
+
+	for {
+		// Check for closing token at the start of each iteration
+		if p.ConsumeToken(closeTok) {
+			break
+		}
+
+		// Check for closing token without consuming (for peek)
+		tok := p.PeekTokenRef()
+		if reflect.TypeOf(tok.Token) == reflect.TypeOf(closeTok) {
+			p.AdvanceToken() // consume and break
+			break
+		}
+
+		// Parse key
+		keyTok := p.PeekTokenRef()
+		var key string
+		if word, ok := keyTok.Token.(token.TokenWord); ok {
+			key = word.Word.Value
+			p.AdvanceToken()
+		} else {
+			return nil, fmt.Errorf("expected identifier in key-value option, found %s", keyTok.Token.String())
+		}
+
+		// Expect =
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, err
+		}
+
+		// Parse value - can be string, identifier, or number
+		valTok := p.PeekTokenRef()
+		var val interface{}
+		if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+			val = str.Value
+			p.AdvanceToken()
+		} else if word, ok := valTok.Token.(token.TokenWord); ok {
+			val = word.Word.Value
+			p.AdvanceToken()
+		} else if num, ok := valTok.Token.(token.TokenNumber); ok {
+			val = num.Value
+			p.AdvanceToken()
+		} else if p.ConsumeToken(token.TokenLParen{}) {
+			// Nested options
+			nested, err := parseKeyValueOptions(p, token.TokenRParen{})
+			if err != nil {
+				return nil, err
+			}
+			opts.Options = append(opts.Options, &expr.KeyValueOption{
+				OptionName:  key,
+				OptionValue: nested,
+				Kind:        expr.KeyValueOptionKindNested,
+			})
+			// After nested, continue to next option
+			continue
+		} else {
+			return nil, fmt.Errorf("expected value in key-value option, found %s", valTok.Token.String())
+		}
+
+		opts.Options = append(opts.Options, &expr.KeyValueOption{
+			OptionName:  key,
+			OptionValue: val,
+			Kind:        expr.KeyValueOptionKindSingle,
+		})
+
+		// Check for comma (consume it if present and continue)
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+	}
+
+	return opts, nil
 }

@@ -1,5 +1,34 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 7 - Snowflake CREATE STAGE Full Implementation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 74,446 lines | 110% |
+| Tests | 49,847 lines | 14,149 lines | 28% |
+| **Test Status** | - | **523 passing** / **290 failing** (~64%) | +2 tests passing (Snowflake CREATE STAGE with full parameters)
+
+**Today's Major Fixes (Session 7):**
+1. **Snowflake CREATE STAGE Full Support** - Implemented complete parsing and serialization for Snowflake CREATE STAGE with all stage parameters:
+   - `URL='...'` - External stage URL
+   - `STORAGE_INTEGRATION=...` - Storage integration identifier
+   - `ENDPOINT='...'` - S3-compatible endpoint
+   - `CREDENTIALS=(AWS_KEY_ID='...' AWS_SECRET_KEY='...')` - AWS credentials
+   - `ENCRYPTION=(MASTER_KEY='...' TYPE='...')` - Encryption options
+   - `COMMENT='...'` - Stage comment
+   - Proper handling of `=` sign between keyword and value (e.g., `CREDENTIALS=(...)`)
+2. **parseKeyValueOptions helper** - Added robust key-value options parser supporting:
+   - Space-delimited key=value pairs
+   - Nested parenthesized options
+   - String, identifier, and number values
+   - Comma-separated and space-separated formats
+
+**New Patterns Documented:**
+- **Pattern E59**: Snowflake stage parameters use `=` sign between keyword and parenthesized value - Always consume `=` token after keyword before expecting `(` for parameters like CREDENTIALS and ENCRYPTION.
+- **Pattern E60**: Key-value options parsing - When parsing `(key1=value1 key2=value2)` style options, don't require commas as delimiters; space separation is sufficient.
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 6 - SELECT TOP, PARTITION OF, EXCLUDE/RENAME Implementation):**
 
 | Component | Rust | Go | Ratio |
