@@ -1,5 +1,46 @@
 # Go SQL Parser Development Guide
 
+## Session 81 Summary: DROP DOMAIN/PROCEDURE & ALTER TYPE Implementation (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented major DDL features, resolving 4 failing tests:
+
+1. **DROP DOMAIN** (parser/drop.go, ast/statement/ddl.go)
+   - Added `parseDropDomain()` function to handle `DROP DOMAIN [IF EXISTS] name [, ...] [CASCADE|RESTRICT]`
+   - Added proper String() method with DropBehavior support
+   - Fixed TestPostgresDropDomain
+
+2. **DROP PROCEDURE** (parser/drop.go)
+   - Added `parseDropProcedure()` function with full argument parsing
+   - Handles complex procedure signatures: `[IN|OUT|INOUT] [argname] argtype [= default]`
+   - Supports multiple procedure descriptions (comma-separated)
+   - Fixed TestPostgresDropProcedure
+
+3. **ALTER TYPE** (parser/alter.go, ast/expr/ddl.go, ast/statement/ddl.go)
+   - Implemented full ALTER TYPE operation hierarchy matching Rust structure
+   - Operations: RENAME TO, ADD VALUE [IF NOT EXISTS], RENAME VALUE
+   - ADD VALUE supports BEFORE/AFTER position specifications
+   - Fixed TestPostgresAlterType
+
+4. **Dollar-Quoted String Test Fix** (tests/postgres/postgres_test.go)
+   - Updated test to expect canonical form with AS keyword for aliases
+   - Fixed incorrect dollar-quoted string error test case
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 88,057 lines | 131% |
+| Tests | 49,886 lines | 14,254 lines | 29% |
+| **Test Status** | - | **~753 passing, ~56 failing** (was ~740 passing, ~60 failing) |
+
+**New Patterns Documented:**
+- **Pattern E289**: DROP DOMAIN/PROCEDURE - Add to parseDrop() switch statement, follow existing patterns for IF EXISTS and CASCADE/RESTRICT
+- **Pattern E290**: Complex function argument parsing - For DROP PROCEDURE/FUNCTION, parse arg mode, name, type, and default value as a single unit
+- **Pattern E291**: ALTER TYPE operations - Use interface-based design for operation variants (Rename, AddValue, RenameValue)
+
+---
+
 ## Session 80 Summary: FETCH Canonical Form & BOOLEAN/BOOL Fixes (April 9, 2026)
 
 **Major Fixes:**
@@ -31,8 +72,8 @@ Implemented three major canonical form fixes, resolving 5+ failing tests:
 **Line Counts:**
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 88,330 lines | 131% |
-| Tests | 49,886 lines | 14,412 lines | 29% |
+| Source (parser+ast+dialects) | 67,345 lines | 88,057 lines | 131% |
+| Tests | 49,886 lines | 14,254 lines | 29% |
 | **Test Status** | - | **~740 passing, ~60 failing** (was ~740 passing, ~63 failing) |
 
 **New Patterns Documented:**
@@ -137,7 +178,40 @@ CREATE TABLE t (s TEXT CHARACTER SET utf8mb4 COMMENT 'comment')
 ```
 **Detection:** Parser error: "Expected: ), found: CHARACTER"
 **Fix:** Add CHARACTER SET as valid column option in parser
-**Files:** parser/ddl.go
+**Files:** parser/ddl.go, ast/expr/ddl.go
+
+### Error Type 6: ast.Ident vs expr.Ident Confusion
+**Problem:** Parser returns `*ast.Ident` but DDL structs expect `*expr.Ident`
+**Example:**
+```go
+// Wrong - causes type mismatch
+type AlterTypeRename struct {
+    NewName *expr.Ident  // expr.Ident is different from ast.Ident!
+}
+
+// Right - use ast.Ident
+import "github.com/user/sqlparser/ast"
+type AlterTypeRename struct {
+    NewName *ast.Ident
+}
+```
+**Detection:** Compile error: "cannot use newName (variable of type *ast.Ident) as *expr.Ident value"
+**Fix:** Use `*ast.Ident` for identifier fields in DDL structs
+**Files:** ast/expr/ddl.go, ast/statement/ddl.go
+
+### Error Type 7: Interface vs Pointer Slice Types
+**Problem:** Statement struct expects slice of pointers but interface types don't match
+**Example:**
+```go
+// Wrong - AlterTypeOperation is now an interface, not a struct
+Operations []*expr.AlterTypeOperation
+
+// Right - use interface directly
+Operations []expr.AlterTypeOperation
+```
+**Detection:** Compile error: "cannot use []expr.AlterTypeOperation as []*expr.AlterTypeOperation"
+**Fix:** Change from slice of pointers to slice of interface type
+**Files:** ast/statement/ddl.go
 
 ---
 
@@ -189,18 +263,21 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 79 Complete**
+**Latest Update: April 9, 2026 - Session 81 Complete**
 
 **Summary:**
-- **Test Functions:** ~740 passing, ~63 failing (~92.1% pass rate)
+- **Test Functions:** ~753 passing, ~56 failing (~93.1% pass rate)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL Table Features** (~8 failures): table functions, partition by, WITH clauses
-  2. **Dollar-quoted strings** (~3 failures): E'...', $$...$$ syntax
-  3. **ALTER TYPE/SCHEMA/OPERATOR** (~5 failures): Various DDL operations
-  4. **Remaining features**: FETCH variations, IN union, escaped strings
-- **Recently Fixed (Session 79):**
-  1. **PostgreSQL CREATE/DROP OPERATOR** - Implemented `ParseOperatorName()` to handle operator symbols (@@, <, >, ~, etc.)
-  2. **DROP OPERATOR serialization** - Fixed spacing: `DROP OPERATOR ~ (NONE, BIT)` not `~(NONE, BIT)`
+  1. **PostgreSQL Table Features** (~8 failures): table functions, partition by, WITH clauses, CREATE TABLE WITH options
+  2. **PostgreSQL ALTER statements** (~6 failures): ALTER SCHEMA, ALTER OPERATOR/FAMILY, remaining ALTER TYPE operations
+  3. **UPDATE in CTE** (~2 failures): WITH clause containing UPDATE statements
+  4. **MySQL features** (~6 failures): := assignment, index with USING, prefix key parts
+  5. **Miscellaneous** (~4 failures): escaped strings, dollar-quoted strings error cases, IN union
+- **Recently Fixed (Session 81):**
+  1. **DROP DOMAIN** - Full implementation with CASCADE/RESTRICT support
+  2. **DROP PROCEDURE** - Complex argument parsing with IN/OUT/INOUT modes and defaults
+  3. **ALTER TYPE** - Full operations support: RENAME TO, ADD VALUE, RENAME VALUE
+  4. **Dollar-quoted string tests** - Updated to match canonical form with AS keyword
   3. **CREATE OPERATOR CLASS** - Fixed OPERATOR item serialization spacing
   4. **Snowflake AUTOINCREMENT** - Fixed to output `AUTOINCREMENT` not `AUTO_INCREMENT`
   5. **CREATE OPERATOR validation** - Added duplicate FUNCTION clause detection

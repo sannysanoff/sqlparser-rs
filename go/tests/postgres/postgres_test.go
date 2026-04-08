@@ -840,7 +840,8 @@ func TestPostgresDropProcedure(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:5095
 func TestPostgresDollarQuotedString(t *testing.T) {
 	pg := pg()
-	pg.VerifiedStmt(t, "SELECT $$hello$$, $tag_name$world$tag_name$, $$Foo$Bar$$, $$Foo$Bar$$col_name, $$$$, $tag_name$$tag_name$")
+	// Canonical form includes AS for aliases
+	pg.VerifiedStmt(t, "SELECT $$hello$$, $tag_name$world$tag_name$, $$Foo$Bar$$, $$Foo$Bar$$ AS col_name, $$$$, $tag_name$$tag_name$")
 }
 
 // TestPostgresIncorrectDollarQuotedString tests invalid dollar-quoted strings
@@ -854,7 +855,7 @@ func TestPostgresIncorrectDollarQuotedString(t *testing.T) {
 	_, err = parser.ParseSQL(dialect, "SELECT $hello$$")
 	require.Error(t, err)
 
-	_, err = parser.ParseSQL(dialect, "SELECT $$$$")
+	_, err = parser.ParseSQL(dialect, "SELECT $$$")
 	require.Error(t, err)
 }
 

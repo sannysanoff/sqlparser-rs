@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/user/sqlparser/ast"
 	"github.com/user/sqlparser/ast/expr"
@@ -75,8 +76,12 @@ func parseDrop(p *Parser) (ast.Statement, error) {
 		return parseDropConnector(p)
 	case p.PeekKeyword("EXTENSION"):
 		return parseDropExtension(p)
+	case p.PeekKeyword("DOMAIN"):
+		return parseDropDomain(p)
+	case p.PeekKeyword("PROCEDURE"):
+		return parseDropProcedure(p)
 	default:
-		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE, USER, STREAM, POLICY, CONNECTOR, or EXTENSION after DROP", p.PeekTokenRef())
+		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE, USER, STREAM, POLICY, CONNECTOR, EXTENSION, DOMAIN, or PROCEDURE after DROP", p.PeekTokenRef())
 	}
 }
 
@@ -385,7 +390,9 @@ func parseDropFunction(p *Parser) (ast.Statement, error) {
 	}, nil
 }
 
-// parseFunctionDesc parses a function description with optional argument list
+// parseFunctionDesc parses a function/procedure description with optional argument list
+// Reference: src/parser/mod.rs parse_function_desc, parse_function_arg
+// Syntax: name [ ( [ [ argmode ] [ argname ] argtype [ = default ] [, ...] ] ) ]
 func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
 	name, err := p.ParseObjectName()
 	if err != nil {
@@ -409,25 +416,13 @@ func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
 			// Parse argument list
 			var args []expr.Expr
 			for {
-				// For DROP FUNCTION, we just need to parse the data type of each argument
-				// The syntax is: [ argmode ] [ argname ] argtype
-				// For simplicity, we parse the argtype (data type) which is required
-				dataType, err := p.ParseDataType()
+				// For DROP FUNCTION/PROCEDURE, we parse function arguments
+				// The syntax is: [ IN | OUT | INOUT ] [ argname ] argtype [ = default | DEFAULT expr ]
+				arg, err := parseFunctionArgForDrop(p)
 				if err != nil {
-					// Try parsing as expression for simpler cases
-					ep := NewExpressionParser(p)
-					arg, err := ep.ParseExpr()
-					if err != nil {
-						return nil, err
-					}
-					args = append(args, arg)
-				} else {
-					// Convert data type to expression representation
-					args = append(args, &expr.Identifier{
-						SpanVal: token.Span{},
-						Ident:   &expr.Ident{Value: dataType.String()},
-					})
+					return nil, err
 				}
+				args = append(args, arg)
 
 				if !p.ConsumeToken(token.TokenComma{}) {
 					break
@@ -444,6 +439,88 @@ func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
 	}
 
 	return funcDesc, nil
+}
+
+// parseFunctionArgForDrop parses a function argument for DROP FUNCTION/PROCEDURE
+// Reference: src/parser/mod.rs parse_function_arg
+// Syntax: [ IN | OUT | INOUT ] [ argname ] argtype [ = default | DEFAULT expr ]
+func parseFunctionArgForDrop(p *Parser) (expr.Expr, error) {
+	// Check for argmode (IN, OUT, INOUT)
+	argMode := ""
+	if p.ParseKeyword("IN") {
+		// Could be IN or INOUT - check further
+		if p.ParseKeyword("OUT") {
+			argMode = "INOUT"
+		} else {
+			argMode = "IN"
+		}
+	} else if p.ParseKeyword("OUT") {
+		argMode = "OUT"
+	} else if p.ParseKeyword("INOUT") {
+		argMode = "INOUT"
+	}
+
+	// Collect all tokens that make up this argument until we hit comma or closing paren
+	var argParts []string
+
+	for {
+		tok := p.PeekToken().Token
+
+		// Check for end of argument
+		if _, ok := tok.(token.TokenRParen); ok {
+			break
+		}
+		if _, ok := tok.(token.TokenComma); ok {
+			break
+		}
+
+		// Handle different token types
+		switch t := tok.(type) {
+		case token.TokenWord:
+			// Check for DEFAULT keyword
+			if t.Word.String() == "DEFAULT" {
+				argParts = append(argParts, "DEFAULT")
+				p.AdvanceToken()
+				// Parse the default expression
+				ep := NewExpressionParser(p)
+				if defExpr, err := ep.ParseExpr(); err == nil {
+					argParts = append(argParts, defExpr.String())
+				}
+				break
+			}
+			argParts = append(argParts, t.Word.String())
+			p.AdvanceToken()
+		case token.TokenChar:
+			if t.Char == '=' {
+				argParts = append(argParts, "=")
+				p.AdvanceToken()
+				// Parse the default expression after =
+				ep := NewExpressionParser(p)
+				if defExpr, err := ep.ParseExpr(); err == nil {
+					argParts = append(argParts, defExpr.String())
+				}
+				break
+			}
+			argParts = append(argParts, string(t.Char))
+			p.AdvanceToken()
+		default:
+			// For any other token, add its string representation
+			argParts = append(argParts, tok.String())
+			p.AdvanceToken()
+		}
+	}
+
+	// Build the full argument string
+	if argMode != "" && len(argParts) > 0 {
+		// Insert mode at the beginning
+		argParts = append([]string{argMode}, argParts...)
+	}
+
+	argStr := strings.Join(argParts, " ")
+	return &expr.Identifier{
+		SpanVal: token.Span{},
+		Ident:   &expr.Ident{Value: argStr},
+	}, nil
 }
 
 // parseTruncate parses TRUNCATE statements
@@ -917,6 +994,82 @@ func parseDropExtension(p *Parser) (ast.Statement, error) {
 	return &statement.DropExtension{
 		IfExists:     ifExists,
 		Names:        names,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropDomain parses DROP DOMAIN statement
+// Reference: src/parser/mod.rs parse_drop_domain
+// DROP DOMAIN [ IF EXISTS ] name [, ...] [ CASCADE | RESTRICT ]
+func parseDropDomain(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("DOMAIN"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated domain names
+	names, err := parseCommaSeparatedObjectNames(p)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		b := expr.DropBehaviorCascade
+		dropBehavior = &b
+	} else if p.ParseKeyword("RESTRICT") {
+		b := expr.DropBehaviorRestrict
+		dropBehavior = &b
+	}
+
+	return &statement.DropDomain{
+		IfExists:     ifExists,
+		Names:        names,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropProcedure parses DROP PROCEDURE statement
+// Reference: src/parser/mod.rs parse_drop_procedure
+// DROP PROCEDURE [ IF EXISTS ] name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ] [, ...] [ CASCADE | RESTRICT ]
+func parseDropProcedure(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("PROCEDURE"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse procedure descriptions (comma-separated, similar to DROP FUNCTION)
+	var procDescs []*expr.FunctionDesc
+	for {
+		funcDesc, err := parseFunctionDesc(p)
+		if err != nil {
+			return nil, err
+		}
+		procDescs = append(procDescs, funcDesc)
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		b := expr.DropBehaviorCascade
+		dropBehavior = &b
+	} else if p.ParseKeyword("RESTRICT") {
+		b := expr.DropBehaviorRestrict
+		dropBehavior = &b
+	}
+
+	return &statement.DropProcedure{
+		IfExists:     ifExists,
+		ProcDesc:     procDescs,
 		DropBehavior: dropBehavior,
 	}, nil
 }

@@ -1836,36 +1836,74 @@ func parseAlterType(p *Parser) (ast.Statement, error) {
 		return nil, fmt.Errorf("expected type name after ALTER TYPE: %w", err)
 	}
 
-	var operations []*expr.AlterTypeOperation
+	var operation expr.AlterTypeOperation
 
-	// RENAME TO
-	if p.ParseKeywords([]string{"RENAME", "TO"}) {
-		newName, err := p.ParseIdentifier()
-		if err != nil {
-			return nil, fmt.Errorf("expected new type name: %w", err)
+	// Check for operation type
+	if p.PeekKeyword("RENAME") {
+		// Could be RENAME TO or RENAME VALUE
+		p.AdvanceToken() // consume RENAME
+
+		if p.ParseKeyword("TO") {
+			// RENAME TO new_name
+			newName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected new type name: %w", err)
+			}
+			operation = &expr.AlterTypeRename{NewName: newName}
+		} else if p.ParseKeyword("VALUE") {
+			// RENAME VALUE from TO to
+			from, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected old value name: %w", err)
+			}
+			if _, err := p.ExpectKeyword("TO"); err != nil {
+				return nil, fmt.Errorf("expected TO after old value name: %w", err)
+			}
+			to, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected new value name: %w", err)
+			}
+			operation = &expr.AlterTypeRenameValue{From: from, To: to}
+		} else {
+			return nil, fmt.Errorf("expected TO or VALUE after RENAME")
 		}
-		_ = newName
-	}
+	} else if p.ParseKeywords([]string{"ADD", "VALUE"}) {
+		// ADD VALUE [ IF NOT EXISTS ] value [ BEFORE | AFTER neighbor ]
+		ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 
-	// ADD VALUE (for enum types)
-	if p.ParseKeywords([]string{"ADD", "VALUE"}) {
-		p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
 		value, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, fmt.Errorf("expected enum value: %w", err)
 		}
-		_ = value
+
 		// Optional BEFORE/AFTER position
+		var position expr.AlterTypeAddValuePosition
 		if p.ParseKeyword("BEFORE") {
-			p.ParseIdentifier()
+			neighbor, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected neighbor value after BEFORE: %w", err)
+			}
+			position = &expr.AlterTypeAddValuePositionBefore{NeighborValue: neighbor}
 		} else if p.ParseKeyword("AFTER") {
-			p.ParseIdentifier()
+			neighbor, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, fmt.Errorf("expected neighbor value after AFTER: %w", err)
+			}
+			position = &expr.AlterTypeAddValuePositionAfter{NeighborValue: neighbor}
 		}
+
+		operation = &expr.AlterTypeAddValue{
+			IfNotExists: ifNotExists,
+			Value:       value,
+			Position:    position,
+		}
+	} else {
+		return nil, fmt.Errorf("expected RENAME or ADD VALUE after ALTER TYPE")
 	}
 
 	return &statement.AlterType{
 		Name:       name,
-		Operations: operations,
+		Operations: []expr.AlterTypeOperation{operation},
 	}, nil
 }
 

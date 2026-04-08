@@ -2435,13 +2435,109 @@ func (a *AlterSchemaOperation) Span() token.Span { return token.Span{} }
 func (a *AlterSchemaOperation) String() string   { return "" }
 
 // AlterTypeOperation represents ALTER TYPE operation.
-type AlterTypeOperation struct{}
+// This is an interface that can be one of:
+// - *AlterTypeRename
+// - *AlterTypeAddValue
+// - *AlterTypeRenameValue
+type AlterTypeOperation interface {
+	Expr
+	IsAlterTypeOperation()
+}
 
-func (a *AlterTypeOperation) exprNode()        {}
-func (a *AlterTypeOperation) expr()            {}
-func (a *AlterTypeOperation) IsExpr()          {}
-func (a *AlterTypeOperation) Span() token.Span { return token.Span{} }
-func (a *AlterTypeOperation) String() string   { return "" }
+// AlterTypeRename represents ALTER TYPE RENAME TO operation
+type AlterTypeRename struct {
+	NewName *ast.Ident
+}
+
+func (a *AlterTypeRename) exprNode()             {}
+func (a *AlterTypeRename) expr()                 {}
+func (a *AlterTypeRename) IsExpr()               {}
+func (a *AlterTypeRename) Span() token.Span      { return token.Span{} }
+func (a *AlterTypeRename) IsAlterTypeOperation() {}
+
+func (a *AlterTypeRename) String() string {
+	return "RENAME TO " + a.NewName.String()
+}
+
+// AlterTypeAddValuePosition represents the position for ADD VALUE
+type AlterTypeAddValuePosition interface {
+	Expr
+	IsAddValuePosition()
+}
+
+// AlterTypeAddValuePositionBefore represents BEFORE position
+type AlterTypeAddValuePositionBefore struct {
+	NeighborValue *ast.Ident
+}
+
+func (a *AlterTypeAddValuePositionBefore) exprNode()           {}
+func (a *AlterTypeAddValuePositionBefore) expr()               {}
+func (a *AlterTypeAddValuePositionBefore) IsExpr()             {}
+func (a *AlterTypeAddValuePositionBefore) Span() token.Span    { return token.Span{} }
+func (a *AlterTypeAddValuePositionBefore) IsAddValuePosition() {}
+
+func (a *AlterTypeAddValuePositionBefore) String() string {
+	return "BEFORE " + a.NeighborValue.String()
+}
+
+// AlterTypeAddValuePositionAfter represents AFTER position
+type AlterTypeAddValuePositionAfter struct {
+	NeighborValue *ast.Ident
+}
+
+func (a *AlterTypeAddValuePositionAfter) exprNode()           {}
+func (a *AlterTypeAddValuePositionAfter) expr()               {}
+func (a *AlterTypeAddValuePositionAfter) IsExpr()             {}
+func (a *AlterTypeAddValuePositionAfter) Span() token.Span    { return token.Span{} }
+func (a *AlterTypeAddValuePositionAfter) IsAddValuePosition() {}
+
+func (a *AlterTypeAddValuePositionAfter) String() string {
+	return "AFTER " + a.NeighborValue.String()
+}
+
+// AlterTypeAddValue represents ALTER TYPE ADD VALUE operation
+type AlterTypeAddValue struct {
+	IfNotExists bool
+	Value       *ast.Ident
+	Position    AlterTypeAddValuePosition
+}
+
+func (a *AlterTypeAddValue) exprNode()             {}
+func (a *AlterTypeAddValue) expr()                 {}
+func (a *AlterTypeAddValue) IsExpr()               {}
+func (a *AlterTypeAddValue) Span() token.Span      { return token.Span{} }
+func (a *AlterTypeAddValue) IsAlterTypeOperation() {}
+
+func (a *AlterTypeAddValue) String() string {
+	var f strings.Builder
+	f.WriteString("ADD VALUE")
+	if a.IfNotExists {
+		f.WriteString(" IF NOT EXISTS")
+	}
+	f.WriteString(" ")
+	f.WriteString(a.Value.String())
+	if a.Position != nil {
+		f.WriteString(" ")
+		f.WriteString(a.Position.String())
+	}
+	return f.String()
+}
+
+// AlterTypeRenameValue represents ALTER TYPE RENAME VALUE operation
+type AlterTypeRenameValue struct {
+	From *ast.Ident
+	To   *ast.Ident
+}
+
+func (a *AlterTypeRenameValue) exprNode()             {}
+func (a *AlterTypeRenameValue) expr()                 {}
+func (a *AlterTypeRenameValue) IsExpr()               {}
+func (a *AlterTypeRenameValue) Span() token.Span      { return token.Span{} }
+func (a *AlterTypeRenameValue) IsAlterTypeOperation() {}
+
+func (a *AlterTypeRenameValue) String() string {
+	return "RENAME VALUE " + a.From.String() + " TO " + a.To.String()
+}
 
 // Password represents a password value for role options.
 // Can be either a password expression or NULL.

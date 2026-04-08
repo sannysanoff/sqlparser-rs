@@ -1088,7 +1088,7 @@ func (a *AlterView) String() string {
 type AlterType struct {
 	BaseStatement
 	Name       *ast.ObjectName
-	Operations []*expr.AlterTypeOperation
+	Operations []expr.AlterTypeOperation
 }
 
 func (a *AlterType) statementNode() {}
@@ -2466,6 +2466,10 @@ func (d *DropDomain) String() string {
 		f.WriteString("IF EXISTS ")
 	}
 	f.WriteString(formatObjectNames(d.Names, ", "))
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
 	return f.String()
 }
 
@@ -2494,6 +2498,10 @@ func (d *DropProcedure) String() string {
 			f.WriteString(", ")
 		}
 		f.WriteString(desc.String())
+	}
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
 	}
 	return f.String()
 }
