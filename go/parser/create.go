@@ -343,6 +343,16 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		}
 	}
 
+	// Parse PARTITION BY (PostgreSQL, BigQuery)
+	// Reference: src/parser/mod.rs:8666-8672
+	var partitionBy expr.Expr
+	if p.GetDialect().Dialect() == "postgresql" || p.GetDialect().Dialect() == "bigquery" || p.GetDialect().Dialect() == "generic" {
+		if p.ParseKeywords([]string{"PARTITION", "BY"}) {
+			ep := NewExpressionParser(p)
+			partitionBy, _ = ep.ParseExpr()
+		}
+	}
+
 	// Parse AS (CREATE TABLE ... AS SELECT or CREATE TABLE ... AS TABLE)
 	var asQuery *query.Query
 	var asTable *ast.ObjectName
@@ -626,6 +636,7 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		Diststyle:        diststyle,
 		Distkey:          distkey,
 		Sortkey:          sortkey,
+		PartitionBy:      partitionBy,
 		// Hive external table fields
 		FileFormat: fileFormat,
 		Location:   location,
@@ -1681,8 +1692,27 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 	// In PostgreSQL, the index name is optional: CREATE INDEX ON table_name (col)
 	// MySQL requires the index name: CREATE INDEX name ON table_name (col)
 	var indexName *ast.Ident
-	var using *ast.Ident
+	var using *statement.IndexType
 	var usingAfterCols bool
+
+	// Helper to parse index type from identifier
+	parseIndexType := func() *statement.IndexType {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil
+		}
+		val := strings.ToUpper(ident.Value)
+		switch val {
+		case "BTREE":
+			btree := statement.IndexTypeBTree
+			return &btree
+		case "HASH":
+			hash := statement.IndexTypeHash
+			return &hash
+		default:
+			return nil
+		}
+	}
 
 	// Check if we have ON keyword (meaning no index name)
 	if !p.PeekKeyword("ON") {
@@ -1695,10 +1725,7 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 
 		// Check for USING after index name (MySQL style: CREATE INDEX name USING btree ON ...)
 		if p.ParseKeyword("USING") {
-			using, err = p.ParseIdentifier()
-			if err != nil {
-				return nil, err
-			}
+			using = parseIndexType()
 		}
 	}
 
@@ -1715,10 +1742,7 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 
 	// Check for USING after table name (PostgreSQL style: CREATE INDEX ON table USING btree ...)
 	if using == nil && p.ParseKeyword("USING") {
-		using, err = p.ParseIdentifier()
-		if err != nil {
-			return nil, err
-		}
+		using = parseIndexType()
 	}
 
 	// Parse column list: (col1, col2, ...)
@@ -1729,17 +1753,15 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 
 	// Check for USING after column list (MySQL syntax: CREATE INDEX ON t(c) USING HASH)
 	if using == nil && p.ParseKeyword("USING") {
-		using, err = p.ParseIdentifier()
-		if err != nil {
-			return nil, err
-		}
+		using = parseIndexType()
 		usingAfterCols = true
 	}
 
-	// Parse MySQL index options (KEY_BLOCK_SIZE, LOCK, ALGORITHM, etc.)
+	// Parse MySQL index options (KEY_BLOCK_SIZE, LOCK, ALGORITHM, COMMENT, etc.)
+	// Note: USING is handled separately above, not as a key=value option
 	var mysqlOpts []*expr.SqlOption
 	for {
-		if p.PeekKeyword("KEY_BLOCK_SIZE") || p.PeekKeyword("LOCK") || p.PeekKeyword("USING") || p.PeekKeyword("ALGORITHM") || p.PeekKeyword("COMMENT") {
+		if p.PeekKeyword("KEY_BLOCK_SIZE") || p.PeekKeyword("LOCK") || p.PeekKeyword("ALGORITHM") || p.PeekKeyword("COMMENT") {
 			// Parse option name
 			optName, err := p.ParseIdentifier()
 			if err != nil {
@@ -1803,18 +1825,33 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 		}
 	}
 
-	// Parse WITH (storage_parameters) clause
-	var withOpts []*expr.SqlOption
+	// Parse WITH (storage_parameters) clause (PostgreSQL style)
+	// Reference: src/parser/mod.rs:7968-7977
+	// Parses expressions like: WITH (fillfactor = 70, single_param)
+	var withExprs []expr.Expr
 	if p.ParseKeyword("WITH") {
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
-		withOpts, err = parseSqlOptions(p)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
+		// Parse comma-separated expressions (not just name=value pairs)
+		exprParser := NewExpressionParser(p)
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				p.AdvanceToken()
+				break
+			}
+			e, err := exprParser.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			withExprs = append(withExprs, e)
+			if !p.ConsumeToken(token.TokenComma{}) {
+				// Expect closing paren if no comma
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				break
+			}
 		}
 	}
 
@@ -1848,7 +1885,7 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 		Columns:        columns,
 		Include:        include,
 		NullsDistinct:  nullsDistinct,
-		With:           withOpts,
+		With:           withExprs,
 		TableSpace:     tablespace,
 		Predicate:      predicate,
 		MySQLOptions:   mysqlOpts,

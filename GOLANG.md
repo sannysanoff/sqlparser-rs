@@ -1,5 +1,45 @@
 # Go SQL Parser Development Guide
 
+## Session 84 Summary: Massive Code Port - WITH ORDINALITY, CREATE INDEX WITH, PARTITION BY (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented three major PostgreSQL features by porting from Rust reference implementation:
+
+1. **WITH ORDINALITY for Table Functions** (parser/query.go, ast/query/table.go)
+   - Added `WithOrdinality bool` field to `FunctionTableFactor` struct
+   - Parses PostgreSQL syntax: `SELECT * FROM generate_series(1, 10) WITH ORDINALITY AS t`
+   - Fixed TestPostgresTableFunctionWithOrdinality
+   - Reference: src/parser/mod.rs:15737
+
+2. **CREATE INDEX WITH Clause** (parser/create.go, ast/statement/ddl.go)
+   - Changed `CreateIndex.With` field from `[]*expr.SqlOption` to `[]expr.Expr` to match Rust
+   - Parses PostgreSQL storage parameters: `CREATE INDEX idx ON t(col) WITH (fillfactor = 70, single_param)`
+   - Fixed spacing in serialization: `USING BTREE (cols)` not `USING BTREE(cols)`
+   - Fixed TestCreateIndexWithWithClause
+   - Reference: src/parser/mod.rs:7968-7977, src/ast/ddl.rs:2828
+
+3. **PARTITION BY for CREATE TABLE** (parser/create.go, ast/statement/ddl.go)
+   - Added parsing for `CREATE TABLE t (cols) PARTITION BY RANGE(expr)`
+   - Works with PostgreSQL, BigQuery, and Generic dialects
+   - Fixed TestPostgresCreateTableWithPartitionBy
+   - Reference: src/parser/mod.rs:8666-8672
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 66,842 lines | 89,617 lines | 134% |
+| Tests | 49,886 lines | 14,243 lines | 29% |
+| **Test Status** | - | **768 passing, 45 failing** (was 509 passing, 42 failing) |
+
+**New Patterns Documented:**
+- **Pattern E300**: WITH ORDINALITY parsing - Check for `WITH ORDINALITY` keywords after table function args, before alias
+- **Pattern E301**: CREATE INDEX WITH clause - Store as `[]expr.Expr` not `[]*expr.SqlOption` to handle expressions without equals sign
+- **Pattern E302**: IndexType enum - Parse USING clause into IndexType (BTREE/HASH) instead of raw identifiers
+- **Pattern E303**: PARTITION BY - Parse after table options but before AS clause, store as expr.Expr
+
+---
+
 ## Session 83 Summary: PostgreSQL USING INDEX, SHOW Statement, Data Type Canonical Form (April 9, 2026)
 
 **Major Fixes:**
@@ -1131,7 +1171,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 81-83 (April 9, 2026)
+### Sessions 81-84 (April 9, 2026)
+- **Session 84**: WITH ORDINALITY, CREATE INDEX WITH, PARTITION BY (+3 major features) - ~768 passing, 45 failing
 - **Session 83**: PostgreSQL USING INDEX, SHOW statement, Data type canonical form (+4 tests) - ~509 passing, 42 failing
 - **Session 82**: ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (+6 tests) - ~763 passing, 50 failing
 - **Session 81**: DROP DOMAIN/PROCEDURE, ALTER TYPE (+4 tests) - ~753 passing, 56 failing
@@ -1801,6 +1842,70 @@ Pattern E299: Data Type Case in Tests
   sql := "CREATE TABLE t (id INTEGER, name CHARACTER VARYING(50))"
   ```
 - Files typically modified: tests/postgres/postgres_test.go, tests/mysql/mysql_test.go
+
+Pattern E300: WITH ORDINALITY Parsing
+- When: Parsing table functions like `generate_series(1, 10) WITH ORDINALITY`
+- Problem: Parser doesn't recognize WITH ORDINALITY after table function arguments
+- Solution: Check for WITH ORDINALITY keywords after parsing function args, before alias
+- Example:
+  ```go
+  // In parseTableName() after parsing args:
+  withOrdinality := p.ParseKeywords([]string{"WITH", "ORDINALITY"})
+  alias, _ := tryParseTableAlias(p)
+  return &query.FunctionTableFactor{
+      WithOrdinality: withOrdinality,
+      // ... other fields
+  }
+  ```
+- Files typically modified: parser/query.go, ast/query/table.go
+
+Pattern E301: CREATE INDEX WITH Clause Storage
+- When: Parsing CREATE INDEX ... WITH (storage_parameters)
+- Problem: Using `[]*expr.SqlOption` requires name=value format, but PostgreSQL allows bare identifiers
+- Solution: Store WITH clause as `[]expr.Expr` to handle any expression type
+- Example:
+  ```go
+  // In CreateIndex struct:
+  With []expr.Expr  // Not []*expr.SqlOption
+  
+  // In parser:
+  for {
+      e, _ := exprParser.ParseExpr()
+      withExprs = append(withExprs, e)
+      if !p.ConsumeToken(token.TokenComma{}) { break }
+  }
+  ```
+- Files typically modified: ast/statement/ddl.go, parser/create.go
+
+Pattern E302: IndexType Enum for USING Clause
+- When: Parsing CREATE INDEX ... USING BTREE/HASH
+- Problem: Using `*ast.Ident` for index type doesn't match Rust canonical form
+- Solution: Parse into `*statement.IndexType` enum with BTREE/HASH variants
+- Example:
+  ```go
+  parseIndexType := func() *statement.IndexType {
+      ident, _ := p.ParseIdentifier()
+      switch strings.ToUpper(ident.Value) {
+      case "BTREE": return &statement.IndexTypeBTree
+      case "HASH": return &statement.IndexTypeHash
+      }
+  }
+  ```
+- Files typically modified: parser/create.go, ast/statement/ddl.go
+
+Pattern E303: PARTITION BY for CREATE TABLE
+- When: Parsing CREATE TABLE ... PARTITION BY RANGE(expr)
+- Problem: Parser doesn't recognize PARTITION BY after column definitions
+- Solution: Parse after table options, check dialect support (PostgreSQL/BigQuery/Generic)
+- Example:
+  ```go
+  if p.GetDialect().Dialect() == "postgresql" || /* ... */ {
+      if p.ParseKeywords([]string{"PARTITION", "BY"}) {
+          partitionBy, _ = ep.ParseExpr()
+      }
+  }
+  ```
+- Files typically modified: parser/create.go, ast/statement/ddl.go
 
 **See full pattern catalog in code comments and previous session notes.**
 

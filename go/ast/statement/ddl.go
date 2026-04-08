@@ -195,6 +195,12 @@ func (c *CreateTable) String() string {
 		f.WriteString(")")
 	}
 
+	// PostgreSQL/BigQuery PARTITION BY clause
+	if c.PartitionBy != nil {
+		f.WriteString(" PARTITION BY ")
+		f.WriteString(c.PartitionBy.String())
+	}
+
 	if c.Comment != nil {
 		f.WriteString(" COMMENT '")
 		f.WriteString(c.Comment.String())
@@ -559,13 +565,13 @@ type CreateIndex struct {
 	Concurrently   bool
 	Name           *ast.Ident
 	TableName      *ast.ObjectName
-	Using          *ast.Ident
+	Using          *IndexType
 	UsingAfterCols bool // true if USING comes after columns (MySQL style)
 	Columns        []*expr.IndexColumn
 	Include        []*ast.Ident
 	NullsDistinct  *bool // nil = not specified, true = NULLS DISTINCT, false = NULLS NOT DISTINCT
 	Predicate      expr.Expr
-	With           []*expr.SqlOption
+	With           []expr.Expr // PostgreSQL-style WITH clause: WITH (fillfactor = 70, single_param)
 	TableSpace     *ast.Ident
 	SortedBy       []*expr.OrderByExpr
 	IgnoreOrRevert *string
@@ -598,9 +604,11 @@ func (c *CreateIndex) String() string {
 	f.WriteString(c.TableName.String())
 
 	// Serialize USING before columns (PostgreSQL style) unless it was parsed after columns
+	// Reference: src/ast/ddl.rs:2863-2866 - Rust has trailing space: " USING {value} "
 	if c.Using != nil && !c.UsingAfterCols {
 		f.WriteString(" USING ")
 		f.WriteString(c.Using.String())
+		f.WriteString(" ") // Add space before columns
 	}
 
 	f.WriteString("(")
@@ -632,13 +640,14 @@ func (c *CreateIndex) String() string {
 		}
 	}
 
+	// Serialize PostgreSQL-style WITH clause expressions
 	if len(c.With) > 0 {
 		f.WriteString(" WITH (")
-		for i, opt := range c.With {
+		for i, e := range c.With {
 			if i > 0 {
 				f.WriteString(", ")
 			}
-			f.WriteString(opt.String())
+			f.WriteString(e.String())
 		}
 		f.WriteString(")")
 	}

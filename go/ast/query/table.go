@@ -180,11 +180,12 @@ func (t *TableFunctionTableFactor) String() string {
 
 // FunctionTableFactor represents LATERAL FLATTEN or similar table functions
 type FunctionTableFactor struct {
-	span    token.Span
-	Lateral bool
-	Name    ObjectName
-	Args    []FunctionArg
-	Alias   *TableAlias
+	span           token.Span
+	Lateral        bool
+	Name           ObjectName
+	Args           []FunctionArg
+	WithOrdinality bool
+	Alias          *TableAlias
 }
 
 func (f *FunctionTableFactor) Span() token.Span { return f.span }
@@ -198,6 +199,9 @@ func (f *FunctionTableFactor) String() string {
 		args[i] = arg.String()
 	}
 	parts = append(parts, fmt.Sprintf("%s(%s)", f.Name.String(), strings.Join(args, ", ")))
+	if f.WithOrdinality {
+		parts = append(parts, "WITH ORDINALITY")
+	}
 	if f.Alias != nil {
 		parts = append(parts, f.Alias.String())
 	}

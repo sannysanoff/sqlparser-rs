@@ -3355,7 +3355,7 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 	}
 
 	// Check for table-valued function: fn() or schema.fn()
-	// Reference: src/parser/mod.rs:15731-15735
+	// Reference: src/parser/mod.rs:15731-15789
 	if p.ConsumeToken(token.TokenLParen{}) {
 		// This is a table-valued function
 		args, err := parseTableFunctionArgs(p)
@@ -3363,14 +3363,19 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 			return nil, err
 		}
 
+		// Check for WITH ORDINALITY (PostgreSQL)
+		// Reference: src/parser/mod.rs:15737
+		withOrdinality := p.ParseKeywords([]string{"WITH", "ORDINALITY"})
+
 		// Check for alias
 		alias, _ := tryParseTableAlias(p)
 
 		return &query.FunctionTableFactor{
-			Lateral: false,
-			Name:    astObjectNameToQuery(name),
-			Args:    args,
-			Alias:   alias,
+			Lateral:        false,
+			Name:           astObjectNameToQuery(name),
+			Args:           args,
+			WithOrdinality: withOrdinality,
+			Alias:          alias,
 		}, nil
 	}
 
