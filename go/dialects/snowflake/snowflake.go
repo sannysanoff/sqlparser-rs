@@ -2074,6 +2074,7 @@ func (d *SnowflakeDialect) parseKeyValueOption(parser dialects.ParserAccessor, k
 			OptionName:  key,
 			OptionValue: t.Value,
 			Kind:        expr.KeyValueOptionKindSingle,
+			Quoted:      true, // Mark as quoted so it gets serialized with quotes
 		}, nil
 	case token.TokenNumber:
 		return &expr.KeyValueOption{

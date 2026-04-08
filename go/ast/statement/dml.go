@@ -250,6 +250,12 @@ func (u *Update) String() string {
 		f.WriteString(u.Table.String())
 	}
 
+	// Add table alias if present
+	if u.TableAlias != nil {
+		f.WriteString(" AS ")
+		f.WriteString(u.TableAlias.String())
+	}
+
 	if len(u.Assignments) > 0 {
 		f.WriteString(" SET ")
 		for i, assign := range u.Assignments {

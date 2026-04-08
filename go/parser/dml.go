@@ -209,8 +209,15 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 			return nil, err
 		}
 		if selectStmt != nil {
-			source = &query.Query{
-				Body: selectStmt,
+			// If parseQuery returned a *statement.Query (e.g., for UNION operations),
+			// extract the inner *query.Query directly
+			if queryStmt, ok := selectStmt.(*statement.Query); ok {
+				source = queryStmt.Query
+			} else {
+				// For other statement types, wrap them in a Query
+				source = &query.Query{
+					Body: selectStmt,
+				}
 			}
 		}
 	} else if p.dialect.SupportsInsertSet() && p.ParseKeyword("SET") {
@@ -395,6 +402,7 @@ func isInsertReservedKeyword(tok token.TokenWithSpan) bool {
 			"DEFAULT":   true,
 			"SET":       true,
 			"RETURNING": true,
+			"WITH":      true, // CTE keyword
 		}
 		return reserved[string(kw)]
 	}
@@ -507,17 +515,22 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		}
 	}
 
-	// Extract the main table name from the table
+	// Extract the main table name and alias from the table
 	var mainTable *ast.ObjectName
+	var tableAlias *ast.Ident
 	if table.Relation != nil {
 		if tf, ok := table.Relation.(*query.TableTableFactor); ok {
 			mainTable = queryObjectNameToAst(tf.Name)
+			// Extract alias if present
+			if tf.Alias != nil {
+				tableAlias = &ast.Ident{Value: tf.Alias.Name.Value}
+			}
 		}
 	}
 
 	update := &statement.Update{
 		Table:           mainTable,
-		TableAlias:      nil,
+		TableAlias:      tableAlias,
 		Assignments:     assignments,
 		From:            fromKind,
 		Selection:       selection,

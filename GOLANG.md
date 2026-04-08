@@ -1,6 +1,51 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 57 (Quote Preservation, CREATE PROCEDURE, DROP Statement Fixes)
+## Latest Update: April 8, 2026 - Session 58 (INSERT/UPDATE/COPY INTO Major Parser Fixes)
+
+**Line Counts (Updated April 8, 2026 - Session 58):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 85,420 lines | 127% |
+| Tests | 49,886 lines | 14,241 lines | 29% |
+| **Test Status** | - | **123 tests failing** (~85% success rate) |
+| **Total Test Cases** | - | 813 test outcomes |
+| **Tests Passing** | - | **690 tests** (up from 686) |
+
+### Session 58 Summary: Major DML Parser Fixes (+4 tests passing, critical bugs fixed)
+
+**Fixed 4 Critical Parser Issues:**
+
+1. **INSERT with CTE and UNION/VALUES** (TestParseInsertValuesFull now passing - CTE subtest)
+   - **Root Cause**: The `isInsertReservedKeyword()` function was missing "WITH" from the reserved keywords list, causing `WITH` to be incorrectly parsed as a table alias
+   - **Secondary Issue**: When `parseSetOperations` returned a `*statement.Query` for UNION operations, the WITH clause was not being preserved in the returned query
+   - **Fix**: Added "WITH" to reserved keywords; modified `parseQuery` to preserve WITH clause when wrapping set operations
+   - **Files Modified**: `parser/dml.go`, `parser/query.go`
+
+2. **UPDATE Table Alias Parsing and Serialization** (TestParseUpdateWithTableAlias and TestParseUpdateWithTableAliasFull now passing)
+   - **Root Cause**: UPDATE parser was not extracting the table alias from the parsed table factor, and the String() method didn't serialize the alias
+   - **Fix**: Extract alias from TableTableFactor in UPDATE parser; added alias serialization to Update.String() method
+   - **Files Modified**: `parser/dml.go`, `ast/statement/dml.go`
+
+3. **COPY INTO Stage Params Quote Preservation** (TestSnowflakeCopyIntoWithStageParams now passing)
+   - **Root Cause**: When parsing single-quoted string values in key-value options, the `Quoted` flag was not being set, causing values like `'1a2b3c'` to serialize as `1a2b3c`
+   - **Fix**: Set `Quoted: true` when parsing TokenSingleQuotedString values in `parseKeyValueOption()`
+   - **Files Modified**: `dialects/snowflake/snowflake.go`
+
+4. **INSERT Source Query Extraction** (Fixed query extraction for set operations)
+   - **Root Cause**: When INSERT parser called `parseQuery` and got a `*statement.Query` back, it was wrapping it in another Query instead of extracting the inner Query
+   - **Fix**: Updated INSERT parser to extract the inner `*query.Query` when `parseQuery` returns `*statement.Query`
+   - **Files Modified**: `parser/dml.go`
+
+**New Patterns Documented:**
+- **Pattern E217**: Reserved keywords for table aliases - Always include CTE keyword "WITH" in reserved keyword lists for table alias parsing to prevent it from being consumed as an alias
+- **Pattern E218**: WITH clause preservation in set operations - When parseSetOperations returns a wrapped statement, ensure the WITH clause is preserved by checking for `*statement.Query` and adding the withClause to it
+- **Pattern E219**: Table alias extraction from TableTableFactor - When parsing UPDATE/DELETE table references, extract the alias from the TableTableFactor.Alias field and convert it to the appropriate AST type
+- **Pattern E220**: Quoted flag in key-value options - Always set the `Quoted` field when parsing quoted string values to ensure proper serialization with quotes
+
+---
+
+## Previous Update: April 8, 2026 - Session 57 (Quote Preservation, CREATE PROCEDURE, DROP Statement Fixes)
 
 **Line Counts (Updated April 8, 2026 - Session 57):**
 
@@ -2351,6 +2396,101 @@ type Drop struct { ObjectType ObjectType; Names []*ast.ObjectName; ... }  // For
 ```
 
 **Solution**: Update tests to use correct Go AST types. Don't assume Rust's generic approach - check what Go actually produces for each statement type.
+
+### E217: Missing Reserved Keywords for Table Aliases
+**Error**: CTE keyword `WITH` consumed as table alias instead of starting CTE clause.
+
+**Example**:
+```go
+// SQL: INSERT INTO customer WITH foo AS (SELECT 1) SELECT * FROM foo
+// Error: "Expected: VALUES, SELECT, or SET, found: foo"
+// Root cause: WITH was consumed as table alias "WITH", leaving "foo" as next token
+
+// WRONG - missing WITH from reserved list
+reserved := map[string]bool{
+    "VALUES": true,
+    "SELECT": true,
+    // ... but missing "WITH"
+}
+
+// CORRECT - include all clause-starting keywords
+reserved := map[string]bool{
+    "VALUES": true,
+    "SELECT": true,
+    "WITH":   true,  // CTE keyword
+    // ...
+}
+```
+
+**Solution**: Always include "WITH" in reserved keyword lists for table alias parsing in INSERT, UPDATE, DELETE statements.
+
+### E218: WITH Clause Loss in Set Operations
+**Error**: `INSERT INTO t WITH cte AS (SELECT 1) SELECT * FROM cte UNION VALUES (1)` loses the WITH clause during serialization.
+
+**Example**:
+```go
+// In parseQuery - after parseSetOperations returns, WITH clause not preserved
+body, err = parseSetOperations(p, body)
+// body is now *statement.Query with set operation, but withClause is separate
+
+// WRONG - returning body without WITH
+return body, nil
+
+// CORRECT - check if we need to add WITH to returned Query
+if queryStmt, ok := body.(*statement.Query); ok && queryStmt.Query != nil {
+    queryStmt.Query.With = withClause
+    return queryStmt, nil
+}
+```
+
+**Solution**: After `parseSetOperations`, check if body is `*statement.Query` and needs the WITH clause added.
+
+### E219: Table Alias Extraction from TableTableFactor
+**Error**: UPDATE table alias parsed but not stored in AST.
+
+**Example**:
+```go
+// WRONG - not extracting alias
+if tf, ok := table.Relation.(*query.TableTableFactor); ok {
+    mainTable = queryObjectNameToAst(tf.Name)
+    // Alias is lost!
+}
+
+// CORRECT - extract alias from TableTableFactor
+if tf, ok := table.Relation.(*query.TableTableFactor); ok {
+    mainTable = queryObjectNameToAst(tf.Name)
+    if tf.Alias != nil {
+        tableAlias = &ast.Ident{Value: tf.Alias.Name.Value}
+    }
+}
+```
+
+**Solution**: When parsing UPDATE/DELETE table references, always extract the alias from `TableTableFactor.Alias`.
+
+### E220: Missing Quoted Flag in Key-Value Options
+**Error**: String values in options lose quotes during serialization: `AWS_KEY_ID=1a2b3c` instead of `AWS_KEY_ID='1a2b3c'`.
+
+**Example**:
+```go
+// WRONG - not setting Quoted flag
+case token.TokenSingleQuotedString:
+    return &expr.KeyValueOption{
+        OptionName:  key,
+        OptionValue: t.Value,
+        Kind:        expr.KeyValueOptionKindSingle,
+    }, nil
+
+// CORRECT - mark as quoted
+case token.TokenSingleQuotedString:
+    return &expr.KeyValueOption{
+        OptionName:  key,
+        OptionValue: t.Value,
+        Kind:        expr.KeyValueOptionKindSingle,
+        Quoted:      true,  // Ensures quotes in output
+    }, nil
+```
+
+**Solution**: Always set `Quoted: true` when parsing quoted string values in key-value options.
 
 ---
 

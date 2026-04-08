@@ -218,6 +218,12 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 				},
 			}, nil
 		}
+
+		// If body is already a *statement.Query (from set operations), add WITH clause to it
+		if queryStmt, ok := body.(*statement.Query); ok && queryStmt.Query != nil {
+			queryStmt.Query.With = withClause
+			return queryStmt, nil
+		}
 	}
 
 	return body, nil
