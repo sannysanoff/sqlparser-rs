@@ -56,8 +56,16 @@ func parseDrop(p *Parser) (ast.Statement, error) {
 		return parseDropOperator(p)
 	case p.PeekKeyword("STAGE"):
 		return parseDropStage(p)
+	case p.PeekKeyword("USER"):
+		return parseDropUser(p)
+	case p.PeekKeyword("STREAM"):
+		return parseDropStream(p)
+	case p.PeekKeyword("POLICY"):
+		return parseDropPolicy(p)
+	case p.PeekKeyword("CONNECTOR"):
+		return parseDropConnector(p)
 	default:
-		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, or STAGE after DROP", p.PeekTokenRef())
+		return nil, p.ExpectedRef("TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE, USER, STREAM, POLICY, or CONNECTOR after DROP", p.PeekTokenRef())
 	}
 }
 
@@ -623,6 +631,125 @@ func parseDropStage(p *Parser) (ast.Statement, error) {
 	}
 
 	return &statement.DropStage{
+		IfExists: ifExists,
+		Name:     name,
+	}, nil
+}
+
+// parseDropUser parses DROP USER statement
+// Reference: src/parser/mod.rs parse_drop (USER branch)
+func parseDropUser(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("USER"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse comma-separated user names (identifiers) - convert to ObjectNames
+	names := make([]*ast.ObjectName, 0)
+	for {
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, ast.NewObjectNameFromIdents(ident))
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return &statement.Drop{
+		ObjectType: expr.ObjectTypeUser,
+		IfExists:   ifExists,
+		Names:      names,
+	}, nil
+}
+
+// parseDropStream parses DROP STREAM statement
+// Reference: src/parser/mod.rs parse_drop (STREAM branch)
+func parseDropStream(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("STREAM"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse stream name
+	name, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.Drop{
+		ObjectType: expr.ObjectTypeStream,
+		IfExists:   ifExists,
+		Names:      []*ast.ObjectName{name},
+	}, nil
+}
+
+// parseDropPolicy parses DROP POLICY statement
+// Reference: src/parser/mod.rs parse_drop_policy
+func parseDropPolicy(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("POLICY"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse policy name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect ON keyword
+	if _, err := p.ExpectKeyword("ON"); err != nil {
+		return nil, err
+	}
+
+	// Parse table name
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse optional CASCADE/RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		db := expr.DropBehaviorCascade
+		dropBehavior = &db
+	} else if p.ParseKeyword("RESTRICT") {
+		db := expr.DropBehaviorRestrict
+		dropBehavior = &db
+	}
+
+	return &statement.DropPolicy{
+		IfExists:     ifExists,
+		Name:         name,
+		TableName:    tableName,
+		DropBehavior: dropBehavior,
+	}, nil
+}
+
+// parseDropConnector parses DROP CONNECTOR statement
+func parseDropConnector(p *Parser) (ast.Statement, error) {
+	if _, err := p.ExpectKeyword("CONNECTOR"); err != nil {
+		return nil, err
+	}
+
+	// Parse IF EXISTS
+	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
+
+	// Parse connector name
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.DropConnector{
 		IfExists: ifExists,
 		Name:     name,
 	}, nil

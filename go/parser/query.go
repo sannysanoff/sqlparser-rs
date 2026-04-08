@@ -38,7 +38,9 @@ import (
 type SelectStatement struct {
 	ast.BaseStatement
 	query.Select
+	OrderBy       []query.OrderByExpr // ORDER BY clause
 	LimitClause   query.LimitClause
+	FetchClause   *query.Fetch         // FETCH clause (standard SQL alternative to LIMIT)
 	ForClause     *query.ForClause     // MSSQL FOR XML/FOR JSON clause
 	PipeOperators []query.PipeOperator // Pipe operators for |> syntax
 }
@@ -51,8 +53,18 @@ func (s *SelectStatement) Span() token.Span {
 // String returns the SQL representation including LIMIT clause
 func (s *SelectStatement) String() string {
 	str := s.Select.String()
+	if len(s.OrderBy) > 0 {
+		orderParts := make([]string, len(s.OrderBy))
+		for i, o := range s.OrderBy {
+			orderParts[i] = o.String()
+		}
+		str = str + " ORDER BY " + strings.Join(orderParts, ", ")
+	}
 	if s.LimitClause != nil {
 		str = str + " " + s.LimitClause.String()
+	}
+	if s.FetchClause != nil {
+		str = str + " " + s.FetchClause.String()
 	}
 	if s.ForClause != nil {
 		str = str + " " + s.ForClause.String()
@@ -557,13 +569,13 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse ORDER BY clause
+	var orderBy []query.OrderByExpr
 	if p.ParseKeyword("ORDER") {
 		p.ParseKeyword("BY")
-		_, err = parseOrderByExpressions(p)
+		orderBy, err = parseOrderByExpressions(p)
 		if err != nil {
 			return nil, err
 		}
-		// TODO: Store orderBy in result - needs to be added to SelectStatement
 	}
 
 	// Parse LIMIT clause
@@ -592,9 +604,16 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Consume optional ROW or ROWS keyword after offset value
+			var offsetRows query.OffsetRows = query.OffsetRowsNone
+			if p.ParseKeyword("ROW") {
+				offsetRows = query.OffsetRowsRow
+			} else if p.ParseKeyword("ROWS") {
+				offsetRows = query.OffsetRowsRows
+			}
 			limitClause = &query.LimitOffset{
 				Limit:  &queryExprWrapper{expr: firstExpr},
-				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}},
+				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}, Rows: offsetRows},
 			}
 		} else {
 			// Standard LIMIT expr
@@ -610,6 +629,16 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			return nil, err
 		}
 
+		// Consume optional ROW or ROWS keyword
+		var offsetRows query.OffsetRows = query.OffsetRowsNone
+		if !p.PeekKeyword("FETCH") && !p.PeekKeyword("LIMIT") {
+			if p.ParseKeyword("ROW") {
+				offsetRows = query.OffsetRowsRow
+			} else if p.ParseKeyword("ROWS") {
+				offsetRows = query.OffsetRowsRows
+			}
+		}
+
 		// Check for LIMIT after OFFSET (alternative syntax)
 		if p.ParseKeyword("LIMIT") {
 			limitExpr, err := ep.ParseExpr()
@@ -618,13 +647,24 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			}
 			limitClause = &query.LimitOffset{
 				Limit:  &queryExprWrapper{expr: limitExpr},
-				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}},
+				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}, Rows: offsetRows},
 			}
 		} else {
 			// Just OFFSET without LIMIT
 			limitClause = &query.Offset{
 				Value: &queryExprWrapper{expr: offsetExpr},
+				Rows:  offsetRows,
 			}
+		}
+	}
+
+	// Parse FETCH clause (standard SQL alternative to LIMIT)
+	// Reference: src/parser/mod.rs:13676-13680, 18465-18491
+	var fetchClause *query.Fetch
+	if p.ParseKeyword("FETCH") {
+		fetchClause, err = parseFetchClause(p)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -735,7 +775,9 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			Flavor:              query.SelectFlavorStandard,
 			Locks:               locks,
 		},
+		OrderBy:       orderBy,
 		LimitClause:   limitClause,
+		FetchClause:   fetchClause,
 		ForClause:     forClause,
 		PipeOperators: pipeOperators,
 	}, nil
@@ -4749,4 +4791,67 @@ func parseTop(p *Parser) *query.Top {
 		Percent:  percent,
 		WithTies: withTies,
 	}
+}
+
+// parseFetchClause parses a FETCH clause (standard SQL alternative to LIMIT).
+// Reference: src/parser/mod.rs:18465-18491
+// Syntax: FETCH { FIRST | NEXT } [ quantity ] { ROW | ROWS } [ { ONLY | WITH TIES } ]
+func parseFetchClause(p *Parser) (*query.Fetch, error) {
+	// Parse FIRST or NEXT (optional, defaults to FIRST)
+	if !p.ParseKeyword("FIRST") && !p.ParseKeyword("NEXT") {
+		// Neither FIRST nor NEXT specified - this is optional in some dialects
+		// but we'll require it for standard SQL
+	}
+
+	// Parse quantity (number, ALL, or omitted for simple FETCH FIRST ROWS ONLY)
+	var quantity query.Expr
+	percent := false
+
+	// Check for ALL
+	if p.ParseKeyword("ALL") {
+		// ALL without specific quantity - use ValueWithSpan
+		quantity = &query.ValueWithSpan{Value: "ALL"}
+	} else if !p.PeekKeyword("ROW") && !p.PeekKeyword("ROWS") {
+		// Parse numeric value
+		if p.ParseKeyword("PERCENT") {
+			// PERCENT without quantity - error
+			return nil, fmt.Errorf("Expected: quantity before PERCENT")
+		}
+
+		// Check if next token is a number
+		tok := p.PeekToken()
+		switch v := tok.Token.(type) {
+		case token.TokenNumber:
+			p.AdvanceToken()
+			quantity = &query.ValueWithSpan{Value: v.Value}
+
+			// Check for PERCENT after quantity
+			if p.ParseKeyword("PERCENT") {
+				percent = true
+			}
+		default:
+			// No quantity specified - that's OK for simple "FETCH FIRST ROWS ONLY"
+			quantity = nil
+		}
+	}
+
+	// Expect ROW or ROWS
+	if !p.ParseKeyword("ROW") && !p.ParseKeyword("ROWS") {
+		return nil, fmt.Errorf("Expected: ROW or ROWS")
+	}
+
+	// Parse ONLY or WITH TIES
+	withTies := false
+
+	if p.ParseKeyword("ONLY") {
+		withTies = false
+	} else if p.ParseKeywords([]string{"WITH", "TIES"}) {
+		withTies = true
+	}
+
+	return &query.Fetch{
+		Quantity: quantity,
+		Percent:  percent,
+		WithTies: withTies,
+	}, nil
 }

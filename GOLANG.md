@@ -1,5 +1,80 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 12 - FETCH Clause, ORDER BY, and DROP Extensions):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 80,231 lines | 119% |
+| Tests | 49,847 lines | 19,172 lines | 38% |
+| **Test Status** | - | **544 passing** / **268 failing** (~67%) | +5 tests passing
+
+**Today's Major Fixes (Session 12) - Part 2: DROP Extensions:**
+
+4. **DROP USER/STREAM/POLICY/CONNECTOR Support** - Added parsing for additional DROP statement types:
+   - **Problem**: `DROP USER u1`, `DROP POLICY p ON t`, `DROP CONNECTOR c`, `DROP STREAM s` all failed with "Expected: TABLE, VIEW... found: USER"
+   - **Root Cause**: parseDrop() only handled TABLE, VIEW, INDEX, ROLE, DATABASE, SCHEMA, SEQUENCE, FUNCTION, TRIGGER, OPERATOR, STAGE
+   - **Fix**: 
+     - Added cases for USER, STREAM, POLICY, CONNECTOR in parseDrop() switch statement
+     - Implemented `parseDropUser()` - returns generic `statement.Drop` with ObjectTypeUser
+     - Implemented `parseDropStream()` - returns generic `statement.Drop` with ObjectTypeStream
+     - Implemented `parseDropPolicy()` - returns specific `statement.DropPolicy` with ON table_name syntax
+     - Implemented `parseDropConnector()` - returns specific `statement.DropConnector`
+     - Fixed `DropPolicy.String()` to include CASCADE/RESTRICT behavior
+   - **Pattern E76**: Different DROP types use different AST representations - simple objects use generic `Drop`, complex ones have specific types (DropPolicy, DropConnector)
+   - **Tests Fixed**: TestParseDropUser, TestParseDropStream, TestDropConnector (all passing)
+   - **Partial Fix**: TestDropPolicy - parsing works, CASCADE serializes correctly, but error message format differs from test expectation
+
+**New Patterns Documented:**
+- **Pattern E76**: DROP statement variants - Simple objects (USER, STREAM) use generic `statement.Drop` with ObjectType; complex ones (POLICY with ON, CONNECTOR) have dedicated AST types with specific fields
+
+---
+
+**Line Counts (Updated April 8, 2026 - Session 12 - FETCH Clause and ORDER BY Implementation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 59,133 lines | 80,012 lines | 135% |
+| Tests | 49,847 lines | 19,172 lines | 38% |
+| **Test Status** | - | **541 passing** / **271 failing** (~67%) | +2 tests passing
+
+**Today's Major Fixes (Session 12):**
+
+1. **FETCH Clause Implementation** - Added parsing and serialization for standard SQL FETCH clause:
+   - **Problem**: `SELECT * FROM t ORDER BY a FETCH FIRST 2 ROWS ONLY` failed with "Expected: end of statement, found: FETCH"
+   - **Root Cause**: parseQuery() did not have any handling for FETCH clause
+   - **Fix**: 
+     - Added `FetchClause *query.Fetch` field to `SelectStatement` struct
+     - Added `parseFetchClause()` function that parses `FETCH {FIRST|NEXT} [quantity] {ROW|ROWS} {ONLY|WITH TIES}`
+     - Added FETCH parsing between LIMIT and FOR clause in parseQuery()
+     - Updated `SelectStatement.String()` to serialize FETCH clause
+   - **Pattern E73**: FETCH clause must be parsed after ORDER BY/LIMIT and before FOR clause, following standard SQL ordering
+   - **Tests Fixed**: TestParseFetch, TestParseFetchVariations (both now passing)
+
+2. **ORDER BY Serialization** - Fixed ORDER BY not appearing in serialized SQL:
+   - **Problem**: `SELECT foo FROM bar ORDER BY baz FETCH FIRST 2 ROWS ONLY` was serializing as `SELECT foo FROM bar FETCH FIRST 2 ROWS ONLY`
+   - **Root Cause**: ORDER BY was parsed but result was discarded (TODO comment noted this)
+   - **Fix**: 
+     - Added `OrderBy []query.OrderByExpr` field to `SelectStatement` struct
+     - Stored parsed ORDER BY expressions in the SelectStatement
+     - Updated `SelectStatement.String()` to serialize ORDER BY clause
+   - **Pattern E74**: ORDER BY must be stored in SelectStatement, not just parsed and discarded
+
+3. **OFFSET ROW/ROWS Support** - Added proper handling for OFFSET with ROW/ROWS keywords:
+   - **Problem**: `OFFSET 2 ROWS FETCH FIRST 2 ROWS ONLY` was failing
+   - **Root Cause**: OFFSET parsing didn't consume optional ROW/ROWS keyword
+   - **Fix**: 
+     - Updated OFFSET parsing to check for and consume `ROW` or `ROWS` keyword
+     - Set `query.Offset.Rows` field to track which keyword was used
+     - `query.Offset.String()` already supported serializing the ROW/ROWS keyword
+   - **Pattern E75**: Standard SQL OFFSET clause supports optional ROW/ROWS keyword that must be tracked for faithful re-serialization
+
+**New Patterns Documented:**
+- **Pattern E73**: FETCH clause parsing order - FETCH is parsed after LIMIT/OFFSET and before FOR, with syntax: `FETCH {FIRST|NEXT} [quantity] {ROW|ROWS} {ONLY|WITH TIES}`
+- **Pattern E74**: ORDER BY storage - ORDER BY must be stored in SelectStatement.OrderBy field, not just parsed; serialization must include it before LIMIT/FETCH/FOR clauses
+- **Pattern E75**: OFFSET ROW/ROWS tracking - When parsing OFFSET, check for and consume optional ROW/ROWS keyword, storing it in Offset.Rows field for proper re-serialization
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 11 - JOIN and SET Operations Implementation):**
 
 | Component | Rust | Go | Ratio |

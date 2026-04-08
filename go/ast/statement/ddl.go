@@ -2121,6 +2121,10 @@ func (d *DropPolicy) String() string {
 	f.WriteString(d.Name.String())
 	f.WriteString(" ON ")
 	f.WriteString(d.TableName.String())
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
+	}
 	return f.String()
 }
 
