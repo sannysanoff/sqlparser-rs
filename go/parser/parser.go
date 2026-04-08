@@ -498,6 +498,12 @@ func (p *Parser) parseQuery() (ast.Statement, error) {
 	return parseQuery(p)
 }
 
+// ParseQueryWithSetOps parses a query that may contain set operations (UNION/INTERSECT/EXCEPT)
+// This is used for parsing subqueries within IN/EXISTS expressions that can contain set operations
+func (p *Parser) ParseQueryWithSetOps() (ast.Statement, error) {
+	return parseQueryWithSetOps(p)
+}
+
 func (p *Parser) parseInsert(tok token.TokenWithSpan) (ast.Statement, error) {
 	return parseInsert(p, tok)
 }

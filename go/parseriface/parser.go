@@ -75,6 +75,7 @@ type Parser interface {
 	ParseExpression() (ast.Expr, error)
 	ParseInsert() (ast.Statement, error)
 	ParseQuery() (ast.Statement, error)
+	ParseQueryWithSetOps() (ast.Statement, error)
 	ParseDataType() (datatype.DataType, error)
 	ExtractQuery(stmt ast.Statement) *query.Query
 

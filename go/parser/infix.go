@@ -285,22 +285,34 @@ func (ep *ExpressionParser) parseBinaryOp(left expr.Expr, op operator.BinaryOper
 		// Check if it's a subquery
 		var right expr.Expr
 		if ep.peekSubquery() {
-			// Parse as subquery
-			ep.parser.PrevToken() // Put back LParen
+			// Parse as subquery - the opening paren is already consumed
+			// Try standard subquery first, then try with set operations
 			sq, err := ep.parseSubqueryExpr()
 			if err != nil {
-				return nil, err
+				// Try parsing with set operations (e.g., (SELECT ...) UNION (SELECT ...))
+				sq2, err2 := ep.parseSubqueryWithSetOps()
+				if err2 != nil {
+					return nil, err
+				}
+				right = sq2
+			} else {
+				right = sq
 			}
-			right = sq
 		} else {
-			// Parse expression and expect closing paren
-			r, err := ep.ParseExprWithPrecedence(precedence)
-			if err != nil {
-				return nil, err
-			}
-			right = r
-			if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-				return nil, err
+			// Check for parenthesized subquery with set operations (e.g., ((SELECT ...) UNION ...))
+			sq, err := ep.parseSubqueryWithSetOps()
+			if err == nil && sq != nil {
+				right = sq
+			} else {
+				// Parse expression and expect closing paren
+				r, err := ep.ParseExprWithPrecedence(precedence)
+				if err != nil {
+					return nil, err
+				}
+				right = r
+				if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -739,7 +751,32 @@ func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr
 		return nil, fmt.Errorf("empty IN list not allowed")
 	}
 
-	// Check for subquery - try to parse it directly since we already consumed the LParen
+	// Check for subquery - handle both simple (SELECT ...) and complex ((SELECT ...) UNION (SELECT ...))
+	// First check for double-parenthesized set operations
+	if _, ok := next.Token.(token.TokenLParen); ok {
+		// This might be ((SELECT ...) UNION ...) - a subquery with set operations inside
+		// Try to parse it as a subquery with set operations first
+		subqExpr, err := ep.parseSubqueryWithSetOps()
+		if err == nil && subqExpr != nil {
+			if subq, ok := subqExpr.(*expr.Subquery); ok {
+				if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				return &expr.InSubquery{
+					Expr: left,
+					Subquery: &expr.QueryExpr{
+						SpanVal:   subq.Span(),
+						Statement: subq.Query.Statement,
+					},
+					Negated: negated,
+					SpanVal: mergeSpans(left.Span(), ep.parser.GetCurrentToken().Span),
+				}, nil
+			}
+		}
+		// If that failed, continue to other parsing options
+	}
+
+	// Check for simple subquery (SELECT ... or WITH ...)
 	if ep.peekSubquery() {
 		subquery, err := ep.parser.ParseQuery()
 		if err != nil {
@@ -759,10 +796,30 @@ func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr
 		}, nil
 	}
 
-	// Check for parenthesized subquery (e.g., IN ((SELECT ...) UNION (SELECT ...)))
-	// The inner parentheses contain a set operation
+	// Check for parenthesized subquery with set operations
 	if _, ok := next.Token.(token.TokenLParen); ok {
-		// Try to parse as a parenthesized expression which might be a subquery with set ops
+		// Try to parse as a subquery with set operations
+		// First, try to parse using parseSubqueryWithSetOps which handles (SELECT ...) UNION (SELECT ...)
+		subqExpr, err := ep.parseSubqueryWithSetOps()
+		if err == nil && subqExpr != nil {
+			// Successfully parsed a subquery (possibly with set operations)
+			if subq, ok := subqExpr.(*expr.Subquery); ok {
+				if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+				return &expr.InSubquery{
+					Expr: left,
+					Subquery: &expr.QueryExpr{
+						SpanVal:   subq.Span(),
+						Statement: subq.Query.Statement,
+					},
+					Negated: negated,
+					SpanVal: mergeSpans(left.Span(), ep.parser.GetCurrentToken().Span),
+				}, nil
+			}
+		}
+
+		// Fall back to parsing as a regular parenthesized expression
 		parsedExpr, err := ep.ParseExpr()
 		if err != nil {
 			// If that fails, fall back to expression list parsing

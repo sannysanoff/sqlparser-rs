@@ -716,10 +716,10 @@ func (a *AnyOp) String() string {
 		opName = "SOME"
 	}
 
-	// Check if right is a subquery (no parentheses needed)
+	// Check if right is a subquery - canonical form is ANY(subquery) without space
 	_, isSubquery := a.Right.(*Subquery)
 	if isSubquery {
-		return fmt.Sprintf("%s %s %s %s", a.Left.String(), a.CompareOp.String(), opName, a.Right.String())
+		return fmt.Sprintf("%s %s %s%s", a.Left.String(), a.CompareOp.String(), opName, a.Right.String())
 	}
 	return fmt.Sprintf("%s %s %s(%s)", a.Left.String(), a.CompareOp.String(), opName, a.Right.String())
 }
@@ -743,10 +743,10 @@ func (a *AllOp) Span() token.Span {
 
 // String returns the SQL representation.
 func (a *AllOp) String() string {
-	// Check if right is a subquery (no parentheses needed)
+	// Check if right is a subquery - canonical form is ALL(subquery) without space
 	_, isSubquery := a.Right.(*Subquery)
 	if isSubquery {
-		return fmt.Sprintf("%s %s ALL %s", a.Left.String(), a.CompareOp.String(), a.Right.String())
+		return fmt.Sprintf("%s %s ALL%s", a.Left.String(), a.CompareOp.String(), a.Right.String())
 	}
 	return fmt.Sprintf("%s %s ALL(%s)", a.Left.String(), a.CompareOp.String(), a.Right.String())
 }

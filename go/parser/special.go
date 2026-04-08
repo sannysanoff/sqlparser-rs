@@ -1215,6 +1215,89 @@ func (ep *ExpressionParser) parseSubqueryExpr() (expr.Expr, error) {
 	}, nil
 }
 
+// parseSubqueryWithSetOps parses a subquery that may contain set operations
+// like (SELECT ...) UNION (SELECT ...). This is used for IN subqueries with set ops.
+// Returns nil, nil if the current position doesn't start a valid subquery.
+func (ep *ExpressionParser) parseSubqueryWithSetOps() (expr.Expr, error) {
+	// We expect to be at a position where the next token is SELECT or (
+	next := ep.parser.PeekTokenRef()
+
+	// Check for parenthesized subquery: (SELECT ...) or ((SELECT ...) UNION ...)
+	if _, ok := next.Token.(token.TokenLParen); ok {
+		// Look ahead to see if this is a subquery
+		// Save position in case we need to backtrack
+		savedIdx := ep.parser.GetCurrentIndex()
+
+		// Try to consume the ( and check what's inside
+		ep.parser.AdvanceToken() // consume (
+		inner := ep.parser.PeekTokenRef()
+
+		// If inside is SELECT, this is a simple subquery: (SELECT ...)
+		if ep.parser.PeekKeyword("SELECT") {
+			// This looks like a subquery. Let's parse it properly.
+			ep.parser.SetCurrentIndex(savedIdx)
+
+			// Use ParseQueryWithSetOps to parse the full query including set operations
+			query, err := ep.parser.ParseQueryWithSetOps()
+			if err != nil {
+				return nil, err
+			}
+
+			return &expr.Subquery{
+				SpanVal: mergeSpans(query.Span(), ep.parser.GetCurrentToken().Span),
+				Query: &expr.QueryExpr{
+					SpanVal:   query.Span(),
+					Statement: query,
+				},
+			}, nil
+		}
+
+		// Check if inside is another parenthesis - could be ((SELECT ...) UNION ...)
+		if _, ok := inner.Token.(token.TokenLParen); ok {
+			// Double-parenthesized subquery - parse it
+			// This looks like a subquery. Let's parse it properly.
+			// Reset and parse as a full query with set operations
+			ep.parser.SetCurrentIndex(savedIdx)
+
+			// Use ParseQueryWithSetOps to parse the full query including set operations
+			query, err := ep.parser.ParseQueryWithSetOps()
+			if err != nil {
+				return nil, err
+			}
+
+			return &expr.Subquery{
+				SpanVal: mergeSpans(query.Span(), ep.parser.GetCurrentToken().Span),
+				Query: &expr.QueryExpr{
+					SpanVal:   query.Span(),
+					Statement: query,
+				},
+			}, nil
+		}
+
+		// Not a subquery, restore position
+		ep.parser.SetCurrentIndex(savedIdx)
+		return nil, nil
+	}
+
+	// Single level: SELECT ... UNION SELECT ...
+	if ep.parser.PeekKeyword("SELECT") {
+		query, err := ep.parser.ParseQueryWithSetOps()
+		if err != nil {
+			return nil, err
+		}
+
+		return &expr.Subquery{
+			SpanVal: mergeSpans(query.Span(), ep.parser.GetCurrentToken().Span),
+			Query: &expr.QueryExpr{
+				SpanVal:   query.Span(),
+				Statement: query,
+			},
+		}, nil
+	}
+
+	return nil, nil
+}
+
 // parseExistsExpr parses an EXISTS expression
 func (ep *ExpressionParser) parseExistsExpr(negated bool) (expr.Expr, error) {
 	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {

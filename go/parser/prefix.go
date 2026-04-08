@@ -992,6 +992,15 @@ func (ep *ExpressionParser) parseParenthesizedPrefix() (expr.Expr, error) {
 		return ep.parseSubqueryExpr()
 	}
 
+	// Check for double-parenthesized subquery with set operations
+	// e.g., ((SELECT ...) UNION (SELECT ...))
+	if _, ok := ep.parser.PeekToken().Token.(token.TokenLParen); ok {
+		subq, err := ep.parseSubqueryWithSetOps()
+		if err == nil && subq != nil {
+			return subq, nil
+		}
+	}
+
 	// Check for lambda expression
 	if lambda, ok := ep.tryParseLambda(); ok {
 		return lambda, nil

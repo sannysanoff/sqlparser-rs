@@ -230,96 +230,241 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 }
 
 // parseSetOperations parses UNION/INTERSECT/EXCEPT set operations
-// Reference: src/parser/mod.rs:14134 parse_set_operation
+// Reference: src/parser/mod.rs:14134 parse_set_operation and 14169 parse_remaining_set_exprs
+// This function loops to handle chained set operations with proper precedence:
+// - INTERSECT has higher precedence than UNION/EXCEPT (like multiplication vs addition)
+// - UNION and EXCEPT have the same precedence and evaluate left-to-right
 func parseSetOperations(p *Parser, left ast.Statement) (ast.Statement, error) {
 	// Convert left statement to SetExpr
-	var leftExpr query.SetExpr
-	if selStmt, ok := left.(*SelectStatement); ok {
-		leftExpr = &query.SelectSetExpr{Select: &selStmt.Select}
-	} else {
-		// For non-SELECT statements, wrap in a generic way
+	leftExpr, ok := statementToSetExpr(left)
+	if !ok {
+		// For non-SELECT statements, return as-is
 		return left, nil
 	}
 
-	// Check for set operation keywords
-	var op query.SetOperator
-	if p.ParseKeyword("UNION") {
-		op = query.SetOperatorUnion
-	} else if p.ParseKeyword("EXCEPT") {
-		op = query.SetOperatorExcept
-	} else if p.ParseKeyword("INTERSECT") {
-		op = query.SetOperatorIntersect
-	} else {
-		// No set operation, return the original statement
-		return left, nil
-	}
+	// Loop to handle chained set operations (A UNION B UNION C, etc.)
+	for {
+		// Check for set operation keywords
+		var op query.SetOperator
+		var nextPrecedence uint8
 
-	// Parse set quantifier (ALL/DISTINCT/BY NAME)
-	setQuantifier := query.SetQuantifierNone
-	if p.ParseKeyword("ALL") {
-		setQuantifier = query.SetQuantifierAll
-	} else if p.ParseKeyword("DISTINCT") {
-		setQuantifier = query.SetQuantifierDistinct
-	} else if p.ParseKeywords([]string{"BY", "NAME"}) {
-		setQuantifier = query.SetQuantifierByName
-	}
+		if p.PeekKeyword("UNION") {
+			op = query.SetOperatorUnion
+			nextPrecedence = 10
+		} else if p.PeekKeyword("EXCEPT") {
+			op = query.SetOperatorExcept
+			nextPrecedence = 10
+		} else if p.PeekKeyword("INTERSECT") {
+			op = query.SetOperatorIntersect
+			nextPrecedence = 20 // INTERSECT has higher precedence
+		} else {
+			// No set operation, return the accumulated result
+			break
+		}
 
-	// Parse the right side of the set operation
-	var rightExpr query.SetExpr
-	if p.PeekKeyword("SELECT") {
-		rightBody, err := parseSelect(p)
+		// Consume the operator keyword
+		p.ParseKeyword(getSetOpKeyword(op))
+
+		// Parse set quantifier (ALL/DISTINCT/BY NAME)
+		setQuantifier := parseSetOpQuantifier(p)
+
+		// Parse the right side with the next precedence level
+		rightExpr, err := parseSetOperationRightSide(p, nextPrecedence)
 		if err != nil {
 			return nil, err
 		}
-		if selStmt, ok := rightBody.(*SelectStatement); ok {
-			rightExpr = &query.SelectSetExpr{Select: &selStmt.Select}
+
+		// Create the set operation and make it the new left side
+		leftExpr = &query.SetOperation{
+			Left:          leftExpr,
+			Op:            op,
+			SetQuantifier: setQuantifier,
+			Right:         rightExpr,
+		}
+	}
+
+	// If we only had one SELECT (no set operations), return the original statement
+	// to preserve LIMIT, ORDER BY, and other fields
+	if _, ok := leftExpr.(*query.SelectSetExpr); ok {
+		return left, nil
+	}
+
+	// Wrap the set operation in a Query for the statement
+	return &statement.Query{
+		Query: &query.Query{
+			Body: leftExpr,
+		},
+	}, nil
+}
+
+// statementToSetExpr converts a statement to a SetExpr
+func statementToSetExpr(stmt ast.Statement) (query.SetExpr, bool) {
+	switch s := stmt.(type) {
+	case *SelectStatement:
+		return &query.SelectSetExpr{Select: &s.Select}, true
+	case *statement.Query:
+		if s.Query != nil {
+			return s.Query.Body, true
+		}
+	}
+	return nil, false
+}
+
+// getSetOpKeyword returns the keyword for a set operator
+func getSetOpKeyword(op query.SetOperator) string {
+	switch op {
+	case query.SetOperatorUnion:
+		return "UNION"
+	case query.SetOperatorExcept:
+		return "EXCEPT"
+	case query.SetOperatorIntersect:
+		return "INTERSECT"
+	default:
+		return ""
+	}
+}
+
+// parseSetOpQuantifier parses ALL/DISTINCT/BY NAME after a set operator
+func parseSetOpQuantifier(p *Parser) query.SetQuantifier {
+	if p.ParseKeywords([]string{"DISTINCT", "BY", "NAME"}) {
+		return query.SetQuantifierDistinctByName
+	} else if p.ParseKeywords([]string{"BY", "NAME"}) {
+		return query.SetQuantifierByName
+	} else if p.ParseKeyword("ALL") {
+		if p.ParseKeywords([]string{"BY", "NAME"}) {
+			return query.SetQuantifierAllByName
+		}
+		return query.SetQuantifierAll
+	} else if p.ParseKeyword("DISTINCT") {
+		return query.SetQuantifierDistinct
+	}
+	return query.SetQuantifierNone
+}
+
+// parseSetOperationRightSide parses the right side of a set operation
+// with proper precedence handling for nested set operations
+func parseSetOperationRightSide(p *Parser, precedence uint8) (query.SetExpr, error) {
+	// Check for parenthesized subquery first
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		// Parse the parenthesized query body which may contain set operations
+		return parseParenthesizedSetExpr(p, precedence)
+	}
+
+	// Parse SELECT or VALUES directly
+	if p.PeekKeyword("SELECT") {
+		body, err := parseSelect(p)
+		if err != nil {
+			return nil, err
+		}
+		if selStmt, ok := body.(*SelectStatement); ok {
+			return &query.SelectSetExpr{Select: &selStmt.Select}, nil
 		}
 	} else if p.PeekKeyword("VALUES") {
 		valStmt, err := parseValues(p)
 		if err != nil {
 			return nil, err
 		}
-		// Extract Values from the ValuesStatement's Query
 		if valStmt.Query != nil {
 			if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
-				rightExpr = valSetExpr
+				return valSetExpr, nil
 			}
 		}
-	} else if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
-		// Right side is a parenthesized subquery: (SELECT ...) or (VALUES ...)
-		// Parse it as a query and extract the SetExpr
-		subqueryStmt, err := parseQueryBody(p)
+	}
+
+	return nil, p.ExpectedRef("SELECT, VALUES, or parenthesized subquery after set operation", p.PeekTokenRef())
+}
+
+// parseParenthesizedSetExpr parses a parenthesized query that may contain set operations
+// Returns a SetExpr that represents either a simple SELECT or a set operation chain
+func parseParenthesizedSetExpr(p *Parser, precedence uint8) (query.SetExpr, error) {
+	// Consume the opening parenthesis
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); !ok {
+		return nil, p.ExpectedRef("(", p.PeekTokenRef())
+	}
+	p.AdvanceToken() // consume (
+
+	// Parse the inner query which may be a SELECT, VALUES, or a set operation
+	var innerExpr query.SetExpr
+
+	if p.PeekKeyword("SELECT") {
+		body, err := parseSelect(p)
 		if err != nil {
 			return nil, err
 		}
-		// Convert to SetExpr
-		if selStmt, ok := subqueryStmt.(*SelectStatement); ok {
-			rightExpr = &query.SelectSetExpr{Select: &selStmt.Select}
-		} else if valStmt, ok := subqueryStmt.(*ValuesStatement); ok {
-			if valStmt.Query != nil {
-				if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
-					rightExpr = valSetExpr
-				}
+		if selStmt, ok := body.(*SelectStatement); ok {
+			innerExpr = &query.SelectSetExpr{Select: &selStmt.Select}
+		}
+	} else if p.PeekKeyword("VALUES") {
+		valStmt, err := parseValues(p)
+		if err != nil {
+			return nil, err
+		}
+		if valStmt.Query != nil {
+			if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
+				innerExpr = valSetExpr
 			}
 		}
+	} else if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		// Nested parentheses: ((SELECT ...) UNION (SELECT ...))
+		// Recursively parse the parenthesized expression
+		// The recursive call handles its own closing paren, so after it returns
+		// we should NOT expect another paren - just return the result
+		setExpr, err := parseParenthesizedSetExpr(p, precedence)
+		if err != nil {
+			return nil, err
+		}
+		// The recursive call already consumed its closing paren, so just return
+		return setExpr, nil
 	} else {
-		return nil, p.ExpectedRef("SELECT, VALUES, or parenthesized subquery after set operation", p.PeekTokenRef())
+		return nil, p.ExpectedRef("SELECT or VALUES in subquery", p.PeekTokenRef())
 	}
 
-	// Create the set operation
-	setOp := &query.SetOperation{
-		Left:          leftExpr,
-		Op:            op,
-		SetQuantifier: setQuantifier,
-		Right:         rightExpr,
+	// Check for set operations inside the parentheses (e.g., (SELECT ...) UNION (SELECT ...))
+	// These are parsed with the given precedence
+	for {
+		var op query.SetOperator
+		var nextPrecedence uint8
+
+		if p.PeekKeyword("UNION") {
+			op = query.SetOperatorUnion
+			nextPrecedence = 10
+		} else if p.PeekKeyword("EXCEPT") {
+			op = query.SetOperatorExcept
+			nextPrecedence = 10
+		} else if p.PeekKeyword("INTERSECT") {
+			op = query.SetOperatorIntersect
+			nextPrecedence = 20
+		} else {
+			break
+		}
+
+		// Check precedence: only parse if this operator binds tighter
+		if precedence >= nextPrecedence {
+			break
+		}
+
+		p.AdvanceToken() // consume the set operation keyword
+		setQuantifier := parseSetOpQuantifier(p)
+
+		rightExpr, err := parseSetOperationRightSide(p, nextPrecedence)
+		if err != nil {
+			return nil, err
+		}
+
+		innerExpr = &query.SetOperation{
+			Left:          innerExpr,
+			Op:            op,
+			SetQuantifier: setQuantifier,
+			Right:         rightExpr,
+		}
 	}
 
-	// Wrap in a Query for the statement
-	return &statement.Query{
-		Query: &query.Query{
-			Body: setOp,
-		},
-	}, nil
+	// Expect closing parenthesis
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	return innerExpr, nil
 }
 
 // parseQueryBody parses the body of a query (SELECT, VALUES, etc.)
@@ -345,6 +490,138 @@ func parseQueryBody(p *Parser) (ast.Statement, error) {
 	}
 
 	return nil, p.ExpectedRef("SELECT or VALUES", p.PeekTokenRef())
+}
+
+// parseQueryWithSetOps parses a query body with set operations (UNION/INTERSECT/EXCEPT)
+// This is a simplified version for subqueries that parses a SELECT/VALUES followed by optional set operations
+func parseQueryWithSetOps(p *Parser) (ast.Statement, error) {
+	// Parse the initial query body
+	var left query.SetExpr
+
+	// Check for parenthesized subquery first
+	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		// This could be ((SELECT ...) UNION (SELECT ...)) or just (SELECT ...)
+		// We need to look ahead to see if there's a UNION inside the parens
+		savedIdx := p.GetCurrentIndex()
+		p.AdvanceToken() // consume (
+
+		// Check if inside is SELECT, VALUES, or another (
+		isSubquery := p.PeekKeyword("SELECT") || p.PeekKeyword("VALUES")
+		if !isSubquery {
+			// Check if it's another parenthesis
+			if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+				isSubquery = true
+			}
+		}
+
+		if isSubquery {
+			// This looks like a subquery - parse it
+			p.SetCurrentIndex(savedIdx) // restore and parse properly
+			setExpr, err := parseParenthesizedSetExpr(p, 0)
+			if err != nil {
+				return nil, err
+			}
+			left = setExpr
+		} else {
+			// Not a subquery, restore position
+			p.SetCurrentIndex(savedIdx)
+		}
+	} else if p.PeekKeyword("SELECT") {
+		body, err := parseSelect(p)
+		if err != nil {
+			return nil, err
+		}
+		if selStmt, ok := body.(*SelectStatement); ok {
+			left = &query.SelectSetExpr{Select: &selStmt.Select}
+		}
+	} else if p.PeekKeyword("VALUES") {
+		valStmt, err := parseValues(p)
+		if err != nil {
+			return nil, err
+		}
+		if valStmt.Query != nil {
+			if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
+				left = valSetExpr
+			}
+		}
+	} else {
+		return nil, p.ExpectedRef("SELECT or VALUES in subquery", p.PeekTokenRef())
+	}
+
+	if left == nil {
+		return nil, fmt.Errorf("failed to parse subquery body")
+	}
+
+	// Check for set operations
+	for {
+		var op query.SetOperator
+		if p.PeekKeyword("UNION") {
+			op = query.SetOperatorUnion
+		} else if p.PeekKeyword("EXCEPT") {
+			op = query.SetOperatorExcept
+		} else if p.PeekKeyword("INTERSECT") {
+			op = query.SetOperatorIntersect
+		} else {
+			// No set operation, return what we have
+			break
+		}
+
+		// Consume the operator
+		p.AdvanceToken()
+
+		// Parse quantifier
+		setQuantifier := parseSetOpQuantifier(p)
+
+		// Parse the right side
+		var right query.SetExpr
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			// Parenthesized right side - could be (SELECT ...) or ((SELECT ...) UNION (SELECT ...))
+			setExpr, err := parseParenthesizedSetExpr(p, 0)
+			if err != nil {
+				return nil, err
+			}
+			right = setExpr
+		} else if p.PeekKeyword("SELECT") {
+			body, err := parseSelect(p)
+			if err != nil {
+				return nil, err
+			}
+			if selStmt, ok := body.(*SelectStatement); ok {
+				right = &query.SelectSetExpr{Select: &selStmt.Select}
+			}
+		} else if p.PeekKeyword("VALUES") {
+			valStmt, err := parseValues(p)
+			if err != nil {
+				return nil, err
+			}
+			if valStmt.Query != nil {
+				if valSetExpr, ok := valStmt.Query.Body.(*query.ValuesSetExpr); ok {
+					right = valSetExpr
+				}
+			}
+		} else {
+			return nil, p.ExpectedRef("SELECT, VALUES, or parenthesized subquery after set operation", p.PeekTokenRef())
+		}
+
+		// Create the set operation
+		left = &query.SetOperation{
+			Left:          left,
+			Op:            op,
+			SetQuantifier: setQuantifier,
+			Right:         right,
+		}
+	}
+
+	// Return the result
+	if selExpr, ok := left.(*query.SelectSetExpr); ok {
+		return &SelectStatement{Select: *selExpr.Select}, nil
+	}
+
+	return &statement.Query{
+		Query: &query.Query{
+			Body: left,
+		},
+	}, nil
 }
 
 // parseSelectModifiers parses MySQL SELECT modifiers in any order.
