@@ -153,6 +153,16 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		body, err = parseSelect(p)
 	} else if p.PeekKeyword("VALUES") {
 		body, err = parseValues(p)
+	} else if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		// Parenthesized subquery: (SELECT ...) or nested parens for recursion testing
+		p.AdvanceToken() // consume (
+		body, err = parseQuery(p)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
 	} else {
 		if withClause != nil {
 			return nil, p.ExpectedRef("SELECT or VALUES after WITH", p.PeekTokenRef())

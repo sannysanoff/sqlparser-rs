@@ -1,6 +1,34 @@
 ---
 
-## Latest Update: April 9, 2026 - Session 34 (Major Parser Chunks: Trailing Commas, Double-Dot, Subqueries)
+## Latest Update: April 10, 2026 - Session 35 (Recursion Limits, Parenthesized Subqueries)
+
+**Line Counts (Updated April 10, 2026 - Session 35):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 83,865 lines | 124% |
+| Tests | 49,886 lines | 14,161 lines | 28% |
+| **Test Status** | - | **221 subtests passing** / **39 subtests failing** (~85%) |
+| **Total Test Cases** | - | 260 subtest outcomes |
+
+### Session 35 Summary:
+
+**Fixed Recursion Limit Implementation** (5 tests now passing - Major infrastructure fix!)
+- Fixed `TestParseDeeplyNestedParensHitsRecursionLimits` - now properly returns `RecursionLimitExceeded`
+- Fixed `TestParseUpdateDeeplyNestedParensHitsRecursionLimits` - UPDATE with nested parens
+- Fixed `TestParseDeeplyNestedUnaryOpHitsRecursionLimits` - unary operators with deep nesting
+- Fixed `TestParseDeeplyNestedExprHitsRecursionLimits` - deeply nested boolean expressions
+- Fixed `TestParseDeeplyNestedSubqueryExprHitsRecursionLimits` - subqueries with deep nesting
+- **Implementation**: 
+  - Added parenthesized subquery handling to `parseQuery()` in `parser/query.go` (lines 161-168)
+  - Changed `DefaultRemainingDepth` from 300 to 50 to match Rust default (`src/parser/mod.rs:209`)
+- **Root Cause**: Go parser didn't handle `(subquery)` pattern in query body, so recursion checks weren't triggered
+- **Pattern E140**: Parenthesized subquery parsing - When parsing query body, check for `(` and recursively parse inner query for subquery expressions
+- **Pattern E141**: Recursion limit defaults - Match Rust's default of 50, not 300, for consistent behavior
+
+---
+
+## Previous Update: April 9, 2026 - Session 34 (Major Parser Chunks: Trailing Commas, Double-Dot, Subqueries)
 
 **Line Counts (Updated April 9, 2026 - Session 34):**
 
@@ -193,6 +221,14 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 - **Pattern E138**: Subquery function arguments - Check `SupportsSubqueryAsFunctionArg()` dialect capability before parsing function arguments. If enabled and the next token is SELECT or WITH (peek via `peekSubquery()`), parse the subquery directly as the function argument using `ParseQuery()`.
 
 - **Pattern E139**: Colon/At-sign placeholder parsing - When encountering `TokenColon` or `TokenAtSign` in `parseValue()`, immediately consume the following token (which should be `TokenWord` or `TokenNumber`) and combine them into a `TokenPlaceholder`. Use `mergeSpans()` to create correct span covering both tokens.
+
+---
+
+### Session 35 Patterns (New):
+
+- **Pattern E140**: Parenthesized subquery parsing - When parsing a query body, check for `TokenLParen` before the standard SELECT/VALUES check. If found, consume the `(`, recursively call `parseQuery()` to parse the inner query, then expect `)`. This enables both subquery parsing `((SELECT ...))` and proper recursion limit checking for deeply nested parentheses.
+
+- **Pattern E141**: Recursion limit default values - Match the Rust parser's default recursion depth (50) rather than using a higher value. Consistent defaults ensure tests that expect `RecursionLimitExceeded` errors at certain nesting depths behave identically between Rust and Go implementations.
 
 ---
 
