@@ -232,22 +232,26 @@ type Update struct {
 	Limit           query.LimitClause
 	IsFromStatement bool
 	Setting         []*expr.Setting
-	Joins           []query.Join // MySQL-style UPDATE with JOINs
+	Joins           []query.Join           // MySQL-style UPDATE with JOINs
+	Or              *expr.SqliteOnConflict // SQLite OR clause (OR REPLACE, OR ROLLBACK, etc.)
 }
 
 func (u *Update) statementNode() {}
 
 func (u *Update) String() string {
 	var f strings.Builder
-	f.WriteString("UPDATE ")
+	f.WriteString("UPDATE")
 
-	// Handle FROM clause position for different SQL dialects
-	if u.From != nil && u.From.BeforeSet != nil {
-		// Snowflake/MSSQL style: UPDATE FROM t1 SET ...
-		f.WriteString("FROM ")
-		f.WriteString(u.From.String())
+	// Add OR clause for SQLite (OR REPLACE, OR ROLLBACK, etc.)
+	if u.Or != nil {
 		f.WriteString(" ")
-	} else if u.Table != nil {
+		f.WriteString(u.Or.String())
+	}
+
+	f.WriteString(" ")
+
+	// Output the main table first (always)
+	if u.Table != nil {
 		f.WriteString(u.Table.String())
 	}
 
@@ -261,6 +265,12 @@ func (u *Update) String() string {
 	for _, join := range u.Joins {
 		f.WriteString(" ")
 		f.WriteString(join.String())
+	}
+
+	// Handle FROM clause BEFORE SET (Snowflake/MSSQL style: UPDATE t1 FROM t2 SET ...)
+	if u.From != nil && u.From.BeforeSet != nil {
+		f.WriteString(" FROM ")
+		f.WriteString(u.From.String())
 	}
 
 	if len(u.Assignments) > 0 {

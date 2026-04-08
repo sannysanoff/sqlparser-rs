@@ -30,7 +30,7 @@ import (
 // Reference: tests/sqlparser_mysql.rs:2700
 func TestParseUpdateWithJoins(t *testing.T) {
 	dialects := MySQL()
-	sql := "UPDATE orders AS o JOIN customers AS c ON o.customer_id = c.id SET o.completed = TRUE WHERE c.firstname = 'Peter'"
+	sql := "UPDATE orders AS o JOIN customers AS c ON o.customer_id = c.id SET o.completed = true WHERE c.firstname = 'Peter'"
 	dialects.VerifiedStmt(t, sql)
 }
 

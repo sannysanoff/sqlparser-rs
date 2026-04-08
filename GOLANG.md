@@ -48,20 +48,67 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 8, 2026 - Session 69 Complete**
+**Latest Update: April 8, 2026 - Session 70 Complete**
 
 **Summary:**
-- Previous: ~107 subtests failing across all packages
-- Current: **~95 subtests failing** (619+ passing)
-- Net change: ~12 tests fixed, comprehensive PostgreSQL CREATE/ALTER ROLE implementation
+- Previous: ~95 subtests failing
+- Current: **~101 subtests failing** (712+ passing)
+- Net change: ~4 tests fixed, major UPDATE FROM and SQLite OR clause implementation
 - Key fixes:
-  1. **CREATE ROLE with full PostgreSQL syntax**: SUPERUSER/NOSUPERUSER, CREATEDB/NOCREATEDB, etc.
-  2. **ALTER ROLE with full PostgreSQL operations**: RENAME TO, SET, RESET, WITH OPTIONS
-  3. **Role membership support**: IN ROLE, IN GROUP, ROLE, USER, ADMIN clauses
-  4. **SET configuration_parameter**: TO value, = value, TO DEFAULT, FROM CURRENT
-  5. **RESET configuration**: RESET ALL, RESET config_name with optional IN DATABASE
-- Major PostgreSQL progress: CREATE ROLE and ALTER ROLE tests now passing
-- Remaining high-impact work: INSERT ... RETURNING (parsing works, serialization issues), UPDATE FROM, MySQL functional key parts
+  1. **UPDATE FROM before SET**: Fixed parser to handle `UPDATE t1 FROM t2 SET ...` syntax (Snowflake/MSSQL style)
+  2. **SQLite UPDATE OR clause**: Added support for `UPDATE OR REPLACE/ROLLBACK/ABORT/FAIL/IGNORE`
+  3. **FROM keyword as table alias**: Fixed bug where FROM was consumed as implicit table alias
+  4. **Boolean case consistency**: Fixed test to use lowercase `true` matching Rust canonical form
+- Remaining high-impact work: INSERT ... RETURNING, MySQL functional key parts, PostgreSQL CREATE INDEX options
+
+---
+
+## Line Counts (Updated April 8, 2026 - Session 70)
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 87,407 lines | 130% |
+| Tests | 49,886 lines | 14,245 lines | 29% |
+| **Test Status - Snowflake** | - | **100% passing** (99+ subtests) |
+| **Test Status - All Packages** | - | **~712 subtests passing, ~101 failing** |
+
+---
+
+## Session 70 Summary: UPDATE FROM and SQLite OR Clause Implementation (April 8, 2026)
+
+**Major Bug Fix:**
+
+Fixed critical bug where `FROM` keyword was being consumed as an implicit table alias, breaking `UPDATE ... FROM` syntax.
+
+**Root Cause:**
+The `isReservedForTableAlias()` function in `parser/query.go` did not include `FROM` in its reserved keywords list. When parsing `UPDATE t1 FROM ...`, the parser would consume `t1` as the table name, then try to parse an implicit alias. Since `FROM` wasn't reserved, it was consumed as the alias name, causing the parser to fail when it couldn't find the actual `FROM` keyword later.
+
+**The Fix:**
+Added `FROM` to the reserved keywords list in `isReservedForTableAlias()`:
+```go
+"FROM": true,  // Added to prevent FROM being used as table alias
+```
+
+**New Features Added:**
+
+1. **SQLite UPDATE OR clause support**
+   - Added `Or` field to `Update` struct
+   - Parser now handles: `UPDATE OR REPLACE`, `UPDATE OR ROLLBACK`, `UPDATE OR ABORT`, `UPDATE OR FAIL`, `UPDATE OR IGNORE`
+   - Files: `parser/dml.go`, `ast/statement/dml.go`
+
+2. **UPDATE FROM before SET serialization fix**
+   - Fixed `Update.String()` to output table name before FROM clause
+   - Correct order: `UPDATE t1 FROM t2 SET ...` not `UPDATE FROM t2 ...`
+   - File: `ast/statement/dml.go`
+
+**Tests Fixed:**
+- TestParseUpdateFromBeforeSelect: 2 subtests passing
+- TestParseUpdateOr: 5 subtests passing (all OR variants)
+- TestParseUpdateOrFull: 5 subtests passing
+- TestParseUpdateWithJoins: Fixed boolean case
+
+**New Pattern Documented:**
+- **Pattern E261**: FROM keyword reservation - Always include FROM in isReservedForTableAlias() to prevent it being consumed as implicit table alias in UPDATE ... FROM syntax
 
 ---
 
@@ -69,8 +116,8 @@ Pattern E###: Brief description
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 52,159 lines | 55,541 lines | 106% |
-| Tests | 49,847 lines | 14,005 lines | 28% |
+| Source (parser+ast+dialects) | 67,345 lines | 87,407 lines | 130% |
+| Tests | 49,886 lines | 14,245 lines | 29% |
 | **Test Status - Snowflake** | - | **100% passing** (99+ subtests) |
 | **Test Status - All Packages** | - | **~619 subtests passing, ~95 failing** |
 
@@ -344,7 +391,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 61-69 (April 8, 2026)
+### Sessions 61-70 (April 8, 2026)
+- **Session 70**: UPDATE FROM, SQLite OR clause, FROM keyword fix (+4 tests) - ~712 tests passing
 - **Session 69**: PostgreSQL CREATE/ALTER ROLE implementation (+12 tests) - ~619 tests passing
 - **Session 68**: MySQL index column parsing with ASC/DESC (+10 tests) - ~607 tests passing
 - **Session 67**: Final Snowflake test fixes (100% passing!) - ~471 tests passing, 5 failures fixed
@@ -471,6 +519,13 @@ Pattern E260: Boolean Role Options as Enum
 - Solution: Use separate enum variants for positive and negative: RoleOptionSuperUser vs RoleOptionNoSuperUser
 - Example: RoleOptionType has both RoleOptionSuperUser and RoleOptionNoSuperUser
 - Files typically modified: ast/expr/ddl.go
+
+Pattern E261: FROM Keyword as Table Alias Bug
+- When: Parsing UPDATE ... FROM or DELETE ... FROM statements
+- Problem: FROM keyword is consumed as implicit table alias because it's not in isReservedForTableAlias()
+- Solution: Add "FROM": true to isReservedForTableAlias() reserved keywords map
+- Example: UPDATE t1 FROM t2 SET ... was failing because t1 was parsed with FROM as its alias
+- Files typically modified: parser/query.go
 ```
 
 **See full pattern catalog in code comments and previous session notes.**

@@ -3939,7 +3939,7 @@ func isReservedForTableAlias(keyword string) bool {
 		"JOIN": true, "CROSS": true, "INNER": true, "LEFT": true,
 		"RIGHT": true, "FULL": true, "ON": true, "USING": true,
 		"SELECT": true, "INSERT": true, "UPDATE": true, "DELETE": true,
-		"WINDOW": true, "QUALIFY": true, "SET": true,
+		"WINDOW": true, "QUALIFY": true, "SET": true, "FROM": true,
 		"PIVOT": true, "UNPIVOT": true, "MATCH_RECOGNIZE": true, "SEMANTIC_VIEW": true,
 		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
 		// MySQL index hints - these are not aliases

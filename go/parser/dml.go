@@ -435,6 +435,26 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		}
 	}
 
+	// Parse optional OR conflict clause (SQLite style: UPDATE OR REPLACE ...)
+	// Reference: src/parser/mod.rs:17657 parse_conflict_clause
+	var orConflict *expr.SqliteOnConflict
+	if p.ParseKeywords([]string{"OR", "REPLACE"}) {
+		orVal := expr.SqliteOnConflictReplace
+		orConflict = &orVal
+	} else if p.ParseKeywords([]string{"OR", "ROLLBACK"}) {
+		orVal := expr.SqliteOnConflictRollback
+		orConflict = &orVal
+	} else if p.ParseKeywords([]string{"OR", "ABORT"}) {
+		orVal := expr.SqliteOnConflictAbort
+		orConflict = &orVal
+	} else if p.ParseKeywords([]string{"OR", "FAIL"}) {
+		orVal := expr.SqliteOnConflictFail
+		orConflict = &orVal
+	} else if p.ParseKeywords([]string{"OR", "IGNORE"}) {
+		orVal := expr.SqliteOnConflictIgnore
+		orConflict = &orVal
+	}
+
 	// Parse the table reference with joins
 	table, err := parseTableAndJoins(p)
 	if err != nil {
@@ -544,6 +564,7 @@ func parseUpdateInternal(p *Parser, updateToken token.TokenWithSpan) (ast.Statem
 		Output:          output,
 		IsFromStatement: false,
 		Joins:           joins,
+		Or:              orConflict,
 	}
 	update.SetSpan(updateToken.Span)
 
