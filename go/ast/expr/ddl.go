@@ -1736,6 +1736,12 @@ type AlterTableOperation struct {
 	ReplicaIdentity      ReplicaIdentityType
 	ReplicaIdentityIndex *ast.Ident
 
+	// Fields for SwapWith (Snowflake)
+	SwapWithTableName *ast.ObjectName
+
+	// Fields for ClusterBy (Snowflake)
+	ClusterBy []Expr
+
 	// Span
 	SpanVal token.Span
 }
@@ -1777,6 +1783,10 @@ const (
 	AlterTableOpDropClusteringKey
 	AlterTableOpSuspendRecluster
 	AlterTableOpResumeRecluster
+	// Snowflake-specific SWAP WITH operation
+	AlterTableOpSwapWith
+	// Snowflake-specific CLUSTER BY operation
+	AlterTableOpClusterBy
 )
 
 // AlterTableType represents the type of table for ALTER TABLE (e.g., ICEBERG, DYNAMIC, EXTERNAL)
@@ -2152,6 +2162,26 @@ func (a *AlterTableOperation) String() string {
 		return "SUSPEND RECLUSTER"
 	case AlterTableOpResumeRecluster:
 		return "RESUME RECLUSTER"
+	// Snowflake-specific SWAP WITH operation
+	case AlterTableOpSwapWith:
+		var buf strings.Builder
+		buf.WriteString("SWAP WITH ")
+		if a.SwapWithTableName != nil {
+			buf.WriteString(a.SwapWithTableName.String())
+		}
+		return buf.String()
+	// Snowflake-specific CLUSTER BY operation
+	case AlterTableOpClusterBy:
+		var buf strings.Builder
+		buf.WriteString("CLUSTER BY (")
+		for i, expr := range a.ClusterBy {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(expr.String())
+		}
+		buf.WriteString(")")
+		return buf.String()
 	default:
 		return ""
 	}

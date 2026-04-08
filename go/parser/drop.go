@@ -441,10 +441,10 @@ func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
 // Reference: src/parser/mod.rs:1091-1139
 func parseTruncate(p *Parser) (ast.Statement, error) {
 	// Parse optional TABLE keyword
-	_ = p.ParseKeyword("TABLE")
+	hasTableKeyword := p.ParseKeyword("TABLE")
 
 	// Parse optional IF EXISTS
-	_ = p.ParseKeywords([]string{"IF", "EXISTS"})
+	hasIfExists := p.ParseKeywords([]string{"IF", "EXISTS"})
 
 	// Parse comma-separated table names
 	var tableNames []*ast.ObjectName
@@ -509,6 +509,8 @@ func parseTruncate(p *Parser) (ast.Statement, error) {
 		TableNames: tableNames,
 		Partitions: partitions,
 		OnCluster:  onCluster,
+		Table:      hasTableKeyword,
+		IfExists:   hasIfExists,
 	}, nil
 }
 

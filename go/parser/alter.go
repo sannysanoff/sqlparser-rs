@@ -182,7 +182,61 @@ func parseAlterTableOperation(p *Parser) (*expr.AlterTableOperation, error) {
 		return op, nil
 	}
 
+	// Snowflake SWAP WITH
+	if p.ParseKeyword("SWAP") {
+		return parseAlterTableSwapWith(p, op)
+	}
+
+	// Snowflake CLUSTER BY
+	if p.ParseKeywords([]string{"CLUSTER", "BY"}) {
+		return parseAlterTableClusterBy(p, op)
+	}
+
 	return nil, fmt.Errorf("unknown ALTER TABLE operation")
+}
+
+// parseAlterTableSwapWith parses ALTER TABLE SWAP WITH operation
+// Reference: src/parser/mod.rs:10410-10413
+func parseAlterTableSwapWith(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	if !p.ParseKeyword("WITH") {
+		return nil, fmt.Errorf("expected WITH after SWAP")
+	}
+	tableName, err := p.ParseObjectName()
+	if err != nil {
+		return nil, fmt.Errorf("expected table name after SWAP WITH: %w", err)
+	}
+	op.Op = expr.AlterTableOpSwapWith
+	op.SwapWithTableName = tableName
+	return op, nil
+}
+
+// parseAlterTableClusterBy parses ALTER TABLE CLUSTER BY operation
+// Reference: src/parser/mod.rs:10459-10463
+func parseAlterTableClusterBy(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, err
+	}
+
+	// Parse comma-separated expressions
+	ep := NewExpressionParser(p)
+	for {
+		exprVal, err := ep.ParseExpr()
+		if err != nil {
+			return nil, fmt.Errorf("expected expression in CLUSTER BY: %w", err)
+		}
+		op.ClusterBy = append(op.ClusterBy, exprVal)
+
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+		return nil, err
+	}
+
+	op.Op = expr.AlterTableOpClusterBy
+	return op, nil
 }
 
 // parseAlterTableAdd parses ADD COLUMN or ADD CONSTRAINT

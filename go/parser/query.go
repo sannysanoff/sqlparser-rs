@@ -884,6 +884,28 @@ func parseSelectItem(p *Parser) (query.SelectItem, error) {
 		return nil, err
 	}
 
+	// Check for .* after expression (Snowflake: IDENTIFIER('name').*)
+	if dialects.SupportsSelectExprStar(p.GetDialect()) {
+		if _, ok := p.PeekToken().Token.(token.TokenPeriod); ok {
+			if _, ok := p.PeekNthToken(1).Token.(token.TokenMul); ok {
+				// Consume .*
+				p.AdvanceToken() // consume .
+				p.AdvanceToken() // consume *
+
+				// Parse wildcard options
+				opts, err := parseWildcardAdditionalOptions(p)
+				if err != nil {
+					return nil, err
+				}
+
+				return &query.QualifiedWildcard{
+					Kind:              &query.ExprWildcard{Expr: &queryExprWrapper{expr: parsedExpr}},
+					AdditionalOptions: opts,
+				}, nil
+			}
+		}
+	}
+
 	// Check for = alias assignment (e.g., SELECT alias = expr FROM t)
 	// This is supported by MSSQL and some other dialects
 	if binOp, ok := parsedExpr.(*expr.BinaryOp); ok {

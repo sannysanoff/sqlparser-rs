@@ -306,6 +306,14 @@ func (ep *ExpressionParser) parseCompoundExprWithOptions(root expr.Expr, chain [
 			case token.TokenMul:
 				// Handle qualified wildcard like foo.*
 				// This is standard SQL and should work in all dialects
+				// However, for dialects that support expr.* (like Snowflake's IDENTIFIER() function),
+				// we need to check if the root is a function call and skip handling here to let
+				// the SELECT item parser handle it properly.
+				if _, isFunc := root.(*expr.FunctionExpr); isFunc && dialects.SupportsSelectExprStar(dialect) {
+					// Put back the period token and return without consuming the wildcard
+					ep.parser.PrevToken()
+					goto done
+				}
 				endingWildcard = &token.TokenWithSpan{
 					Token: tok,
 					Span:  nextTok.Span,

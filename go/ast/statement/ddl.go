@@ -939,13 +939,21 @@ type Truncate struct {
 	TableNames []*ast.ObjectName
 	Partitions []expr.Expr
 	OnCluster  *ast.Ident
+	Table      bool // Whether TABLE keyword is present
+	IfExists   bool // Snowflake/Redshift: IF EXISTS option
 }
 
 func (t *Truncate) statementNode() {}
 
 func (t *Truncate) String() string {
 	var f strings.Builder
-	f.WriteString("TRUNCATE TABLE ")
+	f.WriteString("TRUNCATE ")
+	if t.Table {
+		f.WriteString("TABLE ")
+	}
+	if t.IfExists {
+		f.WriteString("IF EXISTS ")
+	}
 	f.WriteString(formatObjectNames(t.TableNames, ", "))
 	return f.String()
 }

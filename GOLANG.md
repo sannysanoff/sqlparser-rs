@@ -1,5 +1,55 @@
 ---
 
+**Line Counts (Updated April 9, 2026 - Session 25 Complete):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 83,057 lines | 123% |
+| Tests | 49,886 lines | 14,161 lines | 28% |
+| **Test Status** | - | **567 passing** / **246 failing** (~70%) |
+
+**Summary of Session 25:**
+
+1. **Implemented Snowflake ALTER TABLE SWAP WITH** (1 test now passing)
+   - Fixed `ALTER TABLE tab1 SWAP WITH tab2` syntax
+   - **Implementation**: 
+     - Added `AlterTableOpSwapWith` operation type to `go/ast/expr/ddl.go`
+     - Added `SwapWithTableName` field to `AlterTableOperation` struct
+     - Implemented `parseAlterTableSwapWith()` in `go/parser/alter.go`
+     - Updated `String()` method to serialize "SWAP WITH table_name"
+   - **Pattern E111**: ALTER TABLE SWAP WITH - Parse SWAP keyword, expect WITH, then parse table name as ObjectName
+   - Tests Fixed: TestSnowflakeAlterTableSwapWith
+
+2. **Implemented Snowflake ALTER TABLE CLUSTER BY** (1 test now passing)
+   - Fixed `ALTER TABLE tab CLUSTER BY (c1, c2, expr)` syntax
+   - **Implementation**: 
+     - Added `AlterTableOpClusterBy` operation type to `go/ast/expr/ddl.go`
+     - Added `ClusterBy []Expr` field to `AlterTableOperation` struct
+     - Implemented `parseAlterTableClusterBy()` in `go/parser/alter.go`
+     - Updated `String()` method to serialize "CLUSTER BY (expr, expr, ...)"
+   - **Pattern E112**: ALTER TABLE CLUSTER BY - Parse CLUSTER BY keywords, expect (, parse comma-separated expressions, expect )
+   - Tests Fixed: TestSnowflakeAlterTableClustering (4 subtests total, including existing DROP CLUSTERING KEY, SUSPEND/RESUME RECLUSTER)
+
+3. **Fixed TRUNCATE TABLE IF EXISTS** (2 tests now passing)
+   - Fixed `TRUNCATE TABLE IF EXISTS table_name` and `TRUNCATE IF EXISTS table_name` serialization
+   - **Implementation**: 
+     - Added `Table bool` and `IfExists bool` fields to `go/ast/statement/ddl.go` Truncate struct
+     - Updated `String()` method to include TABLE keyword and IF EXISTS clause when present
+     - Modified `parseTruncate()` in `go/parser/drop.go` to save the parsed flags
+   - **Pattern E113**: TRUNCATE TABLE serialization - Store both TABLE keyword presence and IF EXISTS as separate flags for faithful re-serialization
+   - Tests Fixed: TestSnowflakeTruncateTableIfExists (2 of 3 subtests - 1 was already passing)
+
+4. **Fixed Snowflake IDENTIFIER() function with wildcard** (1 test now passing)
+   - Fixed `SELECT IDENTIFIER('alias1').* FROM tbl` syntax
+   - **Implementation**: 
+     - Added `SupportsSelectExprStar()` helper function to `go/dialects/capabilities.go`
+     - Modified `parseCompoundExprWithOptions()` in `go/parser/core.go` to skip consuming `.*` when root is a function call and dialect supports expr.*
+     - Modified `parseSelectItem()` in `go/parser/query.go` to handle `expr.*` pattern after parsing function call
+   - **Pattern E114**: Function call with .* wildcard - When dialect supports SelectExprStar, don't consume .* in compound expression parser; let SELECT item parser handle it as ExprWildcard
+   - Tests Fixed: TestSnowflakeIdentifierFunction (1 subtest - SELECT identifier('alias1').*)
+
+---
+
 **Line Counts (Updated April 9, 2026 - Session 24 Complete):**
 
 | Component | Rust | Go | Ratio |
@@ -2593,6 +2643,124 @@ func (c *CreateTableLikeKind) String() string {
 }
 ```
 
+### Error E111: ALTER TABLE SWAP WITH not parsed
+**Cause**: The `parseAlterTableOperation()` function doesn't handle SWAP WITH syntax.
+
+**Solution**: Add SWAP WITH parsing after other ALTER TABLE operations:
+```go
+// Snowflake SWAP WITH
+if p.ParseKeyword("SWAP") {
+    return parseAlterTableSwapWith(p, op)
+}
+
+func parseAlterTableSwapWith(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+    if !p.ParseKeyword("WITH") {
+        return nil, fmt.Errorf("expected WITH after SWAP")
+    }
+    tableName, err := p.ParseObjectName()
+    if err != nil {
+        return nil, fmt.Errorf("expected table name after SWAP WITH: %w", err)
+    }
+    op.Op = expr.AlterTableOpSwapWith
+    op.SwapWithTableName = tableName
+    return op, nil
+}
+```
+
+### Error E112: ALTER TABLE CLUSTER BY not parsed
+**Cause**: The `parseAlterTableOperation()` function doesn't handle CLUSTER BY syntax.
+
+**Solution**: Add CLUSTER BY parsing with expression list:
+```go
+// Snowflake CLUSTER BY
+if p.ParseKeywords([]string{"CLUSTER", "BY"}) {
+    return parseAlterTableClusterBy(p, op)
+}
+
+func parseAlterTableClusterBy(p *Parser, op *expr.AlterTableOperation) (*expr.AlterTableOperation, error) {
+    if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+        return nil, err
+    }
+    ep := NewExpressionParser(p)
+    for {
+        exprVal, err := ep.ParseExpr()
+        if err != nil {
+            return nil, fmt.Errorf("expected expression in CLUSTER BY: %w", err)
+        }
+        op.ClusterBy = append(op.ClusterBy, exprVal)
+        if !p.ConsumeToken(token.TokenComma{}) {
+            break
+        }
+    }
+    if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+        return nil, err
+    }
+    op.Op = expr.AlterTableOpClusterBy
+    return op, nil
+}
+```
+
+### Error E113: TRUNCATE TABLE IF EXISTS not serialized correctly
+**Cause**: The `Truncate` struct doesn't track IF EXISTS and TABLE keyword presence separately.
+
+**Solution**: Add fields for both flags and check them in String():
+```go
+type Truncate struct {
+    TableNames []*ast.ObjectName
+    Partitions []expr.Expr
+    OnCluster  *ast.Ident
+    Table      bool // Whether TABLE keyword is present
+    IfExists   bool // Snowflake/Redshift: IF EXISTS option
+}
+
+func (t *Truncate) String() string {
+    var f strings.Builder
+    f.WriteString("TRUNCATE ")
+    if t.Table {
+        f.WriteString("TABLE ")
+    }
+    if t.IfExists {
+        f.WriteString("IF EXISTS ")
+    }
+    f.WriteString(formatObjectNames(t.TableNames, ", "))
+    return f.String()
+}
+```
+
+### Error E114: Function call with .* wildcard not parsed correctly
+**Cause**: For Snowflake's `IDENTIFIER('name').*` syntax, the compound expression parser consumes the `.*` before the SELECT item parser can handle it.
+
+**Solution**: Skip wildcard handling in compound expression parser when root is a function call and dialect supports SelectExprStar:
+```go
+// In parseCompoundExprWithOptions():
+case token.TokenMul:
+    // Check if this is a function call with .* (Snowflake IDENTIFIER().*)
+    if _, isFunc := root.(*expr.FunctionExpr); isFunc && dialects.SupportsSelectExprStar(dialect) {
+        // Put back the period token and return without consuming the wildcard
+        ep.parser.PrevToken()
+        goto done
+    }
+    // ... normal wildcard handling
+
+// In parseSelectItem() - after parsing expression:
+if dialects.SupportsSelectExprStar(p.GetDialect()) {
+    if _, ok := p.PeekToken().Token.(token.TokenPeriod); ok {
+        if _, ok := p.PeekNthToken(1).Token.(token.TokenMul); ok {
+            p.AdvanceToken() // consume .
+            p.AdvanceToken() // consume *
+            opts, err := parseWildcardAdditionalOptions(p)
+            if err != nil {
+                return nil, err
+            }
+            return &query.QualifiedWildcard{
+                Kind:              &query.ExprWildcard{Expr: &queryExprWrapper{expr: parsedExpr}},
+                AdditionalOptions: opts,
+            }, nil
+        }
+    }
+}
+```
+
 ---
 
 ## Test Status Summary
@@ -2611,9 +2779,9 @@ func (c *CreateTableLikeKind) String() string {
 | Snowflake Specific | ~70 | ~49 | ~21 |
 | Other | ~100 | ~65 | ~35 |
 
-**Total**: ~813 tests across all packages, 560 passing, 253 failing (~69% pass rate)
+**Total**: ~813 tests across all packages, 567 passing, 246 failing (~70% pass rate)
 
-**Note on Failing Tests**: Many "failing" tests are actually **span mismatches** (column position differences), not true parsing failures. The parsing logic is correct, but source position metadata differs between Rust and Go implementations. True parsing failures are significantly fewer than the 253 count suggests.
+**Note on Failing Tests**: Many "failing" tests are actually **span mismatches** (column position differences), not true parsing failures. The parsing logic is correct, but source position metadata differs between Rust and Go implementations. True parsing failures are significantly fewer than the 246 count suggests.
 
 **Major Remaining Work Categories**:
 1. **PostgreSQL CREATE/DROP FUNCTION** - Dollar-quoted strings now work, but many function tests still have span mismatches
@@ -2621,8 +2789,18 @@ func (c *CreateTableLikeKind) String() string {
 3. **CREATE TABLE options** - Various table options need span alignment
 4. **Snowflake Multi-Table INSERT** - Placeholder support in VALUES clause
 5. **Snowflake Stage Names** - Special characters in stage paths
+6. **Snowflake COPY INTO** - Complex expressions in PARTITION BY clause
+7. **Snowflake Error Cases** - Conflicting keywords (LOCAL GLOBAL, TEMP VOLATILE)
 
 **Recent Fixes**:
+- **Session 25 (April 9, 2026)**:
+  - Implemented Snowflake ALTER TABLE SWAP WITH: 1 test now passing
+  - Implemented Snowflake ALTER TABLE CLUSTER BY: 1 test now passing (4 subtests)
+  - Fixed TRUNCATE TABLE IF EXISTS: 2 tests now passing
+  - Fixed Snowflake IDENTIFIER() function with wildcard: 1 test now passing
+  - Line counts: Rust 67,345 → Go 83,057 (123%), Tests: Rust 49,886 → Go 14,161 (28%)
+  - New patterns documented: E111, E112, E113, E114
+
 - **Session 24 (April 9, 2026)**:
   - Implemented CREATE TABLE LIKE: 3 tests now passing
     - Plain LIKE: `CREATE TABLE new LIKE old`
