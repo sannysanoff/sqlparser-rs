@@ -99,6 +99,18 @@ type Parser interface {
 	// Recursion limit methods
 	TryDecreaseRecursion() error
 	IncreaseRecursion()
+
+	// NewExpressionParser creates an expression parser for the current parser context.
+	// This allows dialects to use the full expression parser for complex expressions.
+	NewExpressionParser() ExpressionParser
+}
+
+// ExpressionParser defines the interface for expression parsing.
+// This allows dialects to parse complex expressions with operators.
+type ExpressionParser interface {
+	// ParseExprInterface parses an expression with default precedence.
+	// Returns interface{} to accommodate both expr.Expr and ast.Expr types.
+	ParseExprInterface() (interface{}, error)
 }
 
 // ParserState represents the current state of the parser.

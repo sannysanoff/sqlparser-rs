@@ -1,13 +1,25 @@
 ---
 
-**Line Counts (Updated April 9, 2026 - Session 28 Complete):**
+**Line Counts (Updated April 9, 2026 - Session 29 Complete):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 83,417 lines | 124% |
+| Source (parser+ast+dialects) | 67,345 lines | 83,449 lines | 124% |
 | Tests | 49,886 lines | 14,161 lines | 28% |
 | **Test Status** | - | **575 passing** / **238 failing** (~71%) |
-| **Total Test Cases** | - | ~813 test outcomes |
+| **Total Test Cases** | - | ~826 test outcomes |
+
+**Summary of Session 29:**
+
+1. **Fixed Snowflake Multi-Table Insert Conditional Parsing** (7 tests now passing - major bug fix!)
+   - Fixed `INSERT ALL WHEN n1 > 100 THEN INTO t1 SELECT ...` parsing
+   - **Root Cause**: `Parser.ParseExpression()` is a simplified version that only handles literals and identifiers, NOT operators like `>`, `<`, `=`, etc.
+   - **Fix**: 
+     - Added `NewExpressionParser()` method to the `Parser` interface in `parseriface/parser.go`
+     - Added `ExpressionParser` interface to allow dialects to use the full expression parser
+     - Updated Snowflake's `parseMultiTableInsertWhenClauses()` to use `parser.NewExpressionParser().ParseExprInterface()` instead of `parser.ParseExpression()`
+   - **Pattern E125**: Parser expression interface limitation - `Parser.ParseExpression()` is simplified; use `NewExpressionParser().ParseExprInterface()` for full expression parsing with operators
+   - Tests Fixed: All 7 subtests of TestSnowflakeMultiTableInsertConditional
 
 **Summary of Session 28:**
 
@@ -1912,6 +1924,28 @@ The SQL parses correctly and produces the correct AST structure - only the sourc
 **How to Distinguish from True Parsing Failures**:
 - **Span mismatch**: Diff shows only `Column` differences, no structure differences
 - **True parsing failure**: Error message says "Expected: X, found: Y" or AST structure differs
+
+### Error E125: Expression operators not parsed in WHEN conditions
+**Cause**: `Parser.ParseExpression()` is a simplified version that only handles basic tokens (literals, identifiers), NOT operators like `>`, `<`, `=`, etc. When parsing expressions with operators in dialect-specific contexts (like multi-table INSERT WHEN clauses), the parser stops at the operator and returns the left-hand side only.
+
+**Symptom**: Error like `Expected: "THEN", found: >` when parsing `WHEN n1 > 100 THEN`. The expression parser parses `n1` and stops, leaving `>` as the next token.
+
+**Solution**: Use the full expression parser via `NewExpressionParser()`:
+```go
+// In dialect-specific parsing code (e.g., multi-table insert WHEN clauses):
+ep := parser.NewExpressionParser()
+condition, err := ep.ParseExprInterface()
+if err != nil {
+    return nil, err
+}
+// condition is now the full expression including operators
+```
+
+**Key Points**:
+- `Parser.ParseExpression()` is simplified for basic use cases
+- `NewExpressionParser()` returns an `ExpressionParser` with full Pratt parser capabilities
+- `ParseExprInterface()` returns `interface{}` to accommodate both `expr.Expr` and `ast.Expr` types
+- This pattern is needed when parsing expressions in dialect-specific statement parsers
 
 ---
 

@@ -1790,6 +1790,12 @@ func (p *Parser) ParseExpression() (ast.Expr, error) {
 	}
 }
 
+// NewExpressionParser creates an expression parser for this parser context.
+// This implements the parseriface.Parser interface method.
+func (p *Parser) NewExpressionParser() parseriface.ExpressionParser {
+	return NewExpressionParser(p)
+}
+
 // ParseInsert implements the dialects.ParserAccessor interface.
 func (p *Parser) ParseInsert() (ast.Statement, error) {
 	// Get the INSERT token

@@ -48,6 +48,11 @@ func (ep *ExpressionParser) ParseExpr() (expr.Expr, error) {
 	return ep.ParseExprWithPrecedence(ep.parser.GetDialect().PrecUnknown())
 }
 
+// ParseExprInterface is a wrapper that returns interface{} to satisfy the ExpressionParser interface.
+func (ep *ExpressionParser) ParseExprInterface() (interface{}, error) {
+	return ep.ParseExpr()
+}
+
 // ParseExprWithPrecedence parses an expression with a minimum precedence.
 // This implements precedence climbing (Pratt parsing) for handling operator
 // precedence correctly.
@@ -766,7 +771,6 @@ func (ep *ExpressionParser) parseSubscriptInner() (*expr.Subscript, error) {
 
 	return &expr.Subscript{
 		SpanVal:    mergeSpans(index.Span(), upperBound.Span()),
-		LowerBound: &index,
 		UpperBound: &upperBound,
 		Stride:     &stride,
 	}, nil

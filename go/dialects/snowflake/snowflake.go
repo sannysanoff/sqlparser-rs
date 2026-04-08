@@ -1195,7 +1195,13 @@ func (d *SnowflakeDialect) GetNextPrecedence(parser dialects.ParserAccessor) (ui
 }
 
 // GetNextPrecedenceDefault implements the default precedence logic.
+// This method is NOT called by the expression parser - instead the parser
+// uses ExpressionParser.GetNextPrecedenceDefault() which has the actual
+// precedence logic for all standard operators including >, <, =, etc.
+// This method exists only to satisfy the dialect interface.
 func (d *SnowflakeDialect) GetNextPrecedenceDefault(parser dialects.ParserAccessor) (uint8, error) {
+	// Return 0 to indicate no custom precedence - the expression parser's
+	// default implementation will handle all standard operators
 	return 0, nil
 }
 
@@ -2384,7 +2390,11 @@ func (d *SnowflakeDialect) parseMultiTableInsertWhenClauses(parser dialects.Pars
 
 	// Parse WHEN clauses
 	for parser.ParseKeyword("WHEN") {
-		condition, err := parser.ParseExpression()
+		// Use the full expression parser to handle operators in the condition
+		// We can't use parser.ParseExpression() because it's a simplified version
+		// that doesn't handle operators like >, <, =, etc.
+		ep := parser.NewExpressionParser()
+		condition, err := ep.ParseExprInterface()
 		if err != nil {
 			return nil, nil, err
 		}
