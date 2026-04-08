@@ -2294,8 +2294,10 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseVarcharType(p, tok.Span)
 	case "NVARCHAR":
 		return parseNvarcharType(p, tok.Span)
-	case "CHAR", "CHARACTER":
+	case "CHAR":
 		return parseCharType(p, tok.Span)
+	case "CHARACTER":
+		return parseCharacterType(p, tok.Span)
 	case "NCHAR":
 		return parseNcharType(p, tok.Span)
 	case "VARCHAR2":
@@ -2485,13 +2487,38 @@ func parseVarcharType(p *Parser, spanVal token.Span) (*datatype.VarcharType, err
 	return result, nil
 }
 
-// parseCharType parses CHAR [(n)]
-func parseCharType(p *Parser, spanVal token.Span) (*datatype.CharType, error) {
+// parseCharType parses CHAR [VARYING] [(n)]
+// Handles both CHAR(n) and CHAR VARYING(n) syntax
+func parseCharType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+	// Check for VARYING keyword after CHAR
+	if p.ParseKeyword("VARYING") {
+		// CHAR VARYING - parse optional length
+		result := &datatype.CharVaryingType{
+			SpanVal: spanVal,
+		}
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+			p.NextToken() // consume (
+			tok := p.NextToken()
+			if num, ok := tok.Token.(token.TokenNumber); ok {
+				length, err := strconv.ParseUint(num.Value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid CHAR VARYING length: %w", err)
+				}
+				result.Length = &datatype.CharacterLength{Length: length}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, fmt.Errorf("expected number in CHAR VARYING length specification")
+			}
+		}
+		return result, nil
+	}
+
+	// Regular CHAR type - check for optional length
 	result := &datatype.CharType{
 		SpanVal: spanVal,
 	}
-
-	// Check for optional size specification
 	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		p.NextToken() // consume (
 		tok := p.NextToken()
@@ -2509,6 +2536,57 @@ func parseCharType(p *Parser, spanVal token.Span) (*datatype.CharType, error) {
 		}
 	}
 
+	return result, nil
+}
+
+// parseCharacterType parses CHARACTER [VARYING] [(n)]
+// Handles both CHARACTER(n) and CHARACTER VARYING(n) syntax
+func parseCharacterType(p *Parser, spanVal token.Span) (datatype.DataType, error) {
+	// Check for VARYING keyword after CHARACTER
+	if p.ParseKeyword("VARYING") {
+		// CHARACTER VARYING - parse optional length
+		result := &datatype.CharacterVaryingType{
+			SpanVal: spanVal,
+		}
+		if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+			p.NextToken() // consume (
+			tok := p.NextToken()
+			if num, ok := tok.Token.(token.TokenNumber); ok {
+				length, err := strconv.ParseUint(num.Value, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid CHARACTER VARYING length: %w", err)
+				}
+				result.Length = &datatype.CharacterLength{Length: length}
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, fmt.Errorf("expected number in CHARACTER VARYING length specification")
+			}
+		}
+		return result, nil
+	}
+
+	// Regular CHARACTER type - check for optional length
+	result := &datatype.CharacterType{
+		SpanVal: spanVal,
+	}
+	if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
+		p.NextToken() // consume (
+		tok := p.NextToken()
+		if num, ok := tok.Token.(token.TokenNumber); ok {
+			length, err := strconv.ParseUint(num.Value, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CHARACTER length: %w", err)
+			}
+			result.Length = &datatype.CharacterLength{Length: length}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("expected number in CHARACTER length specification")
+		}
+	}
 	return result, nil
 }
 

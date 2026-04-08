@@ -292,6 +292,11 @@ func (ep *ExpressionParser) GetNextPrecedenceDefault() (uint8, error) {
 	case token.TokenDuckIntDiv:
 		// DuckDB integer division
 		return dialect.PrecValue(parseriface.PrecedenceMulDivModOp), nil
+
+	case token.TokenAssignment:
+		// Assignment operator := (used in MySQL for variable assignment and in some other dialects)
+		// Assignment has very low precedence
+		return dialect.PrecValue(parseriface.PrecedenceAssignment), nil
 	}
 
 	// Default: no infix operator

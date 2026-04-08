@@ -172,8 +172,10 @@ const (
 	PrecedenceUnaryNot Precedence = 15
 	// PrecedenceAnd - Logical AND
 	PrecedenceAnd Precedence = 10
-	// PrecedenceOr - Logical OR (lowest precedence)
+	// PrecedenceOr - Logical OR
 	PrecedenceOr Precedence = 5
+	// PrecedenceAssignment - Assignment operator := (lowest precedence)
+	PrecedenceAssignment Precedence = 1
 	// PrecedenceCollate - COLLATE operator (between AT TIME ZONE and ::)
 	PrecedenceCollate Precedence = 42
 )
