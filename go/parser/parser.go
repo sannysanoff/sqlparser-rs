@@ -228,6 +228,13 @@ func (p *Parser) parseStatementByKeyword(keyword string, tok token.TokenWithSpan
 	case "SELECT", "WITH", "VALUES":
 		p.PrevToken()
 		return p.parseQuery()
+	case "FROM":
+		// FROM-first syntax (DuckDB/ClickHouse): FROM t SELECT *
+		if dialects.SupportsFromFirstSelect(p.GetDialect()) {
+			p.PrevToken()
+			return p.parseQuery()
+		}
+		return nil, p.expected("an SQL statement", tok)
 	case "INSERT":
 		return p.parseInsert(tok)
 	case "REPLACE":

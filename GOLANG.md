@@ -1,6 +1,65 @@
 ---
 
-## Latest Update: April 10, 2026 - Session 35 (Recursion Limits, Parenthesized Subqueries)
+## Latest Update: April 10, 2026 - Session 36 (FROM-first SELECT Syntax)
+
+**Line Counts (Updated April 10, 2026 - Session 36):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 98,190 lines | 146% |
+| Tests | 49,886 lines | 14,332 lines | 29% |
+| **Test Status** | - | **592 tests passing** / **221 tests failing** (~73%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 36 Summary:
+
+**Fixed FROM-first SELECT Syntax** (2 tests now passing - Major feature!)
+- Fixed `TestParseSelectWithFromFirst` - `FROM customer SELECT id` now properly parses and serializes
+- Fixed `TestParseSelectFromFirst` - `FROM capitals` (projection-less SELECT) now works
+- **Implementation**:
+  - Added FROM-first detection to `parseStatementByKeyword()` in `parser/parser.go` (lines 228-233)
+  - Added FROM-first handling to `parseQuery()` in `parser/query.go` (lines 152-156)
+  - Modified `parseSelect()` in `parser/query.go` (lines 408-436) to handle FROM-first syntax:
+    - Parse FROM clause before SELECT when dialect supports it
+    - Set `Flavor` to `SelectFlavorFromFirst` or `SelectFlavorFromFirstNoSelect` for proper serialization
+  - Fixed test filter in `tests/query/select_test.go` to only test with dialects that support `SupportsFromFirstSelect()`
+- **Root Cause**: The parser didn't recognize FROM as a valid statement-starting keyword for dialects that support FROM-first syntax
+- **Pattern E142**: FROM-first SELECT parsing - When dialect supports it, FROM can start a query. Track the flavor (Standard/FromFirst/FromFirstNoSelect) in AST for proper re-serialization.
+
+**Fixed LIMIT ALL Syntax** (Partial - 1 of 3 subtests passing)
+- Fixed `LIMIT ALL` to be recognized as equivalent to no limit (first subtest now passing)
+- Fixed `OFFSET x LIMIT ALL` to properly ignore the LIMIT ALL (third subtest passing)
+- **Implementation**:
+  - Added `isIdentifierNamed()` helper in `parser/query.go` to check if expression is an identifier with specific name
+  - Modified LIMIT parsing (lines 642-704) to check for `ALL` identifier and treat as no-op
+  - Modified OFFSET-then-LIMIT parsing (lines 724-740) with same `ALL` check
+- **Remaining Issue**: `LIMIT ALL OFFSET x` has span (column position) mismatches due to source position tracking differences - parsing logic is correct
+- **Pattern E143**: LIMIT ALL handling - When parsing LIMIT value, check if it's the identifier `ALL` and treat as no-op (no limit). Must be handled in both LIMIT-first and OFFSET-first code paths.
+
+**Fixed FROM Clause Trailing Commas** (1 test now passing)
+- Fixed `TestTrailingCommasInFrom` - trailing commas in FROM clause now properly handled
+- **Implementation**: Added `TokenRParen` check to trailing comma detection in `parseTableWithJoinsList()` in `parser/query.go` (lines 1423-1426)
+- **Root Cause**: The trailing comma check only looked for clause keywords and EOF, but not for closing parentheses that end subqueries
+- **Pattern E144**: Trailing comma in nested FROM - When checking for trailing comma in FROM clause, also check for `TokenRParen` which indicates end of subquery
+
+**Fixed Snowflake COPY INTO PARTITION BY** (1 test now passing - all 3 subtests)
+- Fixed `TestSnowflakeCopyInto` - PARTITION BY with complex expressions now works
+- **Implementation**:
+  - Changed `Partition` field type from `ast.Expr` to `interface{}` in `CopyIntoSnowflake` struct in `ast/statement/misc.go` (line 480)
+  - Updated `String()` method to handle interface{} type with type assertion (lines 566-572)
+  - Modified `parseCopyInto()` in `dialects/snowflake/snowflake.go` (lines 1483-1491) to use full expression parser:
+    - Use `parser.NewExpressionParser().ParseExprInterface()` instead of `parser.ParseExpression()`
+    - This enables parsing complex expressions with operators (||), function calls, etc.
+- **Root Cause**: `parser.ParseExpression()` is a simplified parser that doesn't handle operators or parentheses
+- **Pattern E145**: Complex expression parsing in dialect-specific contexts - Use `NewExpressionParser().ParseExprInterface()` instead of `ParseExpression()` when parsing expressions that may contain operators, function calls, or parentheses
+
+---
+
+## Previous Update: April 10, 2026 - Session 35 (Recursion Limits, Parenthesized Subqueries)
+
+---
+
+## Previous Update: April 10, 2026 - Session 35 (Recursion Limits, Parenthesized Subqueries)
 
 **Line Counts (Updated April 10, 2026 - Session 35):**
 
@@ -229,6 +288,17 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 - **Pattern E140**: Parenthesized subquery parsing - When parsing a query body, check for `TokenLParen` before the standard SELECT/VALUES check. If found, consume the `(`, recursively call `parseQuery()` to parse the inner query, then expect `)`. This enables both subquery parsing `((SELECT ...))` and proper recursion limit checking for deeply nested parentheses.
 
 - **Pattern E141**: Recursion limit default values - Match the Rust parser's default recursion depth (50) rather than using a higher value. Consistent defaults ensure tests that expect `RecursionLimitExceeded` errors at certain nesting depths behave identically between Rust and Go implementations.
+
+---
+
+### Session 36 Patterns (New):
+
+- **Pattern E142**: FROM-first SELECT parsing - For dialects that support FROM-first syntax (DuckDB, ClickHouse, MySQL, etc.):
+  1. Add "FROM" case to `parseStatementByKeyword()` to dispatch to query parser
+  2. In `parseQuery()`, check for FROM keyword when `SupportsFromFirstSelect()` is true
+  3. In `parseSelect()`, detect FROM-first at the start and parse FROM clause before checking for SELECT
+  4. Set `Flavor` field in `query.Select` to `SelectFlavorFromFirst` or `SelectFlavorFromFirstNoSelect` for proper serialization
+  5. The AST `Select` struct must have `Flavor SelectFlavor` field with `String()` method handling all three flavors
 
 ---
 

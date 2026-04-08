@@ -1449,7 +1449,7 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 	var fileFormat, copyOptions *expr.KeyValueOptions
 	var files []string
 	var pattern, validationMode *string
-	var partition ast.Expr
+	var partition interface{}
 
 	for {
 		nextTok := parser.PeekTokenRef()
@@ -1480,12 +1480,15 @@ func (d *SnowflakeDialect) parseCopyInto(parser dialects.ParserAccessor) (ast.St
 			if _, err := parser.ExpectKeyword("BY"); err != nil {
 				return nil, err
 			}
-			// Parse partition expression
-			expr, err := parser.ParseExpression()
+			// Parse partition expression using full expression parser
+			// (needed for complex expressions with operators like ||, function calls, etc.)
+			ep := parser.NewExpressionParser()
+			exprVal, err := ep.ParseExprInterface()
 			if err != nil {
 				return nil, err
 			}
-			partition = expr
+			// Convert to ast.Expr - use interface{} field for compatibility
+			partition = exprVal
 			continue
 		}
 

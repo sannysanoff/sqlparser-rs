@@ -75,7 +75,9 @@ func TestParseSelectWildcard(t *testing.T) {
 // TestParseSelectWithFromFirst verifies FROM-first syntax.
 // Reference: tests/sqlparser_common.rs:997
 func TestParseSelectWithFromFirst(t *testing.T) {
-	dialects := utils.NewTestedDialects()
+	dialects := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		return d.SupportsFromFirstSelect()
+	})
 	sql := "FROM customer SELECT id"
 	dialects.VerifiedStmt(t, sql)
 }

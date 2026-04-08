@@ -477,7 +477,7 @@ type CopyIntoSnowflake struct {
 	FileFormat          *expr.KeyValueOptions
 	CopyOptions         *expr.KeyValueOptions
 	ValidationMode      *string
-	Partition           ast.Expr
+	Partition           interface{} // Can be ast.Expr or expr.Expr
 }
 
 func (c *CopyIntoSnowflake) statementNode() {}
@@ -565,7 +565,11 @@ func (c *CopyIntoSnowflake) String() string {
 	// Add PARTITION BY
 	if c.Partition != nil {
 		f.WriteString(" PARTITION BY ")
-		f.WriteString(c.Partition.String())
+		if s, ok := c.Partition.(fmt.Stringer); ok {
+			f.WriteString(s.String())
+		} else {
+			f.WriteString(fmt.Sprintf("%v", c.Partition))
+		}
 	}
 
 	return f.String()

@@ -153,6 +153,9 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		body, err = parseSelect(p)
 	} else if p.PeekKeyword("VALUES") {
 		body, err = parseValues(p)
+	} else if p.PeekKeyword("FROM") && dialects.SupportsFromFirstSelect(p.GetDialect()) {
+		// FROM-first syntax: "FROM t SELECT *" (DuckDB/ClickHouse style)
+		body, err = parseSelect(p)
 	} else if _, isLParen := p.PeekToken().Token.(token.TokenLParen); isLParen {
 		// Parenthesized subquery: (SELECT ...) or nested parens for recursion testing
 		p.AdvanceToken() // consume (
@@ -401,7 +404,42 @@ func parseSelectModifiers(p *Parser) (*query.SelectModifiers, *query.Distinct, e
 }
 
 // parseSelect parses a SELECT statement
+// Reference: src/parser/mod.rs:14244
 func parseSelect(p *Parser) (ast.Statement, error) {
+	// Check for FROM-first syntax (e.g., "FROM t SELECT *" in DuckDB/ClickHouse)
+	// Reference: src/parser/mod.rs:14252-14282
+	var fromFirst []query.TableWithJoins
+	var flavor query.SelectFlavor = query.SelectFlavorStandard
+	if dialects.SupportsFromFirstSelect(p.GetDialect()) && p.PeekKeyword("FROM") {
+		// Consume FROM and parse table list
+		p.NextToken()
+		var err error
+		fromFirst, err = parseTableWithJoinsList(p)
+		if err != nil {
+			return nil, err
+		}
+
+		// If no SELECT follows, return early with empty projection
+		// This handles cases like "FROM capitals" (projection-less selects)
+		if !p.PeekKeyword("SELECT") {
+			selectStmt := SelectStatement{
+				Select: query.Select{
+					Flavor:     query.SelectFlavorFromFirstNoSelect,
+					Projection: []query.SelectItem{},
+					From:       fromFirst,
+					GroupBy: &query.GroupByExpressions{
+						Expressions: []query.Expr{},
+						Modifiers:   []query.GroupByWithModifier{},
+					},
+				},
+			}
+			return &selectStmt, nil
+		}
+
+		// FROM-first with SELECT - set flavor for proper serialization
+		flavor = query.SelectFlavorFromFirst
+	}
+
 	// Expect SELECT keyword
 	_, err := p.ExpectKeyword("SELECT")
 	if err != nil {
@@ -465,9 +503,11 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Parse FROM clause
+	// Parse FROM clause (use fromFirst if FROM-first syntax was used)
 	var from []query.TableWithJoins
-	if p.ParseKeyword("FROM") {
+	if fromFirst != nil {
+		from = fromFirst
+	} else if p.ParseKeyword("FROM") {
 		from, err = parseTableWithJoinsList(p)
 		if err != nil {
 			return nil, err
@@ -606,8 +646,30 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			return nil, err
 		}
 
-		// Check for MySQL LIMIT offset,limit syntax (LIMIT 10, 5)
-		if p.ConsumeToken(token.TokenComma{}) {
+		// Check for LIMIT ALL (equivalent to no limit)
+		if isIdentifierNamed(firstExpr, "ALL") {
+			// LIMIT ALL is equivalent to no limit - just ignore it
+			// But we still need to check for OFFSET after LIMIT ALL
+			if p.ParseKeyword("OFFSET") {
+				offsetExpr, err := ep.ParseExpr()
+				if err != nil {
+					return nil, err
+				}
+				// Consume optional ROW or ROWS keyword after offset value
+				var offsetRows query.OffsetRows = query.OffsetRowsNone
+				if p.ParseKeyword("ROW") {
+					offsetRows = query.OffsetRowsRow
+				} else if p.ParseKeyword("ROWS") {
+					offsetRows = query.OffsetRowsRows
+				}
+				// Just OFFSET without LIMIT (since LIMIT ALL is a no-op)
+				limitClause = &query.Offset{
+					Value: &queryExprWrapper{expr: offsetExpr},
+					Rows:  offsetRows,
+				}
+			}
+			// If no OFFSET after LIMIT ALL, limitClause remains nil (no limit)
+		} else if p.ConsumeToken(token.TokenComma{}) {
 			// MySQL style: LIMIT offset, limit
 			secondExpr, err := ep.ParseExpr()
 			if err != nil {
@@ -664,9 +726,18 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			if err != nil {
 				return nil, err
 			}
-			limitClause = &query.LimitOffset{
-				Limit:  &queryExprWrapper{expr: limitExpr},
-				Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}, Rows: offsetRows},
+			// Check for LIMIT ALL (equivalent to no limit)
+			if isIdentifierNamed(limitExpr, "ALL") {
+				// LIMIT ALL is a no-op, just use OFFSET
+				limitClause = &query.Offset{
+					Value: &queryExprWrapper{expr: offsetExpr},
+					Rows:  offsetRows,
+				}
+			} else {
+				limitClause = &query.LimitOffset{
+					Limit:  &queryExprWrapper{expr: limitExpr},
+					Offset: &query.Offset{Value: &queryExprWrapper{expr: offsetExpr}, Rows: offsetRows},
+				}
 			}
 		} else {
 			// Just OFFSET without LIMIT
@@ -792,7 +863,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			NamedWindow:         namedWindow,
 			Qualify:             qualify,
 			WindowBeforeQualify: windowBeforeQualify,
-			Flavor:              query.SelectFlavorStandard,
+			Flavor:              flavor,
 			Locks:               locks,
 		},
 		OrderBy:       orderBy,
@@ -813,6 +884,16 @@ func (w *queryExprWrapper) String() string {
 		return s.String()
 	}
 	return ""
+}
+
+// isIdentifierNamed checks if an expression is an Identifier with the given name
+func isIdentifierNamed(e interface{}, name string) bool {
+	if ident, ok := e.(*expr.Identifier); ok {
+		if ident.Ident != nil && strings.EqualFold(ident.Ident.Value, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseProjection parses the SELECT list
@@ -1334,6 +1415,10 @@ func parseTableWithJoinsList(p *Parser) ([]query.TableWithJoins, error) {
 					if isClauseKeyword(string(word.Word.Keyword)) {
 						break // Trailing comma before clause keyword
 					}
+				}
+				// Check for closing parenthesis (trailing comma in subquery)
+				if _, isRParen := nextTok.Token.(token.TokenRParen); isRParen {
+					break // Trailing comma before closing paren
 				}
 				if token.IsEOF(nextTok.Token) {
 					break // Trailing comma at end of statement
