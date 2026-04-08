@@ -256,10 +256,11 @@ func (d *GenericDialect) SupportsStringEscapeConstant() bool {
 	return true
 }
 
-// SupportsDollarQuotedString returns false for GenericDialect.
-// Only PostgreSQL dialect supports dollar-quoted strings.
+// SupportsDollarQuotedString returns true for GenericDialect.
+// GenericDialect is permissive and supports PostgreSQL-style dollar-quoted strings.
+// Reference: Rust src/parser/mod.rs - GenericDialect supports dollar-quoted strings
 func (d *GenericDialect) SupportsDollarQuotedString() bool {
-	return false
+	return true
 }
 
 // SupportsFilterDuringAggregation returns true for GenericDialect.

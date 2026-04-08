@@ -1378,7 +1378,7 @@ func (o *OperateFunctionArg) String() string {
 	if o.DefaultExpr != nil {
 		op := o.DefaultOp
 		if op == "" {
-			op = "DEFAULT"
+			op = "="
 		}
 		f.WriteString(" ")
 		f.WriteString(op)
@@ -1528,8 +1528,8 @@ const (
 
 // FunctionSetValue represents a function SET parameter value
 type FunctionSetValue struct {
-	Kind FunctionSetValueKind
-	Expr Expr
+	Kind  FunctionSetValueKind
+	Exprs []Expr // For multiple values like SET param = value1, value2, ...
 }
 
 // CreateFunctionBody represents function body.
@@ -1570,9 +1570,14 @@ func (f *FunctionDefinitionSetParam) String() string {
 	b.WriteString(f.Name.String())
 	if f.Value.Kind == FunctionSetValueFromCurrent {
 		b.WriteString(" FROM CURRENT")
-	} else if f.Value.Expr != nil {
+	} else if len(f.Value.Exprs) > 0 {
 		b.WriteString(" = ")
-		b.WriteString(f.Value.Expr.String())
+		for i, expr := range f.Value.Exprs {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(expr.String())
+		}
 	}
 	return b.String()
 }

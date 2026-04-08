@@ -2232,15 +2232,105 @@ func (p *Parser) ParseDataType() (datatype.DataType, error) {
 		return parseEnumType(p, tok.Span)
 	case "GEOMETRY", "POINT", "LINESTRING", "POLYGON", "GEOMCOLLECTION", "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON":
 		return parseMysqlGeometryType(p, tok.Span, typeName)
+	case "TABLE":
+		return parseTableType(p, tok.Span)
 	default:
-		// For unknown types, return a custom type
+		// For unknown types, create a custom type
+		// Check for schema-qualified name (e.g., my_schema."MyType")
+		// Also handle the first token having a QuoteStyle (e.g., "MyType" as a standalone type)
+		// Convert *byte QuoteStyle to *rune for Ident
+		firstQuoteStyle := (*rune)(nil)
+		if word.Word.QuoteStyle != nil {
+			rs := rune(*word.Word.QuoteStyle)
+			firstQuoteStyle = &rs
+		}
+		parts := []*expr.ObjectNamePart{{Ident: &expr.Ident{Value: word.Word.Value, QuoteStyle: firstQuoteStyle}}}
+	parseLoop:
+		for {
+			if p.ConsumeToken(token.TokenPeriod{}) {
+				// Next token should be an identifier or quoted identifier
+				nextTok := p.PeekToken()
+				switch t := nextTok.Token.(type) {
+				case token.TokenWord:
+					p.AdvanceToken()
+					// Check if this word has a QuoteStyle (delimited identifier like "MyType")
+					quoteStyle := (*rune)(nil)
+					if t.Word.QuoteStyle != nil {
+						rs := rune(*t.Word.QuoteStyle)
+						quoteStyle = &rs
+					}
+					parts = append(parts, &expr.ObjectNamePart{Ident: &expr.Ident{Value: t.Word.Value, QuoteStyle: quoteStyle}})
+				default:
+					// Put back the period if next token isn't an identifier
+					p.PrevToken()
+					break parseLoop
+				}
+			} else {
+				break
+			}
+		}
 		return &datatype.CustomType{
 			SpanVal: tok.Span,
 			Name: &expr.ObjectName{
-				Parts: []*expr.ObjectNamePart{{Ident: &expr.Ident{Value: word.Word.Value}}},
+				Parts: parts,
 			},
 		}, nil
 	}
+}
+
+// parseTableType parses TABLE(col1 type1, col2 type2, ...) for PostgreSQL function return types
+// Reference: src/parser/mod.rs - DataType::Table handling
+func parseTableType(p *Parser, spanVal token.Span) (*datatype.TableType, error) {
+	result := &datatype.TableType{
+		SpanVal: spanVal,
+		Columns: []*datatype.ColumnDef{},
+	}
+
+	// TABLE keyword must be followed by (col1 type1, col2 type2, ...)
+	if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+		return nil, fmt.Errorf("expected ( after TABLE in function return type: %w", err)
+	}
+
+	// Parse comma-separated column definitions
+	for {
+		// Check for empty table or end of column list
+		if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+			p.NextToken() // consume )
+			break
+		}
+
+		// Parse column name
+		colName, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, fmt.Errorf("expected column name in TABLE type: %w", err)
+		}
+
+		// Parse column data type
+		colType, err := p.ParseDataType()
+		if err != nil {
+			return nil, fmt.Errorf("expected data type for column %s: %w", colName.Value, err)
+		}
+
+		// Create column definition
+		colDef := &datatype.ColumnDef{
+			Name:     &expr.Ident{Value: colName.Value},
+			DataType: colType,
+		}
+		result.Columns = append(result.Columns, colDef)
+		result.HasFields = true
+
+		// Check for comma or closing paren
+		if p.ConsumeToken(token.TokenComma{}) {
+			continue
+		}
+
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		break
+	}
+
+	return result, nil
 }
 
 // parseVarcharType parses VARCHAR [(n)]

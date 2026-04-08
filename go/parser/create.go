@@ -3038,13 +3038,20 @@ func parseCreateFunction(p *Parser, orReplace, temporary bool) (ast.Statement, e
 				if p.PeekKeyword("TO") {
 					p.NextToken()
 				}
-				// For simplicity, parse a single expression value
+				// Parse comma-separated expression values
 				exprParser := NewExpressionParser(p)
-				value, err := exprParser.ParseExpr()
-				if err != nil {
-					return nil, err
+				var values []expr.Expr
+				for {
+					value, err := exprParser.ParseExpr()
+					if err != nil {
+						return nil, err
+					}
+					values = append(values, value)
+					if !p.ConsumeToken(token.TokenComma{}) {
+						break
+					}
 				}
-				paramValue = expr.FunctionSetValue{Kind: expr.FunctionSetValueExpr, Expr: value}
+				paramValue = expr.FunctionSetValue{Kind: expr.FunctionSetValueExpr, Exprs: values}
 			}
 			setParams = append(setParams, &expr.FunctionDefinitionSetParam{
 				Name:  paramName,
@@ -3124,7 +3131,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 		var defaultOp string
 		if p.PeekKeyword("DEFAULT") {
 			p.NextToken()
-			defaultOp = "DEFAULT"
+			defaultOp = "=" // Normalize DEFAULT to = for canonical form
 			exprParser := NewExpressionParser(p)
 			defaultExpr, err = exprParser.ParseExpr()
 			if err != nil {
@@ -3188,7 +3195,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 				var defaultOp string
 				if p.PeekKeyword("DEFAULT") {
 					p.NextToken()
-					defaultOp = "DEFAULT"
+					defaultOp = "=" // Normalize DEFAULT to = for canonical form
 					exprParser := NewExpressionParser(p)
 					defaultExpr, err = exprParser.ParseExpr()
 					if err != nil {
@@ -3219,7 +3226,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 			var defaultOp string
 			if p.PeekKeyword("DEFAULT") {
 				p.NextToken()
-				defaultOp = "DEFAULT"
+				defaultOp = "=" // Normalize DEFAULT to = for canonical form
 				exprParser := NewExpressionParser(p)
 				defaultExpr, err = exprParser.ParseExpr()
 				if err != nil {
@@ -3250,7 +3257,7 @@ func parseFunctionArg(p *Parser) (*expr.OperateFunctionArg, error) {
 	var defaultOp string
 	if p.PeekKeyword("DEFAULT") {
 		p.NextToken()
-		defaultOp = "DEFAULT"
+		defaultOp = "=" // Normalize DEFAULT to = for canonical form
 		exprParser := NewExpressionParser(p)
 		defaultExpr, err = exprParser.ParseExpr()
 		if err != nil {
