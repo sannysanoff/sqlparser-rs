@@ -250,9 +250,11 @@ func parseCreateTable(p *Parser, orReplace, temporary bool, global *bool, transi
 		if word, ok := tok.Token.(token.TokenWord); ok {
 			onCluster = &ast.Ident{Value: word.Word.Value}
 		} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
-			onCluster = &ast.Ident{Value: str.Value}
+			quote := rune('\'')
+			onCluster = &ast.Ident{Value: str.Value, QuoteStyle: &quote}
 		} else if str, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
-			onCluster = &ast.Ident{Value: str.Value}
+			quote := rune('"')
+			onCluster = &ast.Ident{Value: str.Value, QuoteStyle: &quote}
 		} else {
 			return nil, p.Expected("identifier or string", tok)
 		}
@@ -1490,6 +1492,7 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 
 	// Check for IF NOT EXISTS (before name)
 	ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+	nameBeforeNotExists := false
 
 	// Parse view name
 	name, err := p.ParseObjectName()
@@ -1497,9 +1500,13 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 		return nil, err
 	}
 
-	// Check for IF NOT EXISTS after name (Snowflake style)
+	// Check for IF NOT EXISTS after name (Snowflake/SQLite style: CREATE VIEW v IF NOT EXISTS)
 	if !ifNotExists {
 		ifNotExists = p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})
+		if ifNotExists {
+			// IF NOT EXISTS was found AFTER the name
+			nameBeforeNotExists = true
+		}
 	}
 
 	// Parse COPY GRANTS (Snowflake)
@@ -1623,6 +1630,7 @@ func parseCreateView(p *Parser, orReplace, temporary bool, secure bool, material
 		Materialized:        isMaterialized,
 		Secure:              secure,
 		IfNotExists:         ifNotExists,
+		NameBeforeNotExists: nameBeforeNotExists,
 		Name:                name,
 		Columns:             columns,
 		Query:               q,

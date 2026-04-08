@@ -103,6 +103,22 @@ func parseAlterTable(p *Parser, tableType expr.AlterTableType) (ast.Statement, e
 	}
 	alterTable.Name = tableName
 
+	// Parse optional ON CLUSTER (ClickHouse)
+	if p.ParseKeywords([]string{"ON", "CLUSTER"}) {
+		tok := p.NextToken()
+		if word, ok := tok.Token.(token.TokenWord); ok {
+			alterTable.OnCluster = &ast.Ident{Value: word.Word.Value}
+		} else if str, ok := tok.Token.(token.TokenSingleQuotedString); ok {
+			quote := rune('\'')
+			alterTable.OnCluster = &ast.Ident{Value: str.Value, QuoteStyle: &quote}
+		} else if str, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
+			quote := rune('"')
+			alterTable.OnCluster = &ast.Ident{Value: str.Value, QuoteStyle: &quote}
+		} else {
+			return nil, p.Expected("identifier or string after ON CLUSTER", tok)
+		}
+	}
+
 	// Parse operations (MySQL supports multiple operations separated by commas)
 	for {
 		op, err := parseAlterTableOperation(p)

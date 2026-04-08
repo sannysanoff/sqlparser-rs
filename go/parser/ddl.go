@@ -23,6 +23,7 @@ package parser
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/user/sqlparser/ast"
@@ -955,8 +956,8 @@ func parseSetType(p *Parser, span token.Span) (*datatype.SetType, error) {
 	}, nil
 }
 
-// parseEnumType parses MySQL ENUM('a', 'b', ...) data type
-func parseEnumType(p *Parser, span token.Span) (*datatype.EnumType, error) {
+// parseEnumType parses MySQL/ClickHouse ENUM('a', 'b', ...) or ENUM8/ENUM16('a' = 1, 'b' = 2, ...) data type
+func parseEnumType(p *Parser, span token.Span, bits *uint8) (*datatype.EnumType, error) {
 	if !p.ConsumeToken(token.TokenLParen{}) {
 		return nil, p.expected("(", p.PeekToken())
 	}
@@ -966,9 +967,20 @@ func parseEnumType(p *Parser, span token.Span) (*datatype.EnumType, error) {
 		tok := p.PeekToken()
 		if strTok, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 			p.AdvanceToken()
-			members = append(members, datatype.EnumMember{
+			member := datatype.EnumMember{
 				Name: strTok.Value,
-			})
+			}
+
+			// Check for optional value assignment like 'a' = 1 (ClickHouse style)
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.PeekToken()
+				if numTok, ok := valTok.Token.(token.TokenNumber); ok {
+					p.AdvanceToken()
+					member.Value = &expr.ValueExpr{Value: numTok.Value}
+				}
+			}
+
+			members = append(members, member)
 		} else {
 			return nil, p.expected("string literal", tok)
 		}
@@ -985,5 +997,74 @@ func parseEnumType(p *Parser, span token.Span) (*datatype.EnumType, error) {
 	return &datatype.EnumType{
 		SpanVal: span,
 		Members: members,
+		Bits:    bits,
 	}, nil
+}
+
+// parseBitType parses BIT[(n)] [VARYING] data type (PostgreSQL, etc.)
+// If VARYING is present, returns a BitVaryingType instead
+func parseBitType(p *Parser, span token.Span) (datatype.DataType, error) {
+	// Check for optional length after BIT like BIT(42)
+	var length *uint64
+	if p.ConsumeToken(token.TokenLParen{}) {
+		tok := p.PeekToken()
+		if numTok, ok := tok.Token.(token.TokenNumber); ok {
+			p.AdvanceToken()
+			if val, err := strconv.ParseUint(numTok.Value, 10, 64); err == nil {
+				length = &val
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Check for VARYING keyword after BIT[ (n) ]
+	if p.ParseKeyword("VARYING") {
+		// Parse optional length after VARYING like BIT VARYING(43)
+		if p.ConsumeToken(token.TokenLParen{}) {
+			tok := p.PeekToken()
+			if numTok, ok := tok.Token.(token.TokenNumber); ok {
+				p.AdvanceToken()
+				if val, err := strconv.ParseUint(numTok.Value, 10, 64); err == nil {
+					length = &val
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+		// Return BIT VARYING type
+		return &datatype.BitVaryingType{
+			SpanVal: span,
+			Length:  length,
+		}, nil
+	}
+
+	// Return regular BIT type
+	return &datatype.BitType{
+		SpanVal: span,
+		Length:  length,
+	}, nil
+}
+
+// parseBitVaryingType parses VARBIT[(n)] data type (PostgreSQL alias for BIT VARYING)
+func parseBitVaryingType(p *Parser, span token.Span) (*datatype.BitVaryingType, error) {
+	result := &datatype.BitVaryingType{SpanVal: span}
+
+	// Parse optional length like VARBIT(43)
+	if p.ConsumeToken(token.TokenLParen{}) {
+		tok := p.PeekToken()
+		if numTok, ok := tok.Token.(token.TokenNumber); ok {
+			p.AdvanceToken()
+			if val, err := strconv.ParseUint(numTok.Value, 10, 64); err == nil {
+				result.Length = &val
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
 }

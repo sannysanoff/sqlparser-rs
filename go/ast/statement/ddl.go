@@ -139,6 +139,12 @@ func (c *CreateTable) String() string {
 	}
 	f.WriteString(c.Name.String())
 
+	// ClickHouse ON CLUSTER clause
+	if c.OnCluster != nil {
+		f.WriteString(" ON CLUSTER ")
+		f.WriteString(c.OnCluster.String())
+	}
+
 	// LIKE clause (Snowflake/BigQuery style: CREATE TABLE new LIKE old)
 	if c.Like != nil {
 		f.WriteString(" ")
@@ -409,6 +415,7 @@ type CreateView struct {
 	Materialized        bool
 	Secure              bool
 	IfNotExists         bool
+	NameBeforeNotExists bool // True when name comes before IF NOT EXISTS (e.g., CREATE VIEW v IF NOT EXISTS...)
 	Temporary           bool
 	Name                *ast.ObjectName
 	Columns             []*expr.ViewColumnDef // View columns with optional options (TAG, POLICY, etc.)
@@ -453,9 +460,18 @@ func (c *CreateView) String() string {
 
 	f.WriteString("VIEW ")
 	if c.IfNotExists {
-		f.WriteString("IF NOT EXISTS ")
+		if c.NameBeforeNotExists {
+			// Name comes before IF NOT EXISTS: CREATE VIEW v IF NOT EXISTS ...
+			f.WriteString(c.Name.String())
+			f.WriteString(" IF NOT EXISTS")
+		} else {
+			// IF NOT EXISTS comes before name: CREATE VIEW IF NOT EXISTS v ...
+			f.WriteString("IF NOT EXISTS ")
+			f.WriteString(c.Name.String())
+		}
+	} else {
+		f.WriteString(c.Name.String())
 	}
-	f.WriteString(c.Name.String())
 
 	if c.CopyGrants {
 		f.WriteString(" COPY GRANTS")
@@ -772,6 +788,7 @@ type AlterTable struct {
 	Name       *ast.ObjectName
 	IfExists   bool
 	Only       bool
+	OnCluster  *ast.Ident // ClickHouse: ON CLUSTER cluster_name
 	Operations []*expr.AlterTableOperation
 	Location   *expr.HiveSetLocation
 	TableType  expr.AlterTableType // Iceberg, Dynamic, External, or None (regular)
@@ -797,6 +814,10 @@ func (a *AlterTable) String() string {
 		f.WriteString("ONLY ")
 	}
 	f.WriteString(a.Name.String())
+	if a.OnCluster != nil {
+		f.WriteString(" ON CLUSTER ")
+		f.WriteString(a.OnCluster.String())
+	}
 
 	for i, op := range a.Operations {
 		if i > 0 {

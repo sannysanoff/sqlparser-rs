@@ -2312,7 +2312,18 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 	case "SET":
 		return parseSetType(p, tok.Span)
 	case "ENUM":
-		return parseEnumType(p, tok.Span)
+		return parseEnumType(p, tok.Span, nil)
+	case "ENUM8":
+		bits := uint8(8)
+		return parseEnumType(p, tok.Span, &bits)
+	case "ENUM16":
+		bits := uint8(16)
+		return parseEnumType(p, tok.Span, &bits)
+	case "BIT":
+		return parseBitType(p, tok.Span)
+	case "VARBIT":
+		// VARBIT is an alias for BIT VARYING in PostgreSQL
+		return parseBitVaryingType(p, tok.Span)
 	case "GEOMETRY", "POINT", "LINESTRING", "POLYGON", "GEOMCOLLECTION", "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON":
 		return parseMysqlGeometryType(p, tok.Span, typeName)
 	case "TABLE":

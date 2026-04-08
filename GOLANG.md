@@ -1,6 +1,60 @@
 ---
 
-## Latest Update: April 8, 2026 - Session 52 (Massive Code Port: CREATE TABLE Options, EXTERNAL, WITH, CLONE)
+## Latest Update: April 8, 2026 - Session 53 (Massive Code Port: BIT/ENUM Types, CREATE VIEW IF NOT EXISTS, ON CLUSTER)
+
+**Line Counts (Updated April 8, 2026 - Session 53):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 87,193 lines | 129% |
+| Tests | 49,886 lines | 14,259 lines | 29% |
+| **Test Status** | - | **~655 tests passing** / **~155 tests failing** (~81%) |
+| **Total Test Cases** | - | ~810 test functions |
+
+### Session 53 Summary: Massive Code Port - Data Types, CREATE VIEW, and ClickHouse ON CLUSTER
+
+**Fixed 5 Key Parser Issues:**
+
+1. **BIT and BIT VARYING Data Types** (TestParseCreateTableWithBitTypes now passing)
+   - **Implementation**: Added `parseBitType()` function to handle BIT[(n)] [VARYING] syntax
+   - **Fix**: Parse optional length in parentheses, then check for VARYING keyword
+   - **Files Modified**: `parser/ddl.go`
+   - **Pattern**: Parse length first, then check for VARYING keyword and parse additional length if present
+
+2. **ENUM8 and ENUM16 Data Types** (TestParseCreateTableWithEnumTypes now passing)
+   - **Implementation**: Extended `parseEnumType()` to accept optional size parameter (8 or 16)
+   - **Fix**: Added support for ClickHouse-style ENUM8/ENUM16 with values like 'a' = 1
+   - **Files Modified**: `parser/ddl.go`, `parser/parser.go`
+   - **Pattern**: Parse ENUM8/ENUM16 keywords, then handle value assignments in members
+
+3. **CREATE VIEW IF NOT EXISTS Order** (TestParseCreateViewIfNotExists now passing)
+   - **Implementation**: Added `NameBeforeNotExists` field to `CreateView` struct
+   - **Fix**: Track whether IF NOT EXISTS comes before or after the view name for proper serialization
+   - **Files Modified**: `parser/create.go`, `ast/statement/ddl.go`
+   - **Pattern**: Track position of IF NOT EXISTS clause relative to name for faithful round-trip serialization
+
+4. **ALTER TABLE ON CLUSTER** (TestAlterTableWithOnCluster now passing)
+   - **Implementation**: Added `OnCluster` field to `AlterTable` struct and parser support
+   - **Fix**: Parse ON CLUSTER clause after table name in ALTER TABLE statements
+   - **Files Modified**: `parser/alter.go`, `ast/statement/ddl.go`
+   - **Pattern**: Parse ON CLUSTER after table name, preserve quote style for string literals
+
+5. **CREATE TABLE ON CLUSTER Serialization** (TestParseCreateTableOnCluster now passing)
+   - **Implementation**: Added ON CLUSTER serialization to `CreateTable.String()` method
+   - **Fix**: Quote style preservation for cluster names in CREATE TABLE
+   - **Files Modified**: `parser/create.go`, `ast/statement/ddl.go`
+   - **Pattern**: Serialize ON CLUSTER clause after table name, before column definitions
+
+**New Patterns Documented:**
+- **Pattern E194**: BIT VARYING parsing - Parse BIT keyword, check for optional (n), then check for VARYING keyword with its own optional (n)
+- **Pattern E195**: ENUM with values - Parse string literal, then check for = token followed by number for ClickHouse-style ENUM values
+- **Pattern E196**: CREATE VIEW IF NOT EXISTS position tracking - Use boolean flag to track whether name comes before or after IF NOT EXISTS for correct serialization order
+- **Pattern E197**: ON CLUSTER parsing - Parse ON CLUSTER after table name, handle both identifier and string literal cluster names
+- **Pattern E198**: Quote style preservation for cluster names - When parsing string literals as identifiers, preserve quote style (single/double quotes) for proper round-trip serialization
+
+---
+
+## Previous Update: April 8, 2026 - Session 52 (Massive Code Port: CREATE TABLE Options, EXTERNAL, WITH, CLONE)
 
 **Line Counts (Updated April 8, 2026 - Session 52):**
 
