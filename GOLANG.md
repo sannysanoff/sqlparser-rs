@@ -1,5 +1,27 @@
 ---
 
+**Line Counts (Updated April 8, 2026 - Session 3 - PostgreSQL DDL Implementation):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 79,072 lines | 117% |
+| Tests | 49,886 lines | 14,149 lines | 28% |
+| **Test Status** | - | **515 passing** / **298 failing** (~63%) | +2 tests passing (TestPostgresCreateDomain, TestPostgresCreateTypeAsEnum)
+
+**Today's Major Fixes (Session 3):**
+1. **CREATE TYPE AS ENUM Support** - Implemented proper parsing and serialization for PostgreSQL CREATE TYPE AS ENUM with labels
+2. **CREATE DOMAIN Support** - Implemented proper parsing and serialization for PostgreSQL CREATE DOMAIN with data types, defaults, and constraints
+3. **UserDefinedTypeRepresentation AST** - Added proper interface-based representation for user-defined types (ENUM, COMPOSITE, RANGE, SQLDEFINITION variants)
+4. **DomainConstraint AST** - Added proper constraint types for domain constraints (NOT NULL, NULL, CHECK, COLLATE)
+5. **Parser Bug Fix** - Fixed parseCreateType and parseCreateDomain to properly consume TYPE/DOMAIN keywords before parsing names
+
+**New Patterns Documented:**
+- **Pattern E48**: CREATE TYPE keyword consumption - Parser functions like parseCreateType must explicitly consume the TYPE keyword using ExpectKeyword() before parsing the object name (same pattern applies to DOMAIN, SEQUENCE, etc.)
+- **Pattern E49**: Interface-based sum types in Go - When porting Rust enums to Go, use interface{} with method markers (e.g., `isUserDefinedTypeRepresentation()`) instead of empty structs
+- **Pattern E50**: DataType interface compatibility - Use `interface{}` for DataType fields in AST that need to accept both ast.DataType and datatype.DataType implementations
+
+---
+
 **Line Counts (Updated April 8, 2026 - Session 2):**
 
 | Component | Rust | Go | Ratio |

@@ -2119,6 +2119,11 @@ func parseCreateSequenceOptions(p *Parser) ([]*expr.SequenceOptions, error) {
 }
 
 func parseCreateType(p *Parser) (ast.Statement, error) {
+	// Consume TYPE keyword (already checked by caller)
+	if _, err := p.ExpectKeyword("TYPE"); err != nil {
+		return nil, err
+	}
+
 	// Parse type name
 	name, err := p.ParseObjectName()
 	if err != nil {
@@ -2129,6 +2134,41 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 	hasAs := p.ParseKeyword("AS")
 
 	if !hasAs {
+		// Check for CREATE TYPE name (options) - SQL definition without AS
+		if p.ConsumeToken(token.TokenLParen{}) {
+			// Parse SQL definition options
+			var options []string
+			for {
+				if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+					break
+				}
+				// Parse option as identifier = value
+				optTok := p.PeekToken()
+				p.AdvanceToken()
+				optStr := optTok.Token.String()
+				if p.ConsumeToken(token.TokenEq{}) {
+					valTok := p.PeekToken()
+					p.AdvanceToken()
+					optStr = optStr + " = " + valTok.Token.String()
+				}
+				options = append(options, optStr)
+				if !p.ConsumeToken(token.TokenComma{}) {
+					break
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+			repr := expr.UserDefinedTypeSqlDefinition{
+				Options: options,
+			}
+			var r expr.UserDefinedTypeRepresentation = &repr
+			return &statement.CreateType{
+				Name:           name,
+				Representation: &r,
+			}, nil
+		}
+
 		// Simple CREATE TYPE name;
 		return &statement.CreateType{
 			Name: name,
@@ -2141,13 +2181,17 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 		if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 			return nil, err
 		}
-		// Parse enum labels (comma-separated identifiers or string literals)
+		// Parse enum labels (comma-separated identifiers)
+		var labels []*ast.Ident
 		for {
 			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
 				break
 			}
-			// Just consume the token (identifier or string)
-			p.AdvanceToken()
+			label, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			labels = append(labels, label)
 			if !p.ConsumeToken(token.TokenComma{}) {
 				break
 			}
@@ -2155,8 +2199,13 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
+		enumRepr := &expr.UserDefinedTypeEnum{
+			Labels: labels,
+		}
+		var r expr.UserDefinedTypeRepresentation = enumRepr
 		return &statement.CreateType{
-			Name: name,
+			Name:           name,
+			Representation: &r,
 		}, nil
 	}
 
@@ -2166,41 +2215,20 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 			return nil, err
 		}
 		// Parse range options - simplified
+		var options []string
 		for {
 			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
 				break
 			}
+			optTok := p.PeekToken()
 			p.AdvanceToken()
-		}
-		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
-		return &statement.CreateType{
-			Name: name,
-		}, nil
-	}
-
-	// Try composite type: CREATE TYPE name AS (attr1 type1, attr2 type2, ...)
-	if p.ConsumeToken(token.TokenLParen{}) {
-		// Parse composite attributes
-		for {
-			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
-				break
+			optStr := optTok.Token.String()
+			if p.ConsumeToken(token.TokenEq{}) {
+				valTok := p.PeekToken()
+				p.AdvanceToken()
+				optStr = optStr + " = " + valTok.Token.String()
 			}
-			// Parse attribute name
-			_, err := p.ParseIdentifier()
-			if err != nil {
-				return nil, err
-			}
-			// Parse data type
-			_, err = p.ParseDataType()
-			if err != nil {
-				return nil, err
-			}
-			// Optional COLLATE
-			if p.ParseKeyword("COLLATE") {
-				_, _ = p.ParseObjectName()
-			}
+			options = append(options, optStr)
 			if !p.ConsumeToken(token.TokenComma{}) {
 				break
 			}
@@ -2208,8 +2236,58 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 			return nil, err
 		}
+		rangeRepr := &expr.UserDefinedTypeRange{
+			Options: options,
+		}
+		var r expr.UserDefinedTypeRepresentation = rangeRepr
 		return &statement.CreateType{
-			Name: name,
+			Name:           name,
+			Representation: &r,
+		}, nil
+	}
+
+	// Try composite type: CREATE TYPE name AS (attr1 type1, attr2 type2, ...)
+	if p.ConsumeToken(token.TokenLParen{}) {
+		// Parse composite attributes
+		var attributes []*expr.UserDefinedTypeCompositeAttributeDef
+		for {
+			if _, isRParen := p.PeekToken().Token.(token.TokenRParen); isRParen {
+				break
+			}
+			// Parse attribute name
+			attrName, err := p.ParseIdentifier()
+			if err != nil {
+				return nil, err
+			}
+			// Parse data type
+			attrDataType, err := p.ParseDataType()
+			if err != nil {
+				return nil, err
+			}
+			var attrCollation *ast.ObjectName
+			// Optional COLLATE
+			if p.ParseKeyword("COLLATE") {
+				attrCollation, _ = p.ParseObjectName()
+			}
+			attributes = append(attributes, &expr.UserDefinedTypeCompositeAttributeDef{
+				Name:      attrName,
+				DataType:  attrDataType,
+				Collation: attrCollation,
+			})
+			if !p.ConsumeToken(token.TokenComma{}) {
+				break
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		compositeRepr := &expr.UserDefinedTypeComposite{
+			Attributes: attributes,
+		}
+		var r expr.UserDefinedTypeRepresentation = compositeRepr
+		return &statement.CreateType{
+			Name:           name,
+			Representation: &r,
 		}, nil
 	}
 
@@ -2217,6 +2295,11 @@ func parseCreateType(p *Parser) (ast.Statement, error) {
 }
 
 func parseCreateDomain(p *Parser) (ast.Statement, error) {
+	// Consume DOMAIN keyword (already checked by caller)
+	if _, err := p.ExpectKeyword("DOMAIN"); err != nil {
+		return nil, err
+	}
+
 	// Parse domain name
 	name, err := p.ParseObjectName()
 	if err != nil {
@@ -2229,7 +2312,7 @@ func parseCreateDomain(p *Parser) (ast.Statement, error) {
 	}
 
 	// Parse data type
-	_, err = p.ParseDataType()
+	dataType, err := p.ParseDataType()
 	if err != nil {
 		return nil, err
 	}
@@ -2246,35 +2329,69 @@ func parseCreateDomain(p *Parser) (ast.Statement, error) {
 		defaultValue, _ = NewExpressionParser(p).ParseExpr()
 	}
 
-	// Parse optional constraints - simplified
+	// Parse optional constraints
 	var constraints []*expr.DomainConstraint
 	for {
-		tok := p.PeekToken()
 		// Check for EOF or end of statement
+		tok := p.PeekToken()
 		if _, isEOF := tok.Token.(token.EOF); isEOF {
 			break
 		}
-		// Check for semicolon using keyword-like check
+		// Check for semicolon
 		if word, ok := tok.Token.(token.TokenWord); ok && word.Value == ";" {
 			break
 		}
-		// Try to parse a constraint
-		// For now, we just skip unknown tokens
-		if p.PeekKeyword("CONSTRAINT") || p.PeekKeyword("NOT") || p.PeekKeyword("NULL") ||
-			p.PeekKeyword("UNIQUE") || p.PeekKeyword("PRIMARY") || p.PeekKeyword("CHECK") ||
-			p.PeekKeyword("REFERENCES") {
-			p.AdvanceToken()
+
+		// Parse constraint name if present
+		var constraintName *ast.Ident
+		if p.PeekKeyword("CONSTRAINT") {
+			p.AdvanceToken() // consume CONSTRAINT
+			constraintName, _ = p.ParseIdentifier()
+		}
+
+		// Check for constraint types
+		if p.PeekKeyword("NOT") {
+			p.AdvanceToken() // consume NOT
+			if p.PeekKeyword("NULL") {
+				p.AdvanceToken() // consume NULL
+				constraints = append(constraints, &expr.DomainConstraint{
+					Name: constraintName,
+					Type: expr.DomainConstraintNotNull,
+				})
+				continue
+			}
+		} else if p.PeekKeyword("NULL") {
+			p.AdvanceToken() // consume NULL
+			constraints = append(constraints, &expr.DomainConstraint{
+				Name: constraintName,
+				Type: expr.DomainConstraintNull,
+			})
+			continue
+		} else if p.PeekKeyword("CHECK") {
+			p.AdvanceToken() // consume CHECK
+			// Parse CHECK expression
+			if p.ConsumeToken(token.TokenLParen{}) {
+				checkExpr, _ := NewExpressionParser(p).ParseExpr()
+				p.ConsumeToken(token.TokenRParen{})
+				constraints = append(constraints, &expr.DomainConstraint{
+					Name:      constraintName,
+					Type:      expr.DomainConstraintCheck,
+					CheckExpr: checkExpr,
+				})
+			}
+			continue
 		} else {
+			// If we consumed a constraint name but no constraint, put it back
+			if constraintName != nil {
+				// Can't put back, so just continue
+			}
 			break
 		}
 	}
 
-	// Note: CreateDomain.DataType is *ast.DataType, but ParseDataType returns datatype.DataType
-	// These are incompatible interfaces. For now, we leave DataType as nil.
-	// TODO: Fix the AST type definition to use interface{} like ColumnDef does
 	return &statement.CreateDomain{
 		Name:         name,
-		DataType:     nil,
+		DataType:     dataType,
 		Collation:    collation,
 		DefaultValue: defaultValue,
 		Constraints:  constraints,

@@ -1106,7 +1106,7 @@ func (c *CreateSequence) String() string {
 type CreateDomain struct {
 	BaseStatement
 	Name         *ast.ObjectName
-	DataType     *ast.DataType
+	DataType     interface{} // datatype.DataType
 	Collation    *ast.ObjectName
 	DefaultValue expr.Expr
 	Constraints  []*expr.DomainConstraint
@@ -1119,8 +1119,22 @@ func (c *CreateDomain) String() string {
 	f.WriteString("CREATE DOMAIN ")
 	f.WriteString(c.Name.String())
 	f.WriteString(" AS ")
-	if c.DataType != nil && *c.DataType != nil {
-		f.WriteString((*c.DataType).String())
+	if c.DataType != nil {
+		if dt, ok := c.DataType.(fmt.Stringer); ok {
+			f.WriteString(dt.String())
+		}
+	}
+	if c.Collation != nil {
+		f.WriteString(" COLLATE ")
+		f.WriteString(c.Collation.String())
+	}
+	if c.DefaultValue != nil {
+		f.WriteString(" DEFAULT ")
+		f.WriteString(c.DefaultValue.String())
+	}
+	for _, constraint := range c.Constraints {
+		f.WriteString(" ")
+		f.WriteString(constraint.String())
 	}
 	return f.String()
 }
@@ -1142,6 +1156,10 @@ func (c *CreateType) String() string {
 	var f strings.Builder
 	f.WriteString("CREATE TYPE ")
 	f.WriteString(c.Name.String())
+	if c.Representation != nil {
+		f.WriteString(" ")
+		f.WriteString((*c.Representation).String())
+	}
 	return f.String()
 }
 

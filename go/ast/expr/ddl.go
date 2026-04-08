@@ -2066,19 +2066,181 @@ func (s *SequenceOptions) String() string {
 	return ""
 }
 
-// DomainConstraint represents domain constraint.
-type DomainConstraint struct{}
+// DomainConstraint represents a domain constraint (NOT NULL, CHECK, etc.)
+type DomainConstraint struct {
+	SpanVal   token.Span
+	Name      *ast.Ident // Optional constraint name
+	Type      DomainConstraintType
+	CheckExpr Expr            // For CHECK constraints
+	NullFlag  bool            // For NOT NULL (true = NOT NULL, false = NULL)
+	Collation *ast.ObjectName // For COLLATE
+}
+
+// DomainConstraintType represents the type of domain constraint
+type DomainConstraintType int
+
+const (
+	DomainConstraintNone DomainConstraintType = iota
+	DomainConstraintNotNull
+	DomainConstraintNull
+	DomainConstraintCheck
+	DomainConstraintCollation
+)
 
 func (d *DomainConstraint) exprNode()        {}
-func (d *DomainConstraint) Span() token.Span { return token.Span{} }
-func (d *DomainConstraint) String() string   { return "" }
+func (d *DomainConstraint) Span() token.Span { return d.SpanVal }
+func (d *DomainConstraint) String() string {
+	var sb strings.Builder
+	if d.Name != nil {
+		sb.WriteString("CONSTRAINT ")
+		sb.WriteString(d.Name.String())
+		sb.WriteString(" ")
+	}
+	switch d.Type {
+	case DomainConstraintNotNull:
+		sb.WriteString("NOT NULL")
+	case DomainConstraintNull:
+		sb.WriteString("NULL")
+	case DomainConstraintCheck:
+		sb.WriteString("CHECK (")
+		if d.CheckExpr != nil {
+			sb.WriteString(d.CheckExpr.String())
+		}
+		sb.WriteString(")")
+	case DomainConstraintCollation:
+		sb.WriteString("COLLATE ")
+		if d.Collation != nil {
+			sb.WriteString(d.Collation.String())
+		}
+	}
+	return sb.String()
+}
 
-// UserDefinedTypeRepresentation represents user-defined type representation.
-type UserDefinedTypeRepresentation struct{}
+// ============================================================================
+// User-Defined Type Representation
+// ============================================================================
 
-func (u *UserDefinedTypeRepresentation) exprNode()        {}
-func (u *UserDefinedTypeRepresentation) Span() token.Span { return token.Span{} }
-func (u *UserDefinedTypeRepresentation) String() string   { return "" }
+// UserDefinedTypeRepresentation is an interface for different type representations
+type UserDefinedTypeRepresentation interface {
+	Expr
+	isUserDefinedTypeRepresentation()
+}
+
+// UserDefinedTypeEnum represents CREATE TYPE ... AS ENUM (...)
+type UserDefinedTypeEnum struct {
+	SpanVal token.Span
+	Labels  []*ast.Ident
+}
+
+func (u *UserDefinedTypeEnum) exprNode()                        {}
+func (u *UserDefinedTypeEnum) Span() token.Span                 { return u.SpanVal }
+func (u *UserDefinedTypeEnum) isUserDefinedTypeRepresentation() {}
+func (u *UserDefinedTypeEnum) String() string {
+	var sb strings.Builder
+	sb.WriteString("AS ENUM (")
+	for i, label := range u.Labels {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(label.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// UserDefinedTypeCompositeAttributeDef represents an attribute in a composite type
+type UserDefinedTypeCompositeAttributeDef struct {
+	SpanVal   token.Span
+	Name      *ast.Ident
+	DataType  interface{} // datatype.DataType
+	Collation *ast.ObjectName
+}
+
+func (u *UserDefinedTypeCompositeAttributeDef) exprNode()        {}
+func (u *UserDefinedTypeCompositeAttributeDef) Span() token.Span { return u.SpanVal }
+func (u *UserDefinedTypeCompositeAttributeDef) String() string {
+	var sb strings.Builder
+	sb.WriteString(u.Name.String())
+	sb.WriteString(" ")
+	if u.DataType != nil {
+		if dt, ok := u.DataType.(fmt.Stringer); ok {
+			sb.WriteString(dt.String())
+		}
+	}
+	if u.Collation != nil {
+		sb.WriteString(" COLLATE ")
+		sb.WriteString(u.Collation.String())
+	}
+	return sb.String()
+}
+
+// UserDefinedTypeComposite represents CREATE TYPE ... AS (...)
+type UserDefinedTypeComposite struct {
+	SpanVal    token.Span
+	Attributes []*UserDefinedTypeCompositeAttributeDef
+}
+
+func (u *UserDefinedTypeComposite) exprNode()                        {}
+func (u *UserDefinedTypeComposite) Span() token.Span                 { return u.SpanVal }
+func (u *UserDefinedTypeComposite) isUserDefinedTypeRepresentation() {}
+func (u *UserDefinedTypeComposite) String() string {
+	var sb strings.Builder
+	sb.WriteString("AS (")
+	for i, attr := range u.Attributes {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(attr.String())
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// UserDefinedTypeRange represents CREATE TYPE ... AS RANGE (...)
+type UserDefinedTypeRange struct {
+	SpanVal token.Span
+	// Simplified - just store as string for now
+	Options []string
+}
+
+func (u *UserDefinedTypeRange) exprNode()                        {}
+func (u *UserDefinedTypeRange) Span() token.Span                 { return u.SpanVal }
+func (u *UserDefinedTypeRange) isUserDefinedTypeRepresentation() {}
+func (u *UserDefinedTypeRange) String() string {
+	var sb strings.Builder
+	sb.WriteString("AS RANGE (")
+	for i, opt := range u.Options {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(opt)
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+// UserDefinedTypeSqlDefinition represents CREATE TYPE ... (...)
+type UserDefinedTypeSqlDefinition struct {
+	SpanVal token.Span
+	// Simplified - just store as string for now
+	Options []string
+}
+
+func (u *UserDefinedTypeSqlDefinition) exprNode()                        {}
+func (u *UserDefinedTypeSqlDefinition) Span() token.Span                 { return u.SpanVal }
+func (u *UserDefinedTypeSqlDefinition) isUserDefinedTypeRepresentation() {}
+func (u *UserDefinedTypeSqlDefinition) String() string {
+	var sb strings.Builder
+	sb.WriteString("(")
+	for i, opt := range u.Options {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(opt)
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
 
 // TriggerPeriod represents the trigger timing (BEFORE, AFTER, INSTEAD OF, FOR).
 type TriggerPeriod int
