@@ -1005,7 +1005,11 @@ func (ep *ExpressionParser) parseMapLiteral() (expr.Expr, error) {
 		if isRBrace {
 			break
 		}
-		key, err := ep.ParseExpr()
+		// Use a precedence higher than PrecedenceColon to prevent the colon from being
+		// parsed as an infix operator (for semi-structured data access like a:b).
+		// The colon in MAP literals is a key-value separator, not an operator.
+		colonPrec := ep.parser.GetDialect().PrecValue(parseriface.PrecedenceColon)
+		key, err := ep.ParseExprWithPrecedence(colonPrec + 1)
 		if err != nil {
 			return nil, err
 		}

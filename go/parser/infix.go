@@ -688,8 +688,29 @@ func (ep *ExpressionParser) tryParseIsNormalized(left expr.Expr) (expr.Expr, err
 	return nil, nil
 }
 
-// parseInExpr parses IN (expr1, expr2, ...) or IN (subquery)
+// parseInExpr parses IN (expr1, expr2, ...) or IN (subquery) or IN UNNEST(...)
 func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr, error) {
+	// Check for UNNEST first (BigQuery syntax: IN UNNEST(array) - no parentheses after IN)
+	// Reference: src/parser/mod.rs:4262
+	if ep.parser.ParseKeyword("UNNEST") {
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+		arrayExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+		return &expr.InUnnest{
+			Expr:      left,
+			ArrayExpr: arrayExpr,
+			Negated:   negated,
+			SpanVal:   mergeSpans(left.Span(), arrayExpr.Span()),
+		}, nil
+	}
+
 	if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
 		return nil, err
 	}
@@ -708,29 +729,6 @@ func (ep *ExpressionParser) parseInExpr(left expr.Expr, negated bool) (expr.Expr
 			}, nil
 		}
 		return nil, fmt.Errorf("empty IN list not allowed")
-	}
-
-	// Check for UNNEST (BigQuery)
-	if ep.parser.ParseKeyword("UNNEST") {
-		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
-			return nil, err
-		}
-		arrayExpr, err := ep.ParseExpr()
-		if err != nil {
-			return nil, err
-		}
-		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
-		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
-			return nil, err
-		}
-		return &expr.InUnnest{
-			Expr:      left,
-			ArrayExpr: arrayExpr,
-			Negated:   negated,
-			SpanVal:   mergeSpans(left.Span(), arrayExpr.Span()),
-		}, nil
 	}
 
 	// Check for subquery - try to parse it directly since we already consumed the LParen

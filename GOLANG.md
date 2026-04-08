@@ -1,12 +1,24 @@
 ---
 
-**Line Counts (Updated April 8, 2026 - Afternoon Session):**
+**Line Counts (Updated April 8, 2026 - Night Session):**
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 93,120 lines | 138% |
+| Source (parser+ast+dialects) | 67,345 lines | 78,695 lines | 117% |
 | Tests | 49,886 lines | 14,149 lines | 28% |
-| **Test Status** | - | **474 passing** / **279 failing** (~63%) | +1 test passing |
+| **Test Status** | - | **209 passing** / **51 failing** (~80%) | +4 tests passing
+
+**Today's Major Fixes (Night Session):**
+1. **IN UNNEST Expression** - Fixed parse order: check for UNNEST keyword BEFORE expecting LParen in IN expressions
+2. **MAP Literal Key Parsing** - Use higher precedence when parsing MAP keys to prevent colon from being consumed as infix operator
+3. **UNNEST WITH OFFSET** - Added WITH to reserved keywords for table aliases (matching Rust RESERVED_FOR_TABLE_ALIAS)
+4. **MSSQL Table Hints** - Added parsing for `WITH (NOLOCK, ...)` table hints after table aliases
+
+**New Patterns Documented:**
+- **Pattern E36**: IN UNNEST syntax check order - Must check for UNNEST keyword BEFORE expecting `(` after IN, since BigQuery syntax is `IN UNNEST(array)` not `IN (UNNEST(array))`
+- **Pattern E37**: MAP literal key precedence - When parsing MAP keys that might be followed by `:`, use `ParseExprWithPrecedence(colonPrec + 1)` to prevent the colon from being parsed as an infix operator for semi-structured data access
+- **Pattern E38**: Reserved keywords for table aliases - WITH and other keywords must be in the reserved list to prevent them from being parsed as implicit table aliases in contexts like `UNNEST(expr) WITH OFFSET`
+- **Pattern E39**: MSSQL table hints - After parsing table alias, check for `WITH` keyword and parse parenthesized hints. Don't dialect-gate this check since WITH is already reserved for aliases.
 
 **Today's Major Fixes (Afternoon Session):**
 1. **CREATE TABLE Column Constraints** - Fixed constraint names (CONSTRAINT pkey), CHECK parentheses, REFERENCES table/columns serialization

@@ -2314,11 +2314,33 @@ func parseTableName(p *Parser) (query.TableFactor, error) {
 		indexHints = parseTableIndexHints(p)
 	}
 
+	// Check for MSSQL-specific table hints: WITH (NOLOCK, etc.)
+	// Reference: src/parser/mod.rs:15756-15766
+	// Note: Don't check dialect here - WITH is already reserved for table aliases,
+	// so if we see it here, it's either a table hint or needs to be put back for CTE parsing.
+	var withHints []query.Expr
+	if p.ParseKeyword("WITH") {
+		if p.ConsumeToken(token.TokenLParen{}) {
+			ep := NewExpressionParser(p)
+			hints, err := parseCommaSeparatedExprs(ep)
+			if err == nil {
+				for _, h := range hints {
+					withHints = append(withHints, &queryExprWrapper{expr: h})
+				}
+			}
+			p.ExpectToken(token.TokenRParen{}) // consume ) even if expr parsing failed
+		} else {
+			// Not a table hint, put back WITH for CTE parsing
+			p.PrevToken()
+		}
+	}
+
 	return &query.TableTableFactor{
 		Name:       astObjectNameToQuery(name),
 		Alias:      alias,
 		Sample:     sampleKind,
 		IndexHints: indexHints,
+		WithHints:  withHints,
 	}, nil
 }
 
@@ -2695,6 +2717,11 @@ func isReservedForTableAlias(keyword string) bool {
 		"USE": true, "IGNORE": true, "FORCE": true,
 		// Other clause-starting keywords
 		"PARTITION": true, "TABLESAMPLE": true, "SAMPLE": true,
+		// Reserved as both a table and a column alias (from Rust RESERVED_FOR_TABLE_ALIAS)
+		"WITH": true, "EXPLAIN": true, "ANALYZE": true,
+		"SORT": true, "LATERAL": true, "VIEW": true,
+		"OFFSET": true, "FETCH": true, "MINUS": true,
+		"NATURAL": true, "CLUSTER": true, "DISTRIBUTE": true, "GLOBAL": true, "ANTI": true,
 	}
 	return reserved[keyword]
 }
