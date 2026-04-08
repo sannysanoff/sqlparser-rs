@@ -533,16 +533,28 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 				}
 
 				if isSubquery {
-					// Parse subquery
-					// For now, return a placeholder (TODO: proper subquery parsing)
+					// Parse subquery: ARRAY(SELECT ...)
+					// Reference: src/parser/mod.rs:1575-1586
+					query, err := ep.parser.ParseQuery()
+					if err != nil {
+						return nil, err
+					}
+					if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+						return nil, err
+					}
 					return &expr.FunctionExpr{
 						Name: &expr.ObjectName{
 							SpanVal: span,
-							Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(wordPtr, span)}},
+							Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: &expr.Ident{Value: "ARRAY"}}},
 						},
 						UsesOdbcSyntax: false,
-						Args:           &expr.FunctionArguments{None: true},
-						SpanVal:        span,
+						Args: &expr.FunctionArguments{
+							Subquery: &expr.QueryExpr{
+								Statement: query,
+								SpanVal:   query.Span(),
+							},
+						},
+						SpanVal: mergeSpans(span, query.Span()),
 					}, nil
 				}
 			}

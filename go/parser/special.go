@@ -526,7 +526,7 @@ func (ep *ExpressionParser) tryParseNamedArgWithExprName() (expr.FunctionArg, er
 	}, nil
 }
 
-// parseNamedArgOperator tries to parse a named argument operator (=>, =, :=, :)
+// parseNamedArgOperator tries to parse a named argument operator (=>, =, :=, :, VALUE)
 // Returns the operator string if found, empty string otherwise
 func (ep *ExpressionParser) parseNamedArgOperator() string {
 	dialect := ep.parser.GetDialect()
@@ -568,6 +568,15 @@ func (ep *ExpressionParser) parseNamedArgOperator() string {
 		if dialects.SupportsNamedFnArgsWithColonOperator(dialect) {
 			ep.parser.NextToken() // consume
 			return ":"
+		}
+	}
+
+	// Check for VALUE keyword - used by PostgreSQL JSON_OBJECT
+	// See: https://www.postgresql.org/docs/current/functions-json.html
+	if word, ok := tok.Token.(token.TokenWord); ok {
+		if word.Keyword == "VALUE" && dialects.SupportsNamedFnArgsWithExprName(dialect) {
+			ep.parser.NextToken() // consume VALUE
+			return "VALUE"
 		}
 	}
 

@@ -48,29 +48,81 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 8, 2026 - Session 72 Complete**
+**Latest Update: April 8, 2026 - Session 73 Complete**
 
 **Summary:**
-- Previous: ~100 subtests failing
-- Current: **4 subtests failing** (256+ passing)
-- Net change: **~96 tests fixed!** Major breakthrough in parser completeness
-- Key fixes:
-  1. **Reserved keywords as identifiers**: Fixed `SELECT MAX(interval) FROM tbl` for PostgreSQL/Snowflake
-  2. **Fallback mechanism for unreserved keywords**: When special expression parsing fails and keyword is not reserved, fall back to identifier parsing
-  3. **SET statement with subqueries**: Fixed parenthesized SET values to handle subquery expressions
-- Remaining failures: 3 functional + 1 span mismatch (non-functional)
-- Overall test pass rate: **~98.5%** (256 passing out of 260 total)
+- **Test Functions:** 716 passing, 97 failing (~88.1% pass rate)
+- **Critical Finding:** GOLANG.md previously reported only 4 failing subtests, but actual count is 97 failing test functions
+- **Major Areas Needing Implementation:**
+  1. **PostgreSQL features** (~40+ failures): CREATE INDEX variants, ALTER TABLE, custom operators, escaped strings, table functions
+  2. **MySQL features** (~20+ failures): variable assignment (:=), STRAIGHT_JOIN, optimizer hints, quoted identifiers
+  3. **DDL features** (~8 failures): ALTER INDEX, CREATE TABLE options, index options
+  4. **DML features** (~3 failures): INSERT RETURNING, SQLite OR clause
+- **Recently Fixed (Session 73):**
+  1. **JSON_OBJECT with VALUE keyword** - PostgreSQL JSON function syntax
+  2. **ARRAY subquery expressions** - `ARRAY(SELECT ...)` syntax
+- **Line Counts:**
+  - Rust source: 67,345 lines | Go source: 87,848 lines (130%)
+  - Rust tests: 49,886 lines | Go tests: 14,245 lines (29%)
 
 ---
 
-## Line Counts (Updated April 8, 2026 - Session 72)
+## Session 73 Summary: PostgreSQL JSON_OBJECT and ARRAY Subquery Support (April 8, 2026)
+
+**Major Fixes:**
+
+Implemented two major PostgreSQL features that were causing test failures:
+
+1. **JSON_OBJECT with VALUE keyword** (parser/special.go)
+   - Added support for `JSON_OBJECT('name' VALUE 'value')` syntax
+   - Fixed `parseNamedArgOperator()` to recognize VALUE keyword as named argument operator
+   - This enables PostgreSQL JSON_OBJECT function with named arguments using VALUE keyword
+
+2. **ARRAY subquery expressions** (parser/prefix.go)
+   - Fixed ARRAY(SELECT ...) syntax to properly parse subquery expressions
+   - Previously was returning placeholder - now actually parses the subquery using ParseQuery()
+   - Creates proper FunctionExpr with Subquery argument in FunctionArguments
+
+**Tests Fixed:**
+- TestPostgresJsonObjectValueSyntax: 1 subtest passing
+- TestPostgresArraySubqueryExpr: 1 subtest passing
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 87,848 lines | 130% |
+| Tests | 49,886 lines | 14,245 lines | 29% |
+| **Test Status** | - | **716 passing, 97 failing** (was 714 passing, 99 failing) |
+
+**New Patterns Documented:**
+- **Pattern E265**: Named argument VALUE keyword - PostgreSQL JSON_OBJECT uses VALUE as named argument operator. Add check for VALUE keyword in parseNamedArgOperator() when dialect supports named function args with expression name.
+- **Pattern E266**: ARRAY subquery parsing - ARRAY(SELECT ...) should be parsed as FunctionExpr with Subquery in FunctionArguments, not as placeholder. Use ParseQuery() to parse the inner query.
+
+---
+
+## Session 73 Plan: Massive Code Port - PostgreSQL & MySQL Features (Continued)
+
+**Goal:** Port major missing PostgreSQL and MySQL features to fix remaining ~95 failing tests
+
+**Remaining High-Priority Features:**
+1. **CREATE INDEX variants** - USING INDEX, WITH clause, etc. (~10 tests)
+2. **ALTER TABLE operations** - RENAME CONSTRAINT, ADD COLUMN, etc. (~8 tests)
+3. **MySQL variable assignment** - `:=` operator (~3 tests)
+4. **STRAIGHT_JOIN** - MySQL specific join type (~2 tests)
+5. **Escaped string literals** - PostgreSQL E'...' syntax (~2 tests)
+6. **Custom operators** - PostgreSQL custom operators (~5 tests)
+
+---
+
+## Line Counts (Updated April 8, 2026 - Session 73 Complete)
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
 | Source (parser+ast+dialects) | 67,345 lines | 87,848 lines | 130% |
 | Tests | 49,886 lines | 14,245 lines | 29% |
-| **Test Status - Snowflake** | - | **100% passing** (99+ subtests) |
-| **Test Status - All Packages** | - | **~256 subtests passing, 4 failing** |
+| **Test Status - Snowflake** | - | **100% passing** |
+| **Test Status - Regression** | - | **100% passing** |
+| **Test Status - All Others** | - | **716 test functions passing, 97 failing** |
 
 ---
 
@@ -642,6 +694,28 @@ Pattern E264: SET Statement Parenthesized Values
 - Solution: Don't manually consume LParen with ExpectToken. Let ParseExpr handle parenthesized expressions (including subqueries) naturally.
 - Example: Remove "if _, err := p.ExpectToken(token.TokenLParen{}); err != nil { return nil, err }" before calling ep.ParseExpr()
 - Files typically modified: parser/misc.go
+
+Pattern E265: Named Argument VALUE Keyword
+- When: Parsing PostgreSQL JSON_OBJECT('name' VALUE 'value')
+- Problem: VALUE keyword is not recognized as a named argument operator
+- Solution: Add check for VALUE keyword in parseNamedArgOperator() when dialect supports named function args with expression name
+- Example: In parseNamedArgOperator(), check if word.Keyword == "VALUE" and dialect.SupportsNamedFnArgsWithExprName()
+- Files typically modified: parser/special.go
+
+Pattern E266: ARRAY Subquery Parsing
+- When: Parsing ARRAY(SELECT ...) expressions in PostgreSQL
+- Problem: Parser has TODO placeholder for subquery parsing in ARRAY(...)
+- Solution: Actually parse the subquery using ParseQuery() and create FunctionExpr with Subquery argument
+- Example: 
+  ```go
+  query, err := ep.parser.ParseQuery()
+  return &expr.FunctionExpr{
+      Args: &expr.FunctionArguments{
+          Subquery: &expr.QueryExpr{Statement: query},
+      },
+  }
+  ```
+- Files typically modified: parser/prefix.go
 ```
 
 **See full pattern catalog in code comments and previous session notes.**
