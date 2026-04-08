@@ -3114,16 +3114,24 @@ type KeyValueOption struct {
 	OptionName  string
 	OptionValue interface{} // Can be ast.Value, []ast.Value, or *KeyValueOptions
 	Kind        KeyValueOptionKind
+	Quoted      bool // Whether the value is a quoted string (needs quotes in output)
 }
 
 func (k *KeyValueOption) String() string {
 	switch k.Kind {
 	case KeyValueOptionKindSingle:
+		// Handle nil value (for UNSET statements)
+		if k.OptionValue == nil {
+			return k.OptionName
+		}
 		if val, ok := k.OptionValue.(fmt.Stringer); ok {
 			return fmt.Sprintf("%s=%s", k.OptionName, val.String())
 		}
 		if val, ok := k.OptionValue.(string); ok {
-			return fmt.Sprintf("%s='%s'", k.OptionName, escapeSingleQuote(val))
+			if k.Quoted {
+				return fmt.Sprintf("%s='%s'", k.OptionName, escapeSingleQuote(val))
+			}
+			return fmt.Sprintf("%s=%s", k.OptionName, val)
 		}
 	case KeyValueOptionKindMulti:
 		if vals, ok := k.OptionValue.([]string); ok {
@@ -3133,6 +3141,9 @@ func (k *KeyValueOption) String() string {
 		if opts, ok := k.OptionValue.(*KeyValueOptions); ok {
 			return fmt.Sprintf("%s=(%s)", k.OptionName, opts.String())
 		}
+	}
+	if k.OptionValue == nil {
+		return k.OptionName
 	}
 	return fmt.Sprintf("%s=%v", k.OptionName, k.OptionValue)
 }

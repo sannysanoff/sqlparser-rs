@@ -305,25 +305,55 @@ func (o OffsetRows) String() string {
 
 // Fetch represents FETCH clause
 type Fetch struct {
-	span     token.Span
-	WithTies bool
-	Percent  bool
-	Quantity Expr
+	span              token.Span
+	WithTies          bool
+	Percent           bool
+	Quantity          Expr
+	HasFirst          bool // Whether FIRST was explicitly specified
+	HasNext           bool // Whether NEXT was explicitly specified
+	HasRow            bool // Whether ROW (singular) was explicitly specified
+	HasRows           bool // Whether ROWS (plural) was explicitly specified
+	HasOnlyOrWithTies bool // Whether ONLY or WITH TIES was explicitly specified
 }
 
 func (f *Fetch) String() string {
-	extension := "ONLY"
-	if f.WithTies {
-		extension = "WITH TIES"
+	// Build the FETCH clause preserving the original syntax
+	var parts []string
+	parts = append(parts, "FETCH")
+
+	// Add FIRST or NEXT if it was present in original
+	if f.HasNext {
+		parts = append(parts, "NEXT")
+	} else if f.HasFirst {
+		parts = append(parts, "FIRST")
 	}
+
+	// Add quantity if present
 	if f.Quantity != nil {
-		percent := ""
+		quantityStr := f.Quantity.String()
 		if f.Percent {
-			percent = " PERCENT"
+			quantityStr += " PERCENT"
 		}
-		return fmt.Sprintf("FETCH FIRST %s%s ROWS %s", f.Quantity.String(), percent, extension)
+		parts = append(parts, quantityStr)
 	}
-	return fmt.Sprintf("FETCH FIRST ROWS %s", extension)
+
+	// Add ROW or ROWS if it was present in original
+	if f.HasRow {
+		parts = append(parts, "ROW")
+	} else if f.HasRows {
+		parts = append(parts, "ROWS")
+	}
+
+	// Add ONLY or WITH TIES if it was present
+	if f.HasOnlyOrWithTies {
+		if f.WithTies {
+			parts = append(parts, "WITH TIES")
+		} else {
+			parts = append(parts, "ONLY")
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 // LockClause represents FOR ... locking clause

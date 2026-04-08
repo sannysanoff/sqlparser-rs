@@ -1977,6 +1977,9 @@ func (a *AlterSession) String() string {
 	} else {
 		f.WriteString("UNSET ")
 	}
+	if a.SessionParams != nil {
+		f.WriteString(a.SessionParams.String())
+	}
 	return f.String()
 }
 

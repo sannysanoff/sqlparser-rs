@@ -1,6 +1,50 @@
 ---
 
-## Latest Update: April 15, 2026 - Session 37 (Tokenizer Fix, IF Statement Validation, PIVOT Serialization)
+## Latest Update: April 16, 2026 - Session 38 (PIVOT Serialization, FETCH Clause, ALTER SESSION)
+
+**Line Counts (Updated April 16, 2026 - Session 38):**
+
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 78,114 lines | 116% |
+| Tests | 49,886 lines | 14,163 lines | 28% |
+| **Test Status** | - | **593 tests passing** / **220 tests failing** (~73%) |
+| **Total Test Cases** | - | 813 test functions |
+
+### Session 38 Summary:
+
+**Fixed PIVOT Serialization** (4 tests now passing - Snowflake PIVOT)
+- Fixed `PIVOT(...)` vs `PIVOT (...)` serialization format
+- **Implementation**: Modified `PivotTableFactor.String()` in `ast/query/table.go` to remove extra space after PIVOT keyword
+- **Root Cause**: The Go implementation had a space after PIVOT but Rust expects `PIVOT(...)`
+- **Pattern E149**: PIVOT serialization format - Output `PIVOT(...)` without space after PIVOT keyword, matching Rust output
+
+**Fixed Snowflake FETCH Clause** (6 tests now passing)
+- Fixed `SELECT ... FETCH 2`, `FETCH FIRST 2`, `FETCH NEXT 2` syntax support
+- Fixed `FETCH 2 ROW`, `FETCH FIRST 2 ROWS` serialization (without ONLY)
+- **Implementation**: Updated `parseFetchClause()` in `parser/query.go` to make all parts optional:
+  - FIRST/NEXT keywords optional
+  - ROW/ROWS keywords optional
+  - ONLY/WITH TIES keywords optional
+- Added tracking fields to `Fetch` struct: `HasFirst`, `HasNext`, `HasRow`, `HasRows`, `HasOnlyOrWithTies`
+- **Root Cause**: Snowflake supports a simplified FETCH syntax where all components are optional
+- **Pattern E150**: Optional FETCH components - For dialects supporting simplified FETCH, track which components were present in the original SQL to preserve format during re-serialization
+
+**Implemented ALTER SESSION** (4 tests now passing - Major Snowflake feature!)
+- Fixed `ALTER SESSION SET AUTOCOMMIT=TRUE`, `ALTER SESSION UNSET AUTOCOMMIT`
+- **Implementation**:
+  - Added `parseAlterSession()` function in `parser/alter.go`
+  - Added `parseSnowflakeSessionOptions()` helper for space/comma separated key=value options
+  - Updated `parseAlter()` to handle SESSION keyword
+  - Updated `AlterSession.String()` to serialize session parameters
+  - Added `Quoted` field to `KeyValueOption` struct to track whether value needs quotes
+- **Root Cause**: ALTER SESSION was not implemented in the Go parser
+- **Pattern E151**: ALTER SESSION parsing - Parse SET/UNSET keyword, then parse space-separated key=value options. For SET, each option has key=value. For UNSET, only key names without values.
+- **Pattern E152**: Key-value option quoting - Track whether the value was originally a quoted string (needs quotes in output) or a bare identifier/keyword (no quotes needed)
+
+---
+
+## Previous Update: April 15, 2026 - Session 37 (Tokenizer Fix, IF Statement Validation, PIVOT Serialization)
 
 **Line Counts (Updated April 15, 2026 - Session 37):**
 
@@ -341,7 +385,17 @@ Fixed parsing of Snowflake stage names containing file extensions and special ch
 
 - **Pattern E147**: IF statement END IF validation - In `parseIfStatement()`, always capture and return errors from `ExpectKeyword()` calls. The pattern `p.ExpectKeyword("END")` silently ignores errors; instead use `if _, err := p.ExpectKeyword("END"); err != nil { return nil, err }` to properly propagate parsing errors when the END IF syntax is incomplete.
 
-- **Pattern E148**: PIVOT serialization format - The PIVOT keyword should be followed by a space before the opening parenthesis: `PIVOT (...)` not `PIVOT(...)`. In `PivotTableFactor.String()`, use `"%s PIVOT (%s FOR %s IN (%s)%s)"` format string with space after PIVOT.
+---
+
+### Session 38 Patterns (New):
+
+- **Pattern E149**: PIVOT serialization format - The PIVOT keyword should be followed directly by the opening parenthesis without a space: `PIVOT(...)` not `PIVOT (...)`. In `PivotTableFactor.String()`, use `"%s PIVOT(%s FOR %s IN (%s)%s)"` format string without space after PIVOT.
+
+- **Pattern E150**: Optional FETCH components tracking - For dialects supporting simplified FETCH syntax (like Snowflake), track which components were present in the original SQL using boolean flags: `HasFirst`, `HasNext`, `HasRow`, `HasRows`, `HasOnlyOrWithTies`. This allows faithful re-serialization of any variant: `FETCH 2`, `FETCH FIRST 2`, `FETCH FIRST 2 ROWS ONLY`, etc.
+
+- **Pattern E151**: ALTER SESSION parsing - Parse SET or UNSET keyword after ALTER SESSION, then parse space/comma-separated key=value options. For SET: each option is `key=value` format. For UNSET: each option is just the key name without a value. Use `KeyValueOptions` struct with appropriate delimiter tracking.
+
+- **Pattern E152**: Key-value option quoting - Add a `Quoted bool` field to `KeyValueOption` struct to track whether the value was originally a quoted string. In `String()`, only add quotes when `Quoted` is true. This allows correct serialization of both `AUTOCOMMIT=TRUE` (bare identifier, no quotes) and `QUERY_TAG='mytag'` (quoted string, with quotes).
 
 ---
 

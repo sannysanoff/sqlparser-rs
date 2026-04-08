@@ -82,7 +82,11 @@ func parseAlter(p *Parser) (ast.Statement, error) {
 		}
 		return parseAlterOperator(p)
 	}
-	return nil, fmt.Errorf("expected TABLE, VIEW, INDEX, ROLE, USER, SCHEMA, TYPE, POLICY, or CONNECTOR after ALTER")
+	// Check for SESSION (Snowflake)
+	if p.ParseKeyword("SESSION") {
+		return parseAlterSession(p)
+	}
+	return nil, fmt.Errorf("expected TABLE, VIEW, INDEX, ROLE, USER, SCHEMA, TYPE, POLICY, CONNECTOR, or SESSION after ALTER")
 }
 
 // parseAlterTable parses ALTER TABLE statements
@@ -1927,4 +1931,104 @@ func parseAlterExternalTable(p *Parser) (ast.Statement, error) {
 
 	alterTable.Operations = []*expr.AlterTableOperation{op}
 	return alterTable, nil
+}
+
+// parseAlterSession parses ALTER SESSION statements (Snowflake)
+// Reference: src/dialect/snowflake.rs:801-810
+// Syntax: ALTER SESSION { SET | UNSET } <session_params>
+func parseAlterSession(p *Parser) (ast.Statement, error) {
+	// Check for SET or UNSET
+	set := false
+	if p.ParseKeyword("SET") {
+		set = true
+	} else if p.ParseKeyword("UNSET") {
+		set = false
+	} else {
+		return nil, fmt.Errorf("expected SET or UNSET after ALTER SESSION")
+	}
+
+	// Parse session options
+	options, err := parseSnowflakeSessionOptions(p, set)
+	if err != nil {
+		return nil, err
+	}
+
+	return &statement.AlterSession{
+		Set:           set,
+		SessionParams: options,
+	}, nil
+}
+
+// parseSnowflakeSessionOptions parses space/comma separated key=value options for ALTER SESSION
+// Reference: src/dialect/snowflake.rs:1630-1673
+func parseSnowflakeSessionOptions(p *Parser, set bool) (*expr.KeyValueOptions, error) {
+	options := &expr.KeyValueOptions{
+		Options:   []*expr.KeyValueOption{},
+		Delimiter: expr.KeyValueOptionsDelimiterSpace,
+	}
+
+	for {
+		tok := p.PeekToken()
+		if token.IsEOF(tok.Token) {
+			break
+		}
+		if _, isSemi := tok.Token.(token.TokenSemiColon); isSemi {
+			break
+		}
+
+		switch v := tok.Token.(type) {
+		case token.TokenComma:
+			p.AdvanceToken()
+			options.Delimiter = expr.KeyValueOptionsDelimiterComma
+			continue
+		case token.TokenWord:
+			p.AdvanceToken()
+			if set {
+				// For SET: parse key=value
+				// Expect = after key
+				if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+					return nil, fmt.Errorf("expected = after session parameter name %s", v.Word.Value)
+				}
+				// Parse value
+				valTok := p.PeekTokenRef()
+				var val interface{}
+				quoted := false
+				if str, ok := valTok.Token.(token.TokenSingleQuotedString); ok {
+					val = str.Value
+					quoted = true
+					p.AdvanceToken()
+				} else if word, ok := valTok.Token.(token.TokenWord); ok {
+					val = word.Word.Value
+					p.AdvanceToken()
+				} else if num, ok := valTok.Token.(token.TokenNumber); ok {
+					val = num.Value
+					p.AdvanceToken()
+				} else {
+					return nil, fmt.Errorf("expected value for session parameter %s, got %s", v.Word.Value, valTok.Token.String())
+				}
+				options.Options = append(options.Options, &expr.KeyValueOption{
+					OptionName:  v.Word.Value,
+					OptionValue: val,
+					Kind:        expr.KeyValueOptionKindSingle,
+					Quoted:      quoted,
+				})
+			} else {
+				// For UNSET: just the key name (no value)
+				// Store nil as value so String() won't output =
+				options.Options = append(options.Options, &expr.KeyValueOption{
+					OptionName:  v.Word.Value,
+					OptionValue: nil,
+					Kind:        expr.KeyValueOptionKindSingle,
+				})
+			}
+		default:
+			return nil, fmt.Errorf("expected session option name, got %s", tok.Token.String())
+		}
+	}
+
+	if len(options.Options) == 0 {
+		return nil, fmt.Errorf("expected at least one session option")
+	}
+
+	return options, nil
 }

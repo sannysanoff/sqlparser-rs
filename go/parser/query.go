@@ -5061,63 +5061,74 @@ func parseTop(p *Parser) *query.Top {
 // parseFetchClause parses a FETCH clause (standard SQL alternative to LIMIT).
 // Reference: src/parser/mod.rs:18465-18491
 // Syntax: FETCH { FIRST | NEXT } [ quantity ] { ROW | ROWS } [ { ONLY | WITH TIES } ]
+// Snowflake extension: FETCH 2 (without FIRST/NEXT, without ROW/ROWS, without ONLY/WITH TIES)
 func parseFetchClause(p *Parser) (*query.Fetch, error) {
-	// Parse FIRST or NEXT (optional, defaults to FIRST)
-	if !p.ParseKeyword("FIRST") && !p.ParseKeyword("NEXT") {
-		// Neither FIRST nor NEXT specified - this is optional in some dialects
-		// but we'll require it for standard SQL
+	// Parse FIRST or NEXT (optional, especially for Snowflake dialect)
+	hasFirst := p.ParseKeyword("FIRST")
+	hasNext := false
+	if !hasFirst {
+		hasNext = p.ParseKeyword("NEXT")
 	}
 
-	// Parse quantity (number, ALL, or omitted for simple FETCH FIRST ROWS ONLY)
+	// Parse quantity (number, ALL, or omitted)
 	var quantity query.Expr
 	percent := false
 
-	// Check for ALL
-	if p.ParseKeyword("ALL") {
-		// ALL without specific quantity - use ValueWithSpan
-		quantity = &query.ValueWithSpan{Value: "ALL"}
-	} else if !p.PeekKeyword("ROW") && !p.PeekKeyword("ROWS") {
-		// Parse numeric value
-		if p.ParseKeyword("PERCENT") {
+	// Check if next token is ROW/ROWS (meaning no quantity)
+	if !p.PeekKeyword("ROW") && !p.PeekKeyword("ROWS") {
+		// Check for ALL
+		if p.ParseKeyword("ALL") {
+			quantity = &query.ValueWithSpan{Value: "ALL"}
+		} else if p.ParseKeyword("PERCENT") {
 			// PERCENT without quantity - error
 			return nil, fmt.Errorf("Expected: quantity before PERCENT")
-		}
+		} else {
+			// Check if next token is a number
+			tok := p.PeekToken()
+			switch v := tok.Token.(type) {
+			case token.TokenNumber:
+				p.AdvanceToken()
+				quantity = &query.ValueWithSpan{Value: v.Value}
 
-		// Check if next token is a number
-		tok := p.PeekToken()
-		switch v := tok.Token.(type) {
-		case token.TokenNumber:
-			p.AdvanceToken()
-			quantity = &query.ValueWithSpan{Value: v.Value}
-
-			// Check for PERCENT after quantity
-			if p.ParseKeyword("PERCENT") {
-				percent = true
+				// Check for PERCENT after quantity
+				if p.ParseKeyword("PERCENT") {
+					percent = true
+				}
+			default:
+				// No quantity specified - that's OK for "FETCH FIRST ROWS ONLY"
+				quantity = nil
 			}
-		default:
-			// No quantity specified - that's OK for simple "FETCH FIRST ROWS ONLY"
-			quantity = nil
 		}
 	}
 
-	// Expect ROW or ROWS
-	if !p.ParseKeyword("ROW") && !p.ParseKeyword("ROWS") {
-		return nil, fmt.Errorf("Expected: ROW or ROWS")
+	// Parse ROW or ROWS (optional in Snowflake, required in standard SQL)
+	hasRow := p.ParseKeyword("ROW")
+	hasRows := false
+	if !hasRow {
+		hasRows = p.ParseKeyword("ROWS")
 	}
 
-	// Parse ONLY or WITH TIES
+	// Parse ONLY or WITH TIES (optional in Snowflake)
 	withTies := false
+	hasOnlyOrWithTies := false
 
 	if p.ParseKeyword("ONLY") {
 		withTies = false
+		hasOnlyOrWithTies = true
 	} else if p.ParseKeywords([]string{"WITH", "TIES"}) {
 		withTies = true
+		hasOnlyOrWithTies = true
 	}
 
 	return &query.Fetch{
-		Quantity: quantity,
-		Percent:  percent,
-		WithTies: withTies,
+		Quantity:          quantity,
+		Percent:           percent,
+		WithTies:          withTies,
+		HasFirst:          hasFirst,
+		HasNext:           hasNext,
+		HasRow:            hasRow,
+		HasRows:           hasRows,
+		HasOnlyOrWithTies: hasOnlyOrWithTies,
 	}, nil
 }
 
