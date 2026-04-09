@@ -673,8 +673,15 @@ type Ident struct {
 
 func (i Ident) String() string {
 	if i.QuoteStyle != nil {
-		quote := string(*i.QuoteStyle)
-		return quote + i.Value + quote
+		quote := *i.QuoteStyle
+		switch quote {
+		case '[':
+			return fmt.Sprintf("[%s]", i.Value)
+		case '"', '\'', '`':
+			return fmt.Sprintf("%c%s%c", quote, i.Value, quote)
+		default:
+			return string(quote) + i.Value + string(quote)
+		}
 	}
 	return i.Value
 }

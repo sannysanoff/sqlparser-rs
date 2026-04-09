@@ -360,6 +360,10 @@ func (t *Tokenizer) NextToken(state *State, prevToken Token) (Token, error) {
 	case '`':
 		return t.tokenizeQuotedIdentifier(state)
 	case '[':
+		// Check if dialect supports bracket-quoted identifiers (e.g., Redshift, MSSQL)
+		if t.dialect.IsNestedDelimitedIdentifierStart(ch) {
+			return t.tokenizeQuotedIdentifier(state)
+		}
 		state.Next()
 		return TokenLBracket{}, nil
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.':
@@ -659,10 +663,27 @@ func (t *Tokenizer) tokenizeDoubleQuotedString(state *State) (Token, error) {
 
 func (t *Tokenizer) tokenizeQuotedIdentifier(state *State) (Token, error) {
 	ch, _ := state.Peek()
+	fmt.Printf("DEBUG tokenizeQuotedIdentifier: ch=%q remaining=%q\n", ch, state.Remaining())
 
 	if t.dialect.IsNestedDelimitedIdentifierStart(ch) {
-		if start, nested, ok := t.dialect.PeekNestedDelimitedIdentifierQuotes(state.Remaining()); ok {
-			return t.tokenizeNestedQuotedIdentifier(state, start, nested)
+		startQuote, nestedQuote, ok := t.dialect.PeekNestedDelimitedIdentifierQuotes(state.Remaining())
+		fmt.Printf("DEBUG PeekNestedDelimitedIdentifierQuotes: startQuote=%q nestedQuote=%q ok=%v\n", startQuote, nestedQuote, ok)
+		if ok {
+			// If nestedQuote is 0, it's a simple pattern like [foo] not ["foo"]
+			// In that case, treat it as a regular quoted identifier with '[' as the quote
+			if nestedQuote == 0 {
+				// Simple bracket-quoted identifier like [col1]
+				// tokenizeQuotedIdentifierLiteral will consume the opening '['
+				word, err := t.tokenizeQuotedIdentifierLiteral(state, ']')
+				if err != nil {
+					return nil, err
+				}
+				quoteStyle := byte(ch)
+				fmt.Printf("DEBUG tokenizeQuotedIdentifier result: word=%q quoteStyle=%q\n", word, quoteStyle)
+				return MakeWord(word, &quoteStyle), nil
+			}
+			// Nested pattern like ["foo"]
+			return t.tokenizeNestedQuotedIdentifier(state, startQuote, nestedQuote)
 		}
 	}
 
@@ -1790,7 +1811,9 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteral(state *State, quoteChar ru
 }
 
 func (t *Tokenizer) tokenizeQuotedIdentifierLiteral(state *State, quoteEnd byte) (string, error) {
+	opening, _ := state.Peek()
 	state.Next() // consume opening quote
+	fmt.Printf("DEBUG tokenizeQuotedIdentifierLiteral: opening=%q quoteEnd=%q remaining=%q\n", opening, quoteEnd, state.Remaining())
 
 	var s strings.Builder
 	lastChar := rune(0)

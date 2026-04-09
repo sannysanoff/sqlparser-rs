@@ -55,9 +55,27 @@ func (a *dialectAdapter) IsNestedDelimitedIdentifierStart(ch rune) bool {
 // Adapts the different signatures between dialects and tokenizer
 func (a *dialectAdapter) PeekNestedDelimitedIdentifierQuotes(chars string) (startQuote byte, nestedQuote byte, ok bool) {
 	// Convert string to []rune and call the dialect version
-	// For now, just return false (no nested quotes)
-	// This is a simplified implementation
-	return 0, 0, false
+	runes := []rune(chars)
+	if len(runes) == 0 {
+		return 0, 0, false
+	}
+
+	// Call the dialect's implementation
+	nestedQuoteInfo, newPos := a.dialect.PeekNestedDelimitedIdentifierQuotes(runes, 0)
+	if nestedQuoteInfo == nil {
+		return 0, 0, false
+	}
+
+	// Convert rune quotes to bytes
+	startQuote = byte(nestedQuoteInfo.OuterQuote)
+	if nestedQuoteInfo.InnerQuote != nil {
+		nestedQuote = byte(*nestedQuoteInfo.InnerQuote)
+	} else {
+		nestedQuote = 0 // No nested quote for simple patterns like [foo]
+	}
+	ok = true
+	_ = newPos // Avoid unused variable error
+	return
 }
 
 // SupportsStringLiteralBackslashEscape implements tokenizer.Dialect
