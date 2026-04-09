@@ -1056,6 +1056,8 @@ func (d *MySqlDialect) PrecValue(prec dialects.Precedence) uint8 {
 		return 10
 	case prec == dialects.PrecedenceOr:
 		return 5
+	case prec == dialects.PrecedenceAssignment:
+		return 1
 	default:
 		return d.PrecUnknown()
 	}

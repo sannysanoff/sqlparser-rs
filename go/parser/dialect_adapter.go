@@ -138,8 +138,8 @@ func (a *dialectAdapter) IgnoresWildcardEscapes() bool {
 
 // RequiresSingleLineCommentWhitespace implements tokenizer.Dialect
 func (a *dialectAdapter) RequiresSingleLineCommentWhitespace() bool {
-	// Default to false - most dialects don't require whitespace after --
-	return false
+	// Delegate to the underlying dialect
+	return a.dialect.RequiresSingleLineCommentWhitespace()
 }
 
 // IsBigQueryDialect implements tokenizer.Dialect

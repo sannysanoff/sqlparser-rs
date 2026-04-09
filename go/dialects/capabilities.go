@@ -244,6 +244,15 @@ func SupportsArrayTypedefWithBrackets(d CoreDialect) bool {
 	return false
 }
 
+// SupportsArrayTypedefWithoutElementType returns true if the dialect supports
+// ARRAY type without element type specification, e.g., CAST(a AS ARRAY).
+func SupportsArrayTypedefWithoutElementType(d CoreDialect) bool {
+	if td, ok := d.(TableDefinitionDialect); ok {
+		return td.SupportsArrayTypedefWithoutElementType()
+	}
+	return false
+}
+
 // SupportsMatchRecognize returns true if the dialect supports the MATCH_RECOGNIZE operation.
 func SupportsMatchRecognize(d CoreDialect) bool {
 	if ad, ok := d.(AggregationDialect); ok {

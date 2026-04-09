@@ -1,5 +1,44 @@
 # Go SQL Parser Development Guide
 
+## Session 89 Summary: MySQL Variable Assignment, ARRAY Types, Comment Parsing (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 4 major features, fixing tests across MySQL, DDL, and Snowflake:
+
+1. **MySQL `:=` Assignment Operator** (dialects/mysql/mysql.go, dialects/dialect.go, token/lexer.go)
+   - Fixed `SELECT @price := price FROM products` syntax
+   - Root causes:
+     - MySQL `PrecValue()` didn't handle `PrecedenceAssignment`
+     - `dialectAdapter.RequiresSingleLineCommentWhitespace()` didn't delegate to dialect
+     - Tokenizer consumed `@identifier` as single word instead of separate tokens
+   - Fixed by adding PrecedenceAssignment to MySQL, fixing adapter delegation, and changing @ tokenization
+
+2. **Hive ARRAY<INT> Type Parsing** (parser/parser.go, dialects/capabilities.go)
+   - Fixed `CREATE TABLE t (val ARRAY<INT>)` syntax
+   - Added `parseArrayType()` function with support for both `ARRAY<INT>` and `ARRAY` (without element type)
+   - Added `SupportsArrayTypedefWithoutElementType()` helper to capabilities.go
+   - Fixed Snowflake tests: TestSnowflakeParseArray, TestSnowflakeSemiStructuredDataTraversal
+
+3. **MySQL Single-Line Comment Parsing** (parser/dialect_adapter.go)
+   - Fixed `--1` being treated as comment instead of `- -1` (two unary minus operators)
+   - Root cause: `dialectAdapter.RequiresSingleLineCommentWhitespace()` always returned `false`
+   - Fixed by delegating to underlying dialect
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,495 lines | 133% |
+| Tests | 49,886 lines | 14,243 lines | 29% |
+| **Test Status** | - | **~788 passing, ~35 failing** |
+
+**New Patterns Documented:**
+- **Pattern E318**: MySQL `:=` assignment operator - Add PrecedenceAssignment to dialect's PrecValue(), ensure @ is tokenized separately from identifier
+- **Pattern E319**: ARRAY type parsing - Add parseArrayType() with support for both ARRAY<INT> and ARRAY (without element type)
+- **Pattern E320**: Dialect adapter delegation - Ensure dialectAdapter methods delegate to underlying dialect, don't hardcode defaults
+
+---
+
 ## Session 88 Summary: Massive Code Port - Dollar-Quoted Strings, CREATE INDEX Fixes (April 9, 2026)
 
 **Major Fixes:**
@@ -546,30 +585,29 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 88 Complete**
+**Latest Update: April 9, 2026 - Session 89 Complete**
 
 **Summary:**
-- **Test Functions:** ~785 passing, ~37 failing (~95.5% pass rate)
+- **Test Functions:** ~788 passing, ~35 failing (~95.7% pass rate)
 - **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~17 failures): escaped strings (test data issue), dollar-quoted strings, CREATE OPERATOR CLASS (custom operators like <<->), current functions, quoted identifiers, copy from error handling
-  2. **MySQL** (~11 failures): foreign key with index name (fixed), prefix key parts, show extended full, variable assignment (:= operator), optimizer hints edge cases
-  3. **DDL** (~3 failures): CREATE INDEX USING positions, Hive array types, multiple ON DELETE in constraints
+  1. **PostgreSQL** (~21 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, copy from error handling
+  2. **MySQL** (~8 failures): prefix key parts, show extended full, CREATE TRIGGER, escaped strings
+  3. **DDL** (~2 failures): CREATE INDEX USING positions, multiple ON DELETE validation
   4. **Query** (~2 failures): SELECT without projection, IN with UNION
   5. **Main Package** (~4 failures): NOT precedence, SET variable subquery, SET variable errors
+- **Recently Fixed (Session 89):**
+  1. **MySQL := assignment operator** - Added PrecedenceAssignment to MySQL dialect, fixed @ tokenization
+  2. **Hive ARRAY<INT> type** - Added parseArrayType() with support for angle bracket and element-less syntax
+  3. **MySQL comment parsing** - Fixed dialectAdapter.RequiresSingleLineCommentWhitespace() delegation
+  4. **Snowflake ARRAY** - Fixed ARRAY type parsing for CAST expressions
+- **Recently Fixed (Session 88):**
+  1. **Dollar-quoted strings** - Fixed tokenizeDollar() validation of closing tags
+  2. **CREATE INDEX USING** - Fixed serialization of index type (btree, hash, etc.)
 - **Recently Fixed (Session 87):**
   1. **VARBIT type** - Changed parseVarBitType to return VarBitType (serializes to "VARBIT") not BitVaryingType (serializes to "BIT VARYING")
   2. **INTERVAL data type** - Added INTERVAL case to parseBaseDataType with optional precision parsing
   3. **DROP TRIGGER CASCADE** - Added DropBehavior field to DropTrigger struct, parse CASCADE/RESTRICT
-- **Recently Fixed (Session 86):**
-  1. **INSERT SELECT RETURNING** - Added RETURNING to reserved column alias keywords
-  2. **SQLite REPLACE INTO** - Fixed parseInsertInternal to check for REPLACE token
-  3. **PostgreSQL FETCH** - Fixed parseFetchNumber to avoid IN being treated as operator
-  4. **MySQL FOREIGN KEY index name** - Added parsing for optional index name after FOREIGN KEY
-- **Recently Fixed (Session 85):**
-  1. **DECLARE cursor LIMIT** - Fixed query extraction to properly include LIMIT clause in DECLARE FOR statements
-  2. **DML in CTEs** - Added support for UPDATE/INSERT/DELETE in WITH clause (PostgreSQL feature)
-  3. **OFFSET clause** - Fixed OFFSET being treated as column alias, added to reserved keywords
 
 ---
 
@@ -913,16 +951,16 @@ Implemented two major PostgreSQL features that were causing test failures:
 
 ---
 
-## Line Counts (Updated April 9, 2026 - Session 88 Complete)
+## Line Counts (Updated April 9, 2026 - Session 89 Complete)
 
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 66,842 lines | 89,746 lines | 134% |
+| Source (parser+ast+dialects) | 67,345 lines | 89,495 lines | 133% |
 | Tests | 49,886 lines | 14,243 lines | 29% |
 | **Test Status - Snowflake** | - | **100% passing** |
 | **Test Status - Regression** | - | **100% passing** |
 | **Test Status - DML** | - | **100% passing** |
-| **Test Status - All Others** | - | **~785 test functions passing, ~37 failing** |
+| **Test Status - All Others** | - | **~788 test functions passing, ~35 failing** |
 
 ---
 
@@ -1335,7 +1373,8 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
-### Sessions 86-88 (April 9, 2026)
+### Sessions 88-89 (April 9, 2026)
+- **Session 89**: MySQL `:=` assignment, ARRAY types, comment parsing (+4 tests) - ~788 passing, ~35 failing
 - **Session 88**: Dollar-quoted strings, CREATE INDEX USING fixes - ~785 passing, ~37 failing
 - **Session 87**: VARBIT, INTERVAL precision, DROP TRIGGER CASCADE (+3 tests) - ~785 passing, 37 failing
 - **Session 86**: INSERT RETURNING, REPLACE INTO, FETCH, FOREIGN KEY index name (+5 tests) - ~782 passing, 40 failing
@@ -2189,6 +2228,64 @@ Pattern E314: DROP Statement CASCADE/RESTRICT Support
   }
   ```
 - Files typically modified: ast/statement/ddl.go, parser/drop.go
+
+Pattern E318: MySQL `:=` Assignment Operator
+- When: Parsing MySQL variable assignment like `@price := price` in SELECT statements
+- Problem: Parser fails with "Expected: end of statement, found: :=" 
+- Root causes: (1) MySQL PrecValue() doesn't handle PrecedenceAssignment, (2) dialectAdapter doesn't delegate RequiresSingleLineCommentWhitespace(), (3) @ token consumed as part of identifier
+- Solution:
+  ```go
+  // 1. Add PrecedenceAssignment to MySQL PrecValue()
+  case prec == dialects.PrecedenceAssignment:
+      return 1
+  
+  // 2. Fix dialectAdapter to delegate
+  func (a *dialectAdapter) RequiresSingleLineCommentWhitespace() bool {
+      return a.dialect.RequiresSingleLineCommentWhitespace()
+  }
+  
+  // 3. Don't consume @identifier as single word in tokenizer
+  // Always return TokenAtSign{} and let parser handle the rest
+  ```
+- Files typically modified: dialects/mysql/mysql.go, dialects/dialect.go, parser/dialect_adapter.go, token/lexer.go
+
+Pattern E319: ARRAY Type Parsing
+- When: Parsing ARRAY<INT> (Hive) or ARRAY without element type (Snowflake)
+- Problem: ARRAY keyword not handled in parseBaseDataType()
+- Solution: Add parseArrayType() with dialect-aware element type handling
+  ```go
+  case "ARRAY":
+      return parseArrayType(p, tok.Span)
+  
+  func parseArrayType(p *Parser, spanVal token.Span) (*datatype.ArrayType, error) {
+      // Check if dialect supports ARRAY without element type
+      if dialects.SupportsArrayTypedefWithoutElementType(dialect) {
+          if _, isLt := p.PeekToken().Token.(token.TokenLt); !isLt {
+              return &datatype.ArrayType{ElemDef: datatype.ArrayElemTypeDef{Style: datatype.ArrayNone}}
+          }
+      }
+      // Parse ARRAY<inner_type> syntax
+      // ... expect <, parse inner type, expect >
+  }
+  ```
+- Files typically modified: parser/parser.go, dialects/capabilities.go
+
+Pattern E320: Dialect Adapter Delegation
+- When: Dialect-specific behavior not being used despite dialect supporting it
+- Problem: dialectAdapter methods hardcode defaults instead of delegating to underlying dialect
+- Solution: Always delegate to underlying dialect, don't hardcode
+  ```go
+  // Wrong:
+  func (a *dialectAdapter) SomeCapability() bool {
+      return false  // Hardcoded!
+  }
+  
+  // Right:
+  func (a *dialectAdapter) SomeCapability() bool {
+      return a.dialect.SomeCapability()  // Delegate!
+  }
+  ```
+- Files typically modified: parser/dialect_adapter.go
 
 **See full pattern catalog in code comments and previous session notes.**
 

@@ -94,6 +94,7 @@ const (
 	PrecedenceAnd         = parseriface.PrecedenceAnd
 	PrecedenceOr          = parseriface.PrecedenceOr
 	PrecedenceCollate     = parseriface.PrecedenceCollate
+	PrecedenceAssignment  = parseriface.PrecedenceAssignment
 
 	// Grantee types
 	GranteeTypeNone = parseriface.GranteeTypeNone

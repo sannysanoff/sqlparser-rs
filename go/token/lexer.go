@@ -1325,10 +1325,10 @@ func (t *Tokenizer) tokenizeAtSign(state *State) (Token, error) {
 		return TokenAtSign{}, nil
 	}
 
-	if t.dialect.IsIdentifierStart('@') {
-		return t.tokenizeIdentifierOrKeyword(state, "@"+string(next))
-	}
-
+	// Note: Even if the dialect supports '@' as an identifier start (like MySQL),
+	// we should NOT consume @identifier as a single word token. Instead, we return
+	// TokenAtSign and let the identifier be tokenized separately. This ensures
+	// the parser can properly handle @variable constructs.
 	return TokenAtSign{}, nil
 }
 

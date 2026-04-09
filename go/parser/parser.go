@@ -2394,6 +2394,8 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseMysqlGeometryType(p, tok.Span, typeName)
 	case "TABLE":
 		return parseTableType(p, tok.Span)
+	case "ARRAY":
+		return parseArrayType(p, tok.Span)
 	default:
 		// For unknown types, create a custom type
 		// Check for schema-qualified name (e.g., my_schema."MyType")
@@ -2491,6 +2493,51 @@ func parseTableType(p *Parser, spanVal token.Span) (*datatype.TableType, error) 
 	}
 
 	return result, nil
+}
+
+// parseArrayType parses ARRAY<INT>, ARRAY, or Array(T) syntax for various dialects
+// Reference: src/parser/mod.rs:12209-12224
+func parseArrayType(p *Parser, spanVal token.Span) (*datatype.ArrayType, error) {
+	dialect := p.GetDialect()
+
+	// Check if dialect supports ARRAY without element type (e.g., Snowflake: CAST(a AS ARRAY))
+	if dialects.SupportsArrayTypedefWithoutElementType(dialect) {
+		// Check if < follows (angle bracket syntax)
+		if _, isLt := p.PeekToken().Token.(token.TokenLt); !isLt {
+			// No element type specified - return ARRAY without element type
+			return &datatype.ArrayType{
+				SpanVal: spanVal,
+				ElemDef: datatype.ArrayElemTypeDef{
+					Style:    datatype.ArrayNone,
+					DataType: nil,
+				},
+			}, nil
+		}
+	}
+
+	// For dialects that require element type, we need the angle bracket syntax: ARRAY<inner_type>
+	if _, err := p.ExpectToken(token.TokenLt{}); err != nil {
+		return nil, fmt.Errorf("expected < after ARRAY: %w", err)
+	}
+
+	// Parse the inner element type
+	innerType, err := p.ParseDataType()
+	if err != nil {
+		return nil, fmt.Errorf("expected data type after ARRAY<: %w", err)
+	}
+
+	// Expect closing >
+	if _, err := p.ExpectToken(token.TokenGt{}); err != nil {
+		return nil, fmt.Errorf("expected > to close ARRAY type: %w", err)
+	}
+
+	return &datatype.ArrayType{
+		SpanVal: spanVal,
+		ElemDef: datatype.ArrayElemTypeDef{
+			Style:    datatype.ArrayAngleBracket,
+			DataType: innerType,
+		},
+	}, nil
 }
 
 // parseVarcharType parses VARCHAR [(n)]
