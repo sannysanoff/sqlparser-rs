@@ -658,46 +658,91 @@ func parseSelectModifiers(p *Parser) (*query.SelectModifiers, *query.Distinct, e
 	modifiers := &query.SelectModifiers{}
 	var distinct *query.Distinct
 
-	modifierKeywords := map[string]func() bool{
-		"ALL": func() bool {
+	modifierKeywords := map[string]func() (bool, error){
+		"ALL": func() (bool, error) {
 			if distinct == nil {
 				dVal := query.DistinctAll
 				distinct = &dVal
-				return true
+				return true, nil
 			}
-			return false
+			return false, fmt.Errorf("Duplicate DISTINCT option: ALL")
 		},
-		"DISTINCT": func() bool {
+		"DISTINCT": func() (bool, error) {
 			if distinct == nil {
 				dVal := query.DistinctDistinct
 				distinct = &dVal
-				return true
+				return true, nil
 			}
-			return false
+			return false, fmt.Errorf("Duplicate DISTINCT option: DISTINCT")
 		},
-		"DISTINCTROW": func() bool {
+		"DISTINCTROW": func() (bool, error) {
 			if distinct == nil {
 				dVal := query.DistinctDistinct // DISTINCTROW is alias for DISTINCT
 				distinct = &dVal
-				return true
+				return true, nil
 			}
-			return false
+			return false, fmt.Errorf("Duplicate DISTINCT option: DISTINCTROW")
 		},
-		"HIGH_PRIORITY":       func() bool { modifiers.HighPriority = true; return true },
-		"STRAIGHT_JOIN":       func() bool { modifiers.StraightJoin = true; return true },
-		"SQL_SMALL_RESULT":    func() bool { modifiers.SqlSmallResult = true; return true },
-		"SQL_BIG_RESULT":      func() bool { modifiers.SqlBigResult = true; return true },
-		"SQL_BUFFER_RESULT":   func() bool { modifiers.SqlBufferResult = true; return true },
-		"SQL_NO_CACHE":        func() bool { modifiers.SqlNoCache = true; return true },
-		"SQL_CALC_FOUND_ROWS": func() bool { modifiers.SqlCalcFoundRows = true; return true },
+		"HIGH_PRIORITY": func() (bool, error) {
+			if modifiers.HighPriority {
+				return false, fmt.Errorf("Duplicate HIGH_PRIORITY")
+			}
+			modifiers.HighPriority = true
+			return true, nil
+		},
+		"STRAIGHT_JOIN": func() (bool, error) {
+			if modifiers.StraightJoin {
+				return false, fmt.Errorf("Duplicate STRAIGHT_JOIN")
+			}
+			modifiers.StraightJoin = true
+			return true, nil
+		},
+		"SQL_SMALL_RESULT": func() (bool, error) {
+			if modifiers.SqlSmallResult {
+				return false, fmt.Errorf("Duplicate SQL_SMALL_RESULT")
+			}
+			modifiers.SqlSmallResult = true
+			return true, nil
+		},
+		"SQL_BIG_RESULT": func() (bool, error) {
+			if modifiers.SqlBigResult {
+				return false, fmt.Errorf("Duplicate SQL_BIG_RESULT")
+			}
+			modifiers.SqlBigResult = true
+			return true, nil
+		},
+		"SQL_BUFFER_RESULT": func() (bool, error) {
+			if modifiers.SqlBufferResult {
+				return false, fmt.Errorf("Duplicate SQL_BUFFER_RESULT")
+			}
+			modifiers.SqlBufferResult = true
+			return true, nil
+		},
+		"SQL_NO_CACHE": func() (bool, error) {
+			if modifiers.SqlNoCache {
+				return false, fmt.Errorf("Duplicate SQL_NO_CACHE")
+			}
+			modifiers.SqlNoCache = true
+			return true, nil
+		},
+		"SQL_CALC_FOUND_ROWS": func() (bool, error) {
+			if modifiers.SqlCalcFoundRows {
+				return false, fmt.Errorf("Duplicate SQL_CALC_FOUND_ROWS")
+			}
+			modifiers.SqlCalcFoundRows = true
+			return true, nil
+		},
 	}
 
 	for {
 		found := false
 		for kw, setFn := range modifierKeywords {
 			if p.ParseKeyword(kw) {
-				setFn()
-				found = true
+				ok, err := setFn()
+				if err != nil {
+					return nil, nil, err
+				}
+				found = ok
 				break
 			}
 		}

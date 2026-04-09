@@ -1708,6 +1708,12 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 		case "HASH":
 			hash := statement.IndexTypeHash
 			return &hash
+		case "BLOOM":
+			bloom := statement.IndexTypeBloom
+			return &bloom
+		case "BRIN":
+			brin := statement.IndexTypeBrin
+			return &brin
 		default:
 			return nil
 		}

@@ -2918,6 +2918,8 @@ const (
 	IndexTypeNone IndexType = iota
 	IndexTypeBTree
 	IndexTypeHash
+	IndexTypeBloom // PostgreSQL bloom index
+	IndexTypeBrin  // PostgreSQL BRIN index
 )
 
 func (i IndexType) String() string {
@@ -2926,6 +2928,10 @@ func (i IndexType) String() string {
 		return "BTREE"
 	case IndexTypeHash:
 		return "HASH"
+	case IndexTypeBloom:
+		return "bloom"
+	case IndexTypeBrin:
+		return "brin"
 	default:
 		return ""
 	}

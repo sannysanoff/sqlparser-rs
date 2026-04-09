@@ -151,14 +151,14 @@ func TestPostgresCreateAnonymousIndex(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:2703
 func TestPostgresCreateBloom(t *testing.T) {
 	pg := pg()
-	pg.VerifiedStmt(t, "CREATE INDEX ON t USING bloom(a)")
+	pg.VerifiedStmt(t, "CREATE INDEX ON t USING bloom (a)")
 }
 
 // TestPostgresCreateBrin tests CREATE INDEX USING brin
 // Reference: tests/sqlparser_postgres.rs:2866
 func TestPostgresCreateBrin(t *testing.T) {
 	pg := pg()
-	pg.VerifiedStmt(t, "CREATE INDEX ON t USING brin(a)")
+	pg.VerifiedStmt(t, "CREATE INDEX ON t USING brin (a)")
 }
 
 // TestPostgresCopyFromStdin tests COPY FROM STDIN
