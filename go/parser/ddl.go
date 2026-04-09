@@ -1218,9 +1218,10 @@ func parseBitType(p *Parser, span token.Span) (datatype.DataType, error) {
 	}, nil
 }
 
-// parseBitVaryingType parses VARBIT[(n)] data type (PostgreSQL alias for BIT VARYING)
-func parseBitVaryingType(p *Parser, span token.Span) (*datatype.BitVaryingType, error) {
-	result := &datatype.BitVaryingType{SpanVal: span}
+// parseVarBitType parses VARBIT[(n)] data type (PostgreSQL alias for BIT VARYING)
+// Returns VarBitType which serializes to "VARBIT" not "BIT VARYING"
+func parseVarBitType(p *Parser, span token.Span) (*datatype.VarBitType, error) {
+	result := &datatype.VarBitType{SpanVal: span}
 
 	// Parse optional length like VARBIT(43)
 	if p.ConsumeToken(token.TokenLParen{}) {
@@ -1229,6 +1230,37 @@ func parseBitVaryingType(p *Parser, span token.Span) (*datatype.BitVaryingType, 
 			p.AdvanceToken()
 			if val, err := strconv.ParseUint(numTok.Value, 10, 64); err == nil {
 				result.Length = &val
+			}
+		}
+		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
+}
+
+// parseIntervalType parses INTERVAL [(precision)] data type
+// Reference: src/parser/mod.rs:12151
+func parseIntervalType(p *Parser, spanVal token.Span) (*datatype.IntervalType, error) {
+	result := &datatype.IntervalType{
+		SpanVal: spanVal,
+	}
+
+	// Check if dialect supports interval options (fields, precision)
+	if p.GetDialect().SupportsIntervalOptions() {
+		// Try to parse optional interval fields (YEAR, MONTH, DAY, etc.)
+		// For now, we just parse the precision as it's the most common case
+		// Full interval fields parsing can be added later if needed
+	}
+
+	// Check for optional precision specification like INTERVAL(0)
+	if p.ConsumeToken(token.TokenLParen{}) {
+		tok := p.PeekToken()
+		if numTok, ok := tok.Token.(token.TokenNumber); ok {
+			p.AdvanceToken()
+			if val, err := strconv.ParseUint(numTok.Value, 10, 64); err == nil {
+				result.Precision = &val
 			}
 		}
 		if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {

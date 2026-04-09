@@ -1718,9 +1718,10 @@ func (c *CreateTrigger) String() string {
 // DropTrigger represents a DROP TRIGGER statement
 type DropTrigger struct {
 	BaseStatement
-	IfExists  bool
-	Name      *ast.ObjectName
-	TableName *ast.ObjectName // Optional ON table_name
+	IfExists     bool
+	Name         *ast.ObjectName
+	TableName    *ast.ObjectName    // Optional ON table_name
+	DropBehavior *expr.DropBehavior // Optional CASCADE or RESTRICT
 }
 
 func (d *DropTrigger) statementNode() {}
@@ -1735,6 +1736,10 @@ func (d *DropTrigger) String() string {
 	if d.TableName != nil {
 		f.WriteString(" ON ")
 		f.WriteString(d.TableName.String())
+	}
+	if d.DropBehavior != nil {
+		f.WriteString(" ")
+		f.WriteString(d.DropBehavior.String())
 	}
 	return f.String()
 }

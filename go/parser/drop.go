@@ -652,10 +652,21 @@ func parseDropTrigger(p *Parser) (ast.Statement, error) {
 		tableName = tn
 	}
 
+	// Parse optional CASCADE or RESTRICT
+	var dropBehavior *expr.DropBehavior
+	if p.ParseKeyword("CASCADE") {
+		behavior := expr.DropBehaviorCascade
+		dropBehavior = &behavior
+	} else if p.ParseKeyword("RESTRICT") {
+		behavior := expr.DropBehaviorRestrict
+		dropBehavior = &behavior
+	}
+
 	return &statement.DropTrigger{
-		IfExists:  ifExists,
-		Name:      triggerName,
-		TableName: tableName,
+		IfExists:     ifExists,
+		Name:         triggerName,
+		TableName:    tableName,
+		DropBehavior: dropBehavior,
 	}, nil
 }
 

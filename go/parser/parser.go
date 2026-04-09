@@ -2346,6 +2346,8 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseTimestampNtzType(p, tok.Span)
 	case "DATETIME":
 		return parseDatetimeType(p, tok.Span)
+	case "INTERVAL":
+		return parseIntervalType(p, tok.Span)
 	case "FLOAT":
 		return parseFloatType(p, tok.Span)
 	case "DOUBLE":
@@ -2386,7 +2388,8 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return parseBitType(p, tok.Span)
 	case "VARBIT":
 		// VARBIT is an alias for BIT VARYING in PostgreSQL
-		return parseBitVaryingType(p, tok.Span)
+		// Returns VarBitType which serializes to "VARBIT" not "BIT VARYING"
+		return parseVarBitType(p, tok.Span)
 	case "GEOMETRY", "POINT", "LINESTRING", "POLYGON", "GEOMCOLLECTION", "MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON":
 		return parseMysqlGeometryType(p, tok.Span, typeName)
 	case "TABLE":

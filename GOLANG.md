@@ -1,5 +1,44 @@
 # Go SQL Parser Development Guide
 
+## Session 87 Summary: VARBIT, INTERVAL Precision, DROP TRIGGER CASCADE (April 9, 2026)
+
+**Major Fixes:**
+
+Fixed 3+ tests by implementing missing data type and DDL functionality:
+
+1. **VARBIT Type Serialization** (parser/ddl.go, parser/parser.go)
+   - Root cause: `parseBitVaryingType()` returned `BitVaryingType` which serializes to "BIT VARYING"
+   - When parsing `CREATE TABLE foo (x VARBIT)`, the output was "BIT VARYING" not "VARBIT"
+   - Fixed by creating `parseVarBitType()` that returns `VarBitType` which serializes to "VARBIT"
+   - Reference: src/parser/mod.rs:12104 - Rust has separate DataType::VarBit vs DataType::BitVarying
+
+2. **INTERVAL Data Type with Precision** (parser/ddl.go, parser/parser.go)
+   - Root cause: Missing INTERVAL case in `parseBaseDataType()` 
+   - PostgreSQL supports `CREATE TABLE t (i INTERVAL(0))` syntax
+   - Fixed by adding INTERVAL case to `parseBaseDataType()` in parser/parser.go
+   - Created `parseIntervalType()` to parse optional precision like INTERVAL(0), INTERVAL(6)
+
+3. **DROP TRIGGER with CASCADE/RESTRICT** (ast/statement/ddl.go, parser/drop.go)
+   - Root cause: `DropTrigger` struct missing `DropBehavior` field
+   - PostgreSQL syntax: `DROP TRIGGER IF EXISTS name ON table CASCADE`
+   - Fixed by adding `DropBehavior *expr.DropBehavior` field to DropTrigger struct
+   - Updated `parseDropTrigger()` to parse optional CASCADE/RESTRICT keywords
+   - Updated `String()` method to include drop behavior in output
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,518 lines | 133% |
+| Tests | 49,886 lines | 14,003 lines | 28% |
+| **Test Status** | - | **~785 passing, ~37 failing** (was ~782 passing, ~40 failing) |
+
+**New Patterns Documented:**
+- **Pattern E312**: VARBIT vs BIT VARYING - Parse VARBIT keyword into VarBitType (serializes to "VARBIT") not BitVaryingType (serializes to "BIT VARYING")
+- **Pattern E313**: INTERVAL data type parsing - Add INTERVAL case to parseBaseDataType(), parse optional precision in parentheses
+- **Pattern E314**: DROP statement CASCADE/RESTRICT - Add DropBehavior field to drop statements, parse CASCADE/RESTRICT keywords at end
+
+---
+
 ## Session 86 Summary: INSERT RETURNING, REPLACE INTO, FETCH, FOREIGN KEY Index Name, Reserved Keywords Fix (April 9, 2026)
 
 **Major Fixes:**
@@ -469,35 +508,30 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 85 Complete**
+**Latest Update: April 9, 2026 - Session 87 Complete**
 
 **Summary:**
-- **Test Functions:** ~780 passing, ~42 failing (~94.9% pass rate)
-- **100% Passing Test Suites:** Snowflake, Regression (all tests passing!)
+- **Test Functions:** ~785 passing, ~37 failing (~95.5% pass rate)
+- **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~22 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, fetch, copy from error handling
-  2. **MySQL** (~12 failures): foreign key with index name, prefix key parts, show extended full, variable assignment, optimizer hints edge cases
+  1. **PostgreSQL** (~17 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, copy from error handling, interval with fields
+  2. **MySQL** (~11 failures): foreign key with index name (fixed), prefix key parts, show extended full, variable assignment (:= operator), optimizer hints edge cases
   3. **DDL** (~3 failures): CREATE INDEX USING positions, Hive array types, multiple ON DELETE in constraints
-  4. **DML** (~3 failures): INSERT with RETURNING, SQLite INSERT variants
-  5. **Query** (~2 failures): SELECT without projection, IN with UNION
+  4. **Query** (~2 failures): SELECT without projection, IN with UNION
+  5. **Main Package** (~4 failures): NOT precedence, SET variable subquery
+- **Recently Fixed (Session 87):**
+  1. **VARBIT type** - Changed parseVarBitType to return VarBitType (serializes to "VARBIT") not BitVaryingType (serializes to "BIT VARYING")
+  2. **INTERVAL data type** - Added INTERVAL case to parseBaseDataType with optional precision parsing
+  3. **DROP TRIGGER CASCADE** - Added DropBehavior field to DropTrigger struct, parse CASCADE/RESTRICT
+- **Recently Fixed (Session 86):**
+  1. **INSERT SELECT RETURNING** - Added RETURNING to reserved column alias keywords
+  2. **SQLite REPLACE INTO** - Fixed parseInsertInternal to check for REPLACE token
+  3. **PostgreSQL FETCH** - Fixed parseFetchNumber to avoid IN being treated as operator
+  4. **MySQL FOREIGN KEY index name** - Added parsing for optional index name after FOREIGN KEY
 - **Recently Fixed (Session 85):**
   1. **DECLARE cursor LIMIT** - Fixed query extraction to properly include LIMIT clause in DECLARE FOR statements
   2. **DML in CTEs** - Added support for UPDATE/INSERT/DELETE in WITH clause (PostgreSQL feature)
   3. **OFFSET clause** - Fixed OFFSET being treated as column alias, added to reserved keywords
-- **Recently Fixed (Session 84):**
-  1. **WITH ORDINALITY** - PostgreSQL table function syntax support
-  2. **CREATE INDEX WITH clause** - Storage parameters parsing with proper spacing
-  3. **PARTITION BY** - CREATE TABLE partitioning for PostgreSQL/BigQuery
-- **Recently Fixed (Session 83):**
-  1. **USING INDEX constraints** - PostgreSQL PRIMARY KEY USING INDEX and UNIQUE USING INDEX support
-  2. **SHOW statement** - Fixed serialization to use space separator
-  3. **Data type canonical form** - Updated tests to use UPPERCASE data types
-- **Recently Fixed (Session 81):**
-  1. **DROP DOMAIN** - Full implementation with CASCADE/RESTRICT support
-  2. **DROP PROCEDURE** - Complex argument parsing with IN/OUT/INOUT modes and defaults
-  3. **ALTER TYPE** - Full operations support: RENAME TO, ADD VALUE, RENAME VALUE
-  4. **Dollar-quoted string tests** - Updated to match canonical form with AS keyword
-  5. **CREATE OPERATOR validation** - Added duplicate FUNCTION clause detection
 
 ---
 
@@ -1262,10 +1296,14 @@ Changed two lines in `parseSubqueryWithSetOps()`:
 
 *(When history exceeds 100 lines, older sessions are archived here with one-line summaries)*
 
+### Sessions 86-87 (April 9, 2026)
+- **Session 87**: VARBIT, INTERVAL precision, DROP TRIGGER CASCADE (+3 tests) - ~785 passing, 37 failing
+- **Session 86**: INSERT RETURNING, REPLACE INTO, FETCH, FOREIGN KEY index name (+5 tests) - ~782 passing, 40 failing
+
 ### Sessions 81-85 (April 9, 2026)
 - **Session 85**: DECLARE cursor, DML in CTEs, OFFSET clause fix (+3 features) - ~780 passing, 42 failing
 - **Session 84**: WITH ORDINALITY, CREATE INDEX WITH, PARTITION BY (+3 major features) - ~768 passing, 45 failing
-- **Session 83**: PostgreSQL USING INDEX, SHOW statement, Data type canonical form (+4 tests) - ~509 passing, 42 failing
+- **Session 83**: PostgreSQL USING INDEX, SHOW statement, Data type canonical form (+4 tests) - ~763 passing, 50 failing
 - **Session 82**: ALTER SCHEMA, FOREIGN KEY MATCH, ALTER OPERATOR/FAMILY (+6 tests) - ~763 passing, 50 failing
 - **Session 81**: DROP DOMAIN/PROCEDURE, ALTER TYPE (+4 tests) - ~753 passing, 56 failing
 
@@ -2047,6 +2085,70 @@ Pattern E306: OFFSET as Reserved Column Alias
   }
   ```
 - Files typically modified: parser/query.go
+
+Pattern E312: VARBIT vs BIT VARYING Type Parsing
+- When: Parsing PostgreSQL VARBIT data type
+- Problem: VARBIT keyword creates BitVaryingType which serializes to "BIT VARYING", but test expects "VARBIT"
+- Solution: Create separate parseVarBitType() function that returns VarBitType (serializes to "VARBIT")
+- Example:
+  ```go
+  case "VARBIT":
+      return parseVarBitType(p, tok.Span)  // Returns VarBitType, serializes to "VARBIT"
+  
+  func parseVarBitType(p *Parser, span token.Span) (*datatype.VarBitType, error) {
+      result := &datatype.VarBitType{SpanVal: span}
+      // Parse optional length like VARBIT(43)
+      if p.ConsumeToken(token.TokenLParen{}) {
+          // ... parse precision
+      }
+      return result, nil
+  }
+  ```
+- Files typically modified: parser/ddl.go, parser/parser.go
+
+Pattern E313: INTERVAL Data Type Parsing
+- When: Parsing PostgreSQL INTERVAL data type with optional precision
+- Problem: Missing INTERVAL case in parseBaseDataType(), syntax like `CREATE TABLE t (i INTERVAL(0))` fails
+- Solution: Add INTERVAL case to parseBaseDataType(), create parseIntervalType() for optional precision
+- Example:
+  ```go
+  case "INTERVAL":
+      return parseIntervalType(p, tok.Span)
+  
+  func parseIntervalType(p *Parser, spanVal token.Span) (*datatype.IntervalType, error) {
+      result := &datatype.IntervalType{SpanVal: spanVal}
+      if p.ConsumeToken(token.TokenLParen{}) {
+          // Parse precision number
+          result.Precision = &parsedValue
+          p.ExpectToken(token.TokenRParen{})
+      }
+      return result, nil
+  }
+  ```
+- Files typically modified: parser/parser.go, parser/ddl.go
+
+Pattern E314: DROP Statement CASCADE/RESTRICT Support
+- When: Implementing DROP ... CASCADE/RESTRICT for PostgreSQL compatibility
+- Problem: DropTrigger and other DROP statements missing DropBehavior field for CASCADE/RESTRICT
+- Solution: Add `DropBehavior *expr.DropBehavior` field, parse keywords at end of statement
+- Example:
+  ```go
+  // In struct:
+  type DropTrigger struct {
+      // ... other fields ...
+      DropBehavior *expr.DropBehavior  // Optional CASCADE or RESTRICT
+  }
+  
+  // In parser:
+  if p.ParseKeyword("CASCADE") {
+      behavior := expr.DropBehaviorCascade
+      dropBehavior = &behavior
+  } else if p.ParseKeyword("RESTRICT") {
+      behavior := expr.DropBehaviorRestrict
+      dropBehavior = &behavior
+  }
+  ```
+- Files typically modified: ast/statement/ddl.go, parser/drop.go
 
 **See full pattern catalog in code comments and previous session notes.**
 
