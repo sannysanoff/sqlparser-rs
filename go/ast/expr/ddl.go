@@ -3635,8 +3635,9 @@ func (t TriggerExecBodyType) String() string {
 
 // FunctionDesc represents a function description.
 type FunctionDesc struct {
-	Name *ast.ObjectName
-	Args []Expr
+	Name      *ast.ObjectName
+	Args      []Expr
+	HasParens bool // true if function was called with parentheses, even if empty
 }
 
 func (f *FunctionDesc) exprNode()        {}
@@ -3646,8 +3647,8 @@ func (f *FunctionDesc) Span() token.Span { return token.Span{} }
 func (f *FunctionDesc) String() string {
 	var sb strings.Builder
 	sb.WriteString(f.Name.String())
-	// Only add () if there are arguments
-	if len(f.Args) > 0 {
+	// Add () if there are arguments OR if parentheses were explicitly present
+	if f.HasParens || len(f.Args) > 0 {
 		sb.WriteString("(")
 		for i, arg := range f.Args {
 			if i > 0 {

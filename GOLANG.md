@@ -1,5 +1,51 @@
 # Go SQL Parser Development Guide
 
+## Session 90 Summary: Massive Code Port - Dollar-Quoted Strings, CREATE FUNCTION, Compound Expressions (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 4 major features, fixing tests across MySQL and PostgreSQL:
+
+1. **Dollar-Quoted String Tokenization in CREATE FUNCTION** (token/lexer.go)
+   - Fixed `CREATE FUNCTION ... AS $$ ... $$` for PostgreSQL
+   - Root cause: `$$` was being treated as placeholder instead of dollar-quoted string
+   - Fixed by treating `$$` (empty tag) always as dollar-quoted string start, even in dialects with dollar placeholders
+
+2. **DROP FUNCTION IF EXISTS** (parser/drop.go)
+   - Fixed `DROP FUNCTION IF EXISTS func_name` syntax
+   - Root cause: `parseDropFunction` didn't consume the "FUNCTION" keyword before checking for "IF EXISTS"
+
+3. **FunctionDesc Serialization with Empty Parens** (ast/expr/ddl.go, parser/create.go, parser/drop.go)
+   - Fixed `EXECUTE FUNCTION func_name()` serialization to include empty parentheses
+   - Root cause: `FunctionDesc.String()` only output parens if len(args) > 0
+   - Fixed by adding `HasParens` field to track if parens were explicitly present
+
+4. **MySQL Numeric-Prefixed Identifiers in Compound Expressions** (token/lexer.go, parser/core.go)
+   - Fixed `SELECT t.15to29 FROM t` syntax for MySQL
+   - Root cause: Tokenizer combined `.15` with `to29` into single word token `.15to29`
+   - Fixed by detecting field access pattern (period + digits + letters) and emitting separate period token
+
+5. **MySQL Dollar Sign Identifiers** (token/lexer.go)
+   - Fixed `SELECT $a$` syntax for MySQL
+   - Root cause: `$a$` was being parsed as dollar-quoted string even though MySQL doesn't support them
+   - Fixed by checking `SupportsDollarQuotedString()` before trying to parse as dollar-quoted string
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,457 lines | 133% |
+| Tests | 49,886 lines | 14,243 lines | 29% |
+| **Test Status** | - | **788 passing, 28 failing (96.6% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E321**: Dollar-quoted string empty tag - `$$` should always be dollar-quoted string, even in dialects with dollar placeholders
+- **Pattern E322**: DROP FUNCTION keyword consumption - ParseFunction-like statements must consume their keyword before checking for IF EXISTS
+- **Pattern E323**: Function call parentheses tracking - Add `HasParens` field to distinguish `func()` from `func` in serialization
+- **Pattern E324**: Numeric-prefixed identifiers after dot - In MySQL, `t.15to29` should be tokenized as `t` + `.` + `15to29`, not `t` + `.15to29`
+- **Pattern E325**: Dollar-quoted string dialect check - Check `SupportsDollarQuotedString()` before parsing `$tag$` syntax
+
+---
+
 ## Session 89 Summary: MySQL Variable Assignment, ARRAY Types, Comment Parsing (April 9, 2026)
 
 **Major Fixes:**
@@ -535,6 +581,49 @@ Operations []expr.AlterTypeOperation
 **Fix:** Change from slice of pointers to slice of interface type
 **Files:** ast/statement/ddl.go
 
+### Error Type 8: Tokenizer Combining Characters Incorrectly
+**Problem:** Tokenizer combines characters that should be separate tokens (e.g., `.15to29` as one token instead of `.` + `15to29`)
+**Example:**
+```go
+// Wrong: .15to29 becomes TokenWord(".15to29")
+// Right: .15to29 becomes TokenPeriod + TokenWord("15to29")
+```
+**Detection:** Tests fail with "expected: t.15to29, actual: t AS .15to29" or parser errors about unexpected tokens
+**Fix:** In tokenizer, detect patterns that should be separate tokens and return them separately. Use state.Clone() to lookahead without consuming.
+**Files:** token/lexer.go
+
+### Error Type 9: Parser Not Consuming Keyword Before Optional Clause
+**Problem:** Parser functions for DROP/CREATE statements don't consume their keyword before checking for optional clauses like IF EXISTS
+**Example:**
+```go
+// Wrong:
+func parseDropFunction(p *Parser) {
+    ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})  // Checks for IF but current token is FUNCTION!
+    // ...
+}
+
+// Right:
+func parseDropFunction(p *Parser) {
+    p.ExpectKeyword("FUNCTION")  // Consume FUNCTION first
+    ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})  // Now checks correctly
+    // ...
+}
+```
+**Detection:** Parser error: "Expected: end of statement, found: IF"
+**Fix:** Add ExpectKeyword() call at start of parse function to consume the keyword
+**Files:** parser/drop.go, parser/create.go
+
+### Error Type 10: Dollar-Quoted String vs Placeholder Confusion
+**Problem:** `$$` or `$tag$` is treated as placeholder instead of dollar-quoted string start
+**Example:**
+```go
+// Wrong: $$ becomes TokenPlaceholder("$") in PostgreSQL
+// Right: $$ becomes TokenDollarQuotedString("")
+```
+**Detection:** Parser error: "Expected: string literal, found: $$"
+**Fix:** In tokenizeDollar(), treat `$$` (empty tag) always as dollar-quoted string, even in dialects with dollar placeholders
+**Files:** token/lexer.go
+
 ---
 
 ## IMMUTABLE: Development Methodology
@@ -585,17 +674,23 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 89 Complete**
+**Latest Update: April 9, 2026 - Session 90 Complete**
 
 **Summary:**
-- **Test Functions:** ~788 passing, ~35 failing (~95.7% pass rate)
+- **Test Functions:** ~788 passing, ~28 failing (~96.6% pass rate)
 - **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
 - **Major Areas Needing Implementation:**
   1. **PostgreSQL** (~21 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, copy from error handling
-  2. **MySQL** (~8 failures): prefix key parts, show extended full, CREATE TRIGGER, escaped strings
+  2. **MySQL** (~4 failures): prefix key parts, show extended full, CREATE TRIGGER, escaped strings
   3. **DDL** (~2 failures): CREATE INDEX USING positions, multiple ON DELETE validation
   4. **Query** (~2 failures): SELECT without projection, IN with UNION
   5. **Main Package** (~4 failures): NOT precedence, SET variable subquery, SET variable errors
+- **Recently Fixed (Session 90):**
+  1. **Dollar-quoted strings in CREATE FUNCTION** - Fixed `$$` being treated as placeholder in PostgreSQL
+  2. **DROP FUNCTION IF EXISTS** - Fixed parser not consuming FUNCTION keyword before checking IF EXISTS
+  3. **FunctionDesc empty parens** - Added HasParens field to track explicit empty parentheses
+  4. **MySQL numeric-prefixed identifiers** - Fixed `t.15to29` tokenization as `t` + `.` + `15to29`
+  5. **MySQL dollar sign identifiers** - Fixed `$a$` being parsed as dollar-quoted string in MySQL
 - **Recently Fixed (Session 89):**
   1. **MySQL := assignment operator** - Added PrecedenceAssignment to MySQL dialect, fixed @ tokenization
   2. **Hive ARRAY<INT> type** - Added parseArrayType() with support for angle bracket and element-less syntax

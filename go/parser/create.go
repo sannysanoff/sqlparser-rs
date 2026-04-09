@@ -3227,7 +3227,9 @@ func parseTriggerExecBody(p *Parser) (*expr.TriggerExecBody, error) {
 	}
 
 	var args []expr.Expr
+	hasParens := false
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		hasParens = true
 		p.NextToken() // consume (
 		if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {
 			for {
@@ -3249,8 +3251,9 @@ func parseTriggerExecBody(p *Parser) (*expr.TriggerExecBody, error) {
 	return &expr.TriggerExecBody{
 		ExecType: execType,
 		FuncDesc: &expr.FunctionDesc{
-			Name: funcName,
-			Args: args,
+			Name:      funcName,
+			Args:      args,
+			HasParens: hasParens,
 		},
 	}, nil
 }

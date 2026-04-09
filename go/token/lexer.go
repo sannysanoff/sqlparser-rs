@@ -765,6 +765,30 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 		afterPeriod, _ := state.PeekN(1)
 
 		if unicode.IsDigit(afterPeriod) {
+			// Period followed by digits
+			// In dialects with numeric prefix identifiers (like MySQL), check if this looks
+			// like a compound field access (e.g., t.15to29) vs a decimal number (.15)
+			// If followed by digits then letters, treat as period + identifier, not a decimal
+			if t.dialect.SupportsNumericPrefix() && s.String() == "" {
+				// Check if there's a letter after the digits (e.g., .15to29)
+				// by looking ahead: .15to29 should be . + 15to29, not .15 + to29
+				clone := state.Clone()
+				clone.Next() // consume '.'
+				// Consume digits
+				for {
+					ch, ok := clone.Peek()
+					if !ok || !unicode.IsDigit(ch) {
+						break
+					}
+					clone.Next()
+				}
+				// If next char after digits is a letter, this is field access, not a decimal
+				if ch, ok := clone.Peek(); ok && unicode.IsLetter(ch) {
+					// Return just the period, let the next tokenization handle 15to29 as word
+					state.Next() // consume the '.'
+					return TokenPeriod{}, nil
+				}
+			}
 			// Period followed by digits - consume period and fractional part
 			s.WriteRune(next)
 			state.Next()
@@ -833,11 +857,15 @@ func (t *Tokenizer) tokenizeNumberOrPeriod(state *State, prevToken Token) (Token
 
 	// Check for numeric prefix identifiers (e.g., 123abc)
 	// But don't combine if there's a period between (e.g., 23.parquet should be 23 + . + parquet)
+	// Also don't combine if the number starts with a period (e.g., .15to29 should be .15 + to29)
 	if t.dialect.SupportsNumericPrefix() {
 		if exponent == "" {
 			// Check if next char is a period - if so, don't combine
 			if next, ok := state.Peek(); ok && next == '.' {
 				// Period follows the number - don't combine with following word
+			} else if strings.HasPrefix(s.String(), ".") {
+				// Number starts with period (e.g., .15) - don't combine with following word
+				// The period should be a separate token
 			} else {
 				word := state.TakeWhile(t.dialect.IsIdentifierPart)
 				if word != "" {
@@ -1380,10 +1408,13 @@ func (t *Tokenizer) tokenizeQuestion(state *State) (Token, error) {
 func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 	state.Next() // consume '$'
 
-	// Check for dollar-quoted string (e.g., $$content$$)
+	// Check for dollar-quoted string (e.g., $$content$$ or $tag$content$tag$)
 	// This is only supported by some dialects (PostgreSQL, Generic)
 	// If the dialect supports dollar placeholders, then `$$` is treated as a placeholder, not a string
-	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
+	// However, `$$` specifically (empty tag) should always be treated as dollar-quoted string
+	if next, ok := state.Peek(); ok && next == '$' {
+		// Always treat $$ as dollar-quoted string (even if dialect supports dollar placeholders)
+		// $$ has an empty tag, so it's unambiguously a dollar-quoted string start
 		state.Next() // consume second '$'
 
 		var s strings.Builder
@@ -1439,8 +1470,9 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 	val := value.String()
 
 	// Check for tagged dollar-quoted string
-	// If the dialect supports dollar placeholders, don't look for the end delimiter
-	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
+	// Only if the dialect supports dollar-quoted strings AND doesn't support dollar placeholders
+	if next, ok := state.Peek(); ok && next == '$' &&
+		t.dialect.SupportsDollarQuotedString() && !t.dialect.SupportsDollarPlaceholder() {
 		state.Next() // consume '$'
 
 		var s strings.Builder
@@ -1470,7 +1502,23 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 		return TokenDollarQuotedString{DollarQuotedString{Value: content, Tag: &tag}}, nil
 	}
 
+	// If the dialect supports $ in identifiers, treat this as an identifier
+	// rather than a placeholder
+	if t.dialect.IsIdentifierStart('$') {
+		// Treat as identifier: $ + val + rest of identifier characters
+		return t.tokenizeIdentifierWithPrefix(state, "$"+val)
+	}
+
 	return TokenPlaceholder{Value: "$" + val}, nil
+}
+
+// tokenizeIdentifierWithPrefix tokenizes an identifier with a given prefix
+func (t *Tokenizer) tokenizeIdentifierWithPrefix(state *State, prefix string) (Token, error) {
+	var s strings.Builder
+	s.WriteString(prefix)
+	s.WriteString(state.TakeWhile(t.dialect.IsIdentifierPart))
+	word := s.String()
+	return MakeWord(word, nil), nil
 }
 
 func (t *Tokenizer) tokenizeIdentifier(state *State) (Token, error) {

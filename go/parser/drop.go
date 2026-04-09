@@ -356,6 +356,11 @@ func parseDropFunction(p *Parser) (ast.Statement, error) {
 	// DROP FUNCTION [ IF EXISTS ] function_name [ ( [ [ argmode ] [ argname ] argtype [, ...] ] ) ] [, ...]
 	// [ CASCADE | RESTRICT ]
 
+	// Consume FUNCTION keyword
+	if _, err := p.ExpectKeyword("FUNCTION"); err != nil {
+		return nil, err
+	}
+
 	// Parse IF EXISTS
 	ifExists := p.ParseKeywords([]string{"IF", "EXISTS"})
 
@@ -400,12 +405,14 @@ func parseFunctionDesc(p *Parser) (*expr.FunctionDesc, error) {
 	}
 
 	funcDesc := &expr.FunctionDesc{
-		Name: name,
-		Args: nil, // No args if no parentheses
+		Name:      name,
+		Args:      nil, // No args if no parentheses
+		HasParens: false,
 	}
 
 	// Check for optional argument list
 	if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+		funcDesc.HasParens = true
 		p.AdvanceToken() // consume (
 
 		// Check for empty argument list: ()
