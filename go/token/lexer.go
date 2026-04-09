@@ -1382,7 +1382,8 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 
 	// Check for dollar-quoted string (e.g., $$content$$)
 	// This is only supported by some dialects (PostgreSQL, Generic)
-	if next, ok := state.Peek(); ok && next == '$' && t.dialect.SupportsDollarQuotedString() {
+	// If the dialect supports dollar placeholders, then `$$` is treated as a placeholder, not a string
+	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
 		state.Next() // consume second '$'
 
 		var s strings.Builder
@@ -1438,26 +1439,35 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 	val := value.String()
 
 	// Check for tagged dollar-quoted string
-	if next, ok := state.Peek(); ok && next == '$' && t.dialect.SupportsDollarQuotedString() {
+	// If the dialect supports dollar placeholders, don't look for the end delimiter
+	if next, ok := state.Peek(); ok && next == '$' && !t.dialect.SupportsDollarPlaceholder() {
 		state.Next() // consume '$'
 
 		var s strings.Builder
 		endDelimiter := "$" + val + "$"
+		found := false
 
 		for {
 			ch, ok := state.Next()
 			if !ok {
-				return nil, NewTokenizerError("Unterminated dollar-quoted, expected $", state.Location())
+				break
 			}
 
 			s.WriteRune(ch)
 
 			if strings.HasSuffix(s.String(), endDelimiter) {
-				content := strings.TrimSuffix(s.String(), endDelimiter)
-				tag := val
-				return TokenDollarQuotedString{DollarQuotedString{Value: content, Tag: &tag}}, nil
+				found = true
+				break
 			}
 		}
+
+		if !found {
+			return nil, NewTokenizerError("Unterminated dollar-quoted, expected $", state.Location())
+		}
+
+		content := strings.TrimSuffix(s.String(), endDelimiter)
+		tag := val
+		return TokenDollarQuotedString{DollarQuotedString{Value: content, Tag: &tag}}, nil
 	}
 
 	return TokenPlaceholder{Value: "$" + val}, nil
