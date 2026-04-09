@@ -49,6 +49,22 @@ func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.E
 	tok := ep.parser.GetCurrentToken()
 	tokSpan := tok.Span
 
+	// Handle custom binary operators (PostgreSQL)
+	if customOp, ok := tok.Token.(token.TokenCustomBinaryOperator); ok {
+		// Parse right operand
+		right, err := ep.ParseExprWithPrecedence(precedence)
+		if err != nil {
+			return nil, err
+		}
+		return &expr.BinaryOp{
+			Left:             left,
+			Op:               operator.BOpPGCustomBinaryOperator,
+			Right:            right,
+			SpanVal:          mergeSpans(left.Span(), right.Span()),
+			PGCustomOperator: []string{customOp.Value},
+		}, nil
+	}
+
 	// Try to parse as a regular binary operator
 	if op := ep.tokenToBinaryOperator(tok.Token); op != operator.BOpNone {
 		return ep.parseBinaryOp(left, op, precedence, tokSpan)

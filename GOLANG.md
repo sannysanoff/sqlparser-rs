@@ -1,5 +1,38 @@
 # Go SQL Parser Development Guide
 
+## Session 94 Summary: PostgreSQL Custom Operators (April 9, 2026)
+
+**Major Fixes:**
+
+Fixed PostgreSQL custom binary operator `&@` parsing, resolving 1 failing test:
+
+1. **PostgreSQL Custom Operator Tokenization** (token/lexer.go, parser/infix.go, ast/expr/operators.go)
+   - Fixed `tokenizeAmpersand()` to consume additional custom operator characters using `IsCustomOperatorPart()`
+   - Following Rust tokenizer logic at src/tokenizer.rs:1716-1717
+   - Creates `TokenCustomBinaryOperator` with combined value (e.g., "&@")
+   - Fixed `parseInfix()` to handle `TokenCustomBinaryOperator` and capture operator value
+   - Fixed `BinaryOp.String()` to output simple custom operators directly (e.g., `a &@ b`)
+   - Only use `OPERATOR(...)` wrapper for schema-qualified operators (containing ".")
+   - Fixed test: `TestPostgresAmpersandArobase`
+
+2. **Tilde Custom Operator Support** (token/lexer.go)
+   - Also updated `tokenizeTilde()` to support custom operators starting with `~`
+   - Enables operators like `~*`, `~~`, etc. in PostgreSQL dialect
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 83,767 lines | 124% |
+| Tests | 49,886 lines | 14,244 lines | 29% |
+| **Test Status** | - | **~801 passing, ~20 failing (97.5% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E337**: PostgreSQL custom operator tokenization - Use `IsCustomOperatorPart()` in tokenizer to consume additional operator characters, create `TokenCustomBinaryOperator` with combined value
+- **Pattern E338**: Custom operator serialization - Output simple custom operators directly (e.g., `&@`), only use `OPERATOR()` wrapper for schema-qualified operators (containing ".")
+- **Pattern E339**: Custom operator parsing in infix - Handle `TokenCustomBinaryOperator` early in `parseInfix()` before checking other operator types
+
+---
+
 ## Session 93 Summary: Escaped Strings, SELECT Modifiers, Index Types (April 9, 2026)
 
 **Major Fixes:**
@@ -837,17 +870,20 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 93 Complete**
+**Latest Update: April 9, 2026 - Session 94 Complete**
 
 **Summary:**
-- **Test Functions:** ~800 passing, ~19 failing (~97.7% pass rate)
+- **Test Functions:** ~801 passing, ~20 failing (~97.5% pass rate)
 - **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~10 failures): CREATE OPERATOR CLASS, dollar-quoted string error handling, CREATE TABLE alias formatting, delimited identifiers with escape sequences, COPY FROM error handling, UPDATE with FROM, UPDATE in WITH subquery, semicolon handling, INTERVAL data type, ampersand/arobase operators
+  1. **PostgreSQL** (~9 failures): CREATE OPERATOR CLASS, dollar-quoted string error handling, CREATE TABLE alias formatting, delimited identifiers with escape sequences, COPY FROM error handling, UPDATE with FROM, UPDATE in WITH subquery, semicolon handling, INTERVAL data type
   2. **DDL** (~1 failure): multiple ON DELETE validation
   3. **Query** (~2 failures): SELECT without projection, IN with UNION
   4. **Main Package** (~4 failures): NOT precedence, SET variable subquery, SET variable errors, MSSQL transaction
-  5. **MySQL** (~2 failures): SELECT modifiers repeated, DDL index using
+  5. **MySQL** (~3 failures): SELECT modifiers repeated, DDL index using, escaped string roundtrip
+
+**Recently Fixed (Session 94):**
+1. **PostgreSQL Custom Operator `&@`** - Fixed tokenization of `&@` custom operator, proper serialization without OPERATOR() wrapper
 
 **Recently Fixed (Session 93):**
 1. **Escaped String Test Literals** - Fixed Go test strings to use backtick raw strings for proper backslash handling
@@ -858,7 +894,7 @@ Pattern E###: Brief description
 **Line Counts:**
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 90,031 lines | 134% |
+| Source (parser+ast+dialects) | 67,345 lines | 83,767 lines | 124% |
 | Tests | 49,886 lines | 14,244 lines | 29% |
 
 ---

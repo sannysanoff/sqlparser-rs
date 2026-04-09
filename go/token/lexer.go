@@ -1259,6 +1259,23 @@ func (t *Tokenizer) tokenizeAmpersand(state *State) (Token, error) {
 		return TokenOverlap{}, nil
 	}
 
+	// PostgreSQL custom binary operators: consume additional operator characters
+	// Following Rust tokenizer logic at src/tokenizer.rs:1716-1717
+	// See: https://www.postgresql.org/docs/current/sql-createoperator.html
+	if t.dialect.IsCustomOperatorPart(rune(next)) {
+		custom := "&" + string(next)
+		state.Next()
+		for {
+			n, ok := state.Peek()
+			if !ok || !t.dialect.IsCustomOperatorPart(rune(n)) {
+				break
+			}
+			custom += string(n)
+			state.Next()
+		}
+		return TokenCustomBinaryOperator{Value: custom}, nil
+	}
+
 	return TokenAmpersand{}, nil
 }
 
@@ -1303,6 +1320,21 @@ func (t *Tokenizer) tokenizeTilde(state *State) (Token, error) {
 			return TokenDoubleTildeAsterisk{}, nil
 		}
 		return TokenDoubleTilde{}, nil
+	}
+
+	// PostgreSQL custom binary operators: consume additional operator characters
+	if t.dialect.IsCustomOperatorPart(rune(next)) {
+		custom := "~" + string(next)
+		state.Next()
+		for {
+			n, ok := state.Peek()
+			if !ok || !t.dialect.IsCustomOperatorPart(rune(n)) {
+				break
+			}
+			custom += string(n)
+			state.Next()
+		}
+		return TokenCustomBinaryOperator{Value: custom}, nil
 	}
 
 	return TokenTilde{}, nil

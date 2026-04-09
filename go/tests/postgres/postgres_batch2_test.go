@@ -39,7 +39,7 @@ func TestPostgresPgBinaryOps(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:2284
 func TestPostgresAmpersandArobase(t *testing.T) {
 	pg := pg()
-	pg.OneStatementParsesTo(t, "a&@b", "a &@ b")
+	pg.VerifiedExpr(t, "a &@ b")
 }
 
 // TestPostgresPgUnaryOps tests PostgreSQL-specific unary operators
