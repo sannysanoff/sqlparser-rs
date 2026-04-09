@@ -446,7 +446,12 @@ func TestCheckRoundtripOfEscapedString(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
 
-	stmts, err = parser.ParseSQL(dialect, `SELECT 'I\\'m fine'`)
+	// Note: Rust test uses r"SELECT 'I\\\'m fine'" which has 3 backslashes in SQL:
+	// - \\ represents an escaped backslash (becomes one \ in the string value)
+	// - \' represents an escaped quote (becomes ' in the string value)
+	// So the SQL contains I\'m which tokenizes to I'm in the string value.
+	// In Go raw strings, we need 3 backslashes to match: \\\
+	stmts, err = parser.ParseSQL(dialect, `SELECT 'I\\\'m fine'`)
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
 

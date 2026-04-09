@@ -1,5 +1,47 @@
 # Go SQL Parser Development Guide
 
+## Session 101 Summary: FINAL FIX - Escaped String Test Correction (April 9, 2026)
+
+**FINAL STATUS: SQL Parser Go Port Complete - 99.88% Pass Rate**
+
+Fixed the last functional test failure. Now only 1 non-functional failing test remains out of 826 test functions:
+
+**Final Test Counts:**
+| Test Suite | Status | Count |
+|------------|--------|-------|
+| Main tests | 99.9%+ passing | ~260 test functions |
+| DDL tests | **100% passing** | All tests pass |
+| DML tests | **100% passing** | All tests pass |
+| PostgreSQL tests | **100% passing** | All tests pass |
+| Query tests | **100% passing** | All tests pass |
+| Regression tests | **100% passing** | All tests pass |
+| Snowflake tests | **100% passing** | All tests pass |
+| MySQL tests | **100% passing** | All tests pass |
+
+**Remaining Failing Test (1 total - non-functional):**
+1. `TestParseNotPrecedence` - Span mismatch (column 15 vs 16), non-functional per GOLANG.md guidelines. The AST is identical, only source position differs by 1 column.
+
+**Fix Applied:**
+- **File:** `tests/mysql/mysql_test.go` - Fixed `TestCheckRoundtripOfEscapedString`
+- **Issue:** The test had only 2 backslashes (`\\`) but needed 3 (`\\\`) to match the Rust test `r"SELECT 'I\\\'m fine'"`
+- **Root cause:** The Rust SQL has 3 backslashes representing: escaped backslash (`\\`) + escaped quote (`\'`)
+- **Solution:** Updated Go test to use `` `SELECT 'I\\\'m fine'` `` (3 backslashes in raw string = 3 backslashes in SQL)
+
+**Additional Fix:**
+- **File:** `token/lexer.go` - Fixed backslash escape handling in `tokenizeSingleQuotedStringLiteral` and `tokenizeSingleQuotedStringLiteralWithQuotes`
+- **Issue:** `IgnoresWildcardEscapes()` check applied to ALL characters instead of just `%` and `_` (LIKE wildcards)
+- **Solution:** Changed condition to only skip unescaping for `%` and `_` when dialect ignores wildcard escapes
+
+**Final Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | ~90,000 lines | ~134% |
+| Tests | 49,886 lines | ~14,300 lines | ~29% |
+| Test Functions | - | 826 functions | - |
+| **Test Pass Rate** | - | **~99.88%** | 1 non-functional failure |
+
+---
+
 ## Session 100 Summary: PROJECT COMPLETION - Full Rust Test Suite Ported to Go (April 9, 2026)
 
 **FINAL STATUS: SQL Parser Go Port Complete**
@@ -3179,6 +3221,28 @@ Pattern E348: Dollar-Quoted String Tag Parsing
   }
   ```
 - Files typically modified: token/lexer.go (tokenizeDollar)
+
+Pattern E358: Backslash Escape Handling for LIKE Wildcards
+- When: Tokenizing strings with backslash escapes in dialects that ignore wildcard escapes (MySQL)
+- Problem: `IgnoresWildcardEscapes()` applies to ALL characters instead of just `%` and `_`
+- Solution: Only skip unescaping for `%` and `_` wildcards; escape all other characters including quotes
+  ```go
+  // Check if we should unescape or preserve the backslash
+  // Only skip unescaping for LIKE wildcards (% and _) when dialect ignores them
+  shouldUnescape := t.unescape && !(t.dialect.IgnoresWildcardEscapes() && (next == '%' || next == '_'))
+  
+  if shouldUnescape {
+      state.Next()
+      escaped := t.unescapeChar(next)
+      s.WriteRune(escaped)
+  } else {
+      s.WriteRune(ch)  // backslash
+      s.WriteRune(next) // % or _
+      state.Next()
+  }
+  ```
+- Reference: Rust tokenizer.rs:2277-2302 - only checks wildcard escapes for `%` and `_`
+- Files typically modified: token/lexer.go (tokenizeSingleQuotedStringLiteral, tokenizeSingleQuotedStringLiteralWithQuotes)
 
 **See full pattern catalog in code comments and previous session notes.**
 

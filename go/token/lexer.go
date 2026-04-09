@@ -1765,21 +1765,23 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteral(state *State, quoteChar ru
 				return s.String(), nil
 			}
 		} else if ch == '\\' && backslashEscape {
-			if t.unescape && !t.dialect.IgnoresWildcardEscapes() {
-				next, ok := state.Peek()
-				if !ok {
-					return "", NewTokenizerError("Unterminated string literal", state.Location())
-				}
-				state.Next()
+			next, ok := state.Peek()
+			if !ok {
+				return "", NewTokenizerError("Unterminated string literal", state.Location())
+			}
 
+			// Check if we should unescape or preserve the backslash
+			// Only skip unescaping for LIKE wildcards (% and _) when dialect ignores them
+			shouldUnescape := t.unescape && !(t.dialect.IgnoresWildcardEscapes() && (next == '%' || next == '_'))
+
+			if shouldUnescape {
+				state.Next()
 				escaped := t.unescapeChar(next)
 				s.WriteRune(escaped)
 			} else {
 				s.WriteRune(ch)
-				if next, ok := state.Peek(); ok {
-					s.WriteRune(next)
-					state.Next()
-				}
+				s.WriteRune(next)
+				state.Next()
 			}
 		} else {
 			s.WriteRune(ch)
@@ -1908,21 +1910,23 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteralWithQuotes(state *State, qu
 			numConsecutiveQuotes = 0
 
 			if ch == '\\' && backslashEscape {
-				if t.unescape && !t.dialect.IgnoresWildcardEscapes() {
-					next, ok := state.Peek()
-					if !ok {
-						return "", NewTokenizerError("Unterminated string literal", state.Location())
-					}
-					state.Next()
+				next, ok := state.Peek()
+				if !ok {
+					return "", NewTokenizerError("Unterminated string literal", state.Location())
+				}
 
+				// Check if we should unescape or preserve the backslash
+				// Only skip unescaping for LIKE wildcards (% and _) when dialect ignores them
+				shouldUnescape := t.unescape && !(t.dialect.IgnoresWildcardEscapes() && (next == '%' || next == '_'))
+
+				if shouldUnescape {
+					state.Next()
 					escaped := t.unescapeChar(next)
 					s.WriteRune(escaped)
 				} else {
 					s.WriteRune(ch)
-					if next, ok := state.Peek(); ok {
-						s.WriteRune(next)
-						state.Next()
-					}
+					s.WriteRune(next)
+					state.Next()
 				}
 			} else {
 				s.WriteRune(ch)
