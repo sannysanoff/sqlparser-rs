@@ -486,7 +486,14 @@ func parseParenthesizedSetExpr(p *Parser, precedence uint8) (query.SetExpr, erro
 		return nil, err
 	}
 
-	return innerExpr, nil
+	// Wrap the result in QuerySetExpr to preserve parentheses in serialization
+	// This is important for set operations like (SELECT ...) UNION (SELECT ...)
+	// where the parentheses around each SELECT must be preserved
+	return &query.QuerySetExpr{
+		Query: &query.Query{
+			Body: innerExpr,
+		},
+	}, nil
 }
 
 // parseQueryBody parses the body of a query (SELECT, VALUES, etc.)

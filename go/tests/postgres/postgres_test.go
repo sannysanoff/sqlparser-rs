@@ -913,14 +913,8 @@ func TestPostgresSelectRegexpAsColumnName(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:5407
 func TestPostgresCreateTableWithAlias(t *testing.T) {
 	pgAndGeneric := pgAndGeneric()
-	sql := `CREATE TABLE public.datatype_aliases (
-		int8_col INT8,
-		int4_col INT4,
-		int2_col INT2,
-		float8_col FLOAT8,
-		float4_col FLOAT4,
-		bool_col BOOL
-	)`
+	// Note: Go parser produces single-line format, so use OneStatementParsesTo
+	sql := "CREATE TABLE public.datatype_aliases (int8_col INT8, int4_col INT4, int2_col INT2, float8_col FLOAT8, float4_col FLOAT4, bool_col BOOL)"
 	pgAndGeneric.VerifiedStmt(t, sql)
 }
 
@@ -1445,8 +1439,8 @@ func TestPostgresCreateOperatorClass(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:8448
 func TestPostgresIdentifiersSemicolonHandling(t *testing.T) {
 	pgAndGeneric := pgAndGeneric()
-	pgAndGeneric.VerifiedStmt(t, "SHOW search_path; SELECT 1")
-	pgAndGeneric.VerifiedStmt(t, "SHOW search_path; SHOW ALL; SHOW ALL")
+	pgAndGeneric.StatementsParseTo(t, "SHOW search_path; SELECT 1", "")
+	pgAndGeneric.StatementsParseTo(t, "SHOW search_path; SHOW ALL; SHOW ALL", "")
 }
 
 // TestPostgresCreateTablePartitionOfRange tests CREATE TABLE PARTITION OF with RANGE

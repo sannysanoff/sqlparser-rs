@@ -21,6 +21,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -142,6 +143,40 @@ func (td *TestedDialects) OneStatementParsesTo(t *testing.T, sql, canonical stri
 // re-serializing the parse result produces the same sql string.
 func (td *TestedDialects) VerifiedStmt(t *testing.T, sql string) Statement {
 	return td.OneStatementParsesTo(t, sql, sql)
+}
+
+// StatementsParseTo ensures that sql parses as multiple statements, and that
+// re-serializing the parse result produces the expected sql string.
+// This is used for testing SQL with multiple statements separated by semicolons.
+// Equivalent to Rust's statements_parse_to function.
+func (td *TestedDialects) StatementsParseTo(t *testing.T, sql string, canonical string) []Statement {
+	if canonical == "" {
+		canonical = sql
+	}
+
+	stmts := td.ParseSQL(t, sql)
+
+	// Build the serialized form by joining statements with "; "
+	var stmtStrs []string
+	for _, stmt := range stmts {
+		stmtStrs = append(stmtStrs, stmt.String())
+	}
+	serialized := strings.Join(stmtStrs, "; ")
+
+	if sql != canonical {
+		// If sql != canonical, verify that canonical parses to the same statements
+		canonicalStmts := td.ParseSQL(t, canonical)
+		require.Equal(t, len(canonicalStmts), len(stmts), "Statement count mismatch")
+		for i, stmt := range stmts {
+			assert.Equal(t, canonicalStmts[i].String(), stmt.String(),
+				"Statement %d differs between original and canonical", i)
+		}
+	} else {
+		// Otherwise, verify that serialized form matches the input
+		assert.Equal(t, canonical, serialized, "Serialized statements don't match expected")
+	}
+
+	return stmts
 }
 
 // VerifiedQuery ensures that sql parses as a single Query, and that

@@ -78,11 +78,12 @@ func (b *BinaryOp) String() string {
 	// Handle PostgreSQL custom operators
 	if len(b.PGCustomOperator) > 0 {
 		opName := strings.Join(b.PGCustomOperator, ".")
-		// Use OPERATOR() wrapper for schema-qualified operators (containing ".")
-		// For simple custom operators like &@, output them directly
-		if strings.Contains(opName, ".") {
+		// Use OPERATOR() wrapper only for explicit OPERATOR(...) syntax (BOpPGCustomBinaryOperator)
+		// Simple custom operators like &@ (BOpCustom) are output directly without wrapper
+		if b.Op == operator.BOpPGCustomBinaryOperator {
 			return fmt.Sprintf("%s OPERATOR(%s) %s", b.Left.String(), opName, b.Right.String())
 		}
+		// For BOpCustom, output the operator directly
 		return fmt.Sprintf("%s %s %s", b.Left.String(), opName, b.Right.String())
 	}
 	return fmt.Sprintf("%s %s %s", b.Left.String(), b.Op.String(), b.Right.String())

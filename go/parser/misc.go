@@ -786,10 +786,15 @@ func parseSet(p *Parser) (ast.Statement, error) {
 					return nil, err
 				}
 			}
-			// For parenthesized variables, values must also be parenthesized
+			// For parenthesized variables, values must also be parenthesized: (1, 2, 3) or (SELECT ...)
+			// This is required by PostgreSQL and other dialects that support parenthesized SET
+			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
+				return nil, err
+			}
 			// Parse each value as an expression, trying subquery first (following Rust pattern)
 			ep := NewExpressionParser(p)
 			values := []expr.Expr{}
+			needsClosingParen := true
 			for {
 				var val expr.Expr
 				var err error
@@ -804,10 +809,19 @@ func parseSet(p *Parser) (ast.Statement, error) {
 					if err != nil {
 						return nil, err
 					}
+				} else {
+					// Subquery was parsed - it already consumed the closing paren
+					needsClosingParen = false
 				}
 				values = append(values, val)
 				if !p.ConsumeToken(token.TokenComma{}) {
 					break
+				}
+			}
+			// Expect closing parenthesis for values (unless subquery already consumed it)
+			if needsClosingParen {
+				if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
 				}
 			}
 			// Create variables slice

@@ -56,9 +56,11 @@ func (ep *ExpressionParser) parseInfix(left expr.Expr, precedence uint8) (expr.E
 		if err != nil {
 			return nil, err
 		}
+		// Use BOpCustom for simple custom operators like &@, @@, etc.
+		// These are output directly without OPERATOR() wrapper
 		return &expr.BinaryOp{
 			Left:             left,
-			Op:               operator.BOpPGCustomBinaryOperator,
+			Op:               operator.BOpCustom,
 			Right:            right,
 			SpanVal:          mergeSpans(left.Span(), right.Span()),
 			PGCustomOperator: []string{customOp.Value},
