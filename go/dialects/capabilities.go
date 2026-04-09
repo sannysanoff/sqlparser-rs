@@ -92,10 +92,18 @@ func SupportsTrailingCommas(d CoreDialect) bool {
 }
 
 // SupportsProjectionTrailingCommas returns true if the dialect supports trailing
-// commas in the projection list.
+// commas in the projection (select list).
 func SupportsProjectionTrailingCommas(d CoreDialect) bool {
 	if sd, ok := d.(SelectDialect); ok {
 		return sd.SupportsProjectionTrailingCommas()
+	}
+	return false
+}
+
+// SupportsEmptyProjections returns true if the dialect supports SELECT FROM without projection.
+func SupportsEmptyProjections(d CoreDialect) bool {
+	if sd, ok := d.(SelectDialect); ok {
+		return sd.SupportsEmptyProjections()
 	}
 	return false
 }

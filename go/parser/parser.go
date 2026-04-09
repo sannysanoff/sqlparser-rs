@@ -2324,6 +2324,27 @@ func (p *Parser) parseBaseDataType() (datatype.DataType, error) {
 		return nil, fmt.Errorf("expected data type keyword, found %v", tok.Token)
 	}
 
+	// Check if this is a quoted identifier (e.g., "int")
+	// If so, treat it as a custom data type preserving the quotes
+	if word.Word.QuoteStyle != nil {
+		p.AdvanceToken()
+		// Convert byte quote style to rune
+		quoteRune := rune(*word.Word.QuoteStyle)
+		return &datatype.CustomType{
+			Name: &expr.ObjectName{
+				Parts: []*expr.ObjectNamePart{
+					{
+						Ident: &expr.Ident{
+							Value:      word.Word.Value,
+							QuoteStyle: &quoteRune,
+						},
+					},
+				},
+			},
+			SpanVal: tok.Span,
+		}, nil
+	}
+
 	p.AdvanceToken()
 	typeName := strings.ToUpper(word.Word.Value)
 

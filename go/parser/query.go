@@ -684,51 +684,37 @@ func parseSelectModifiers(p *Parser) (*query.SelectModifiers, *query.Distinct, e
 			return false, fmt.Errorf("Duplicate DISTINCT option: DISTINCTROW")
 		},
 		"HIGH_PRIORITY": func() (bool, error) {
-			if modifiers.HighPriority {
-				return false, fmt.Errorf("Duplicate HIGH_PRIORITY")
-			}
+			// Silently deduplicate - just set again if already set (matches Rust behavior)
 			modifiers.HighPriority = true
 			return true, nil
 		},
 		"STRAIGHT_JOIN": func() (bool, error) {
-			if modifiers.StraightJoin {
-				return false, fmt.Errorf("Duplicate STRAIGHT_JOIN")
-			}
+			// Silently deduplicate
 			modifiers.StraightJoin = true
 			return true, nil
 		},
 		"SQL_SMALL_RESULT": func() (bool, error) {
-			if modifiers.SqlSmallResult {
-				return false, fmt.Errorf("Duplicate SQL_SMALL_RESULT")
-			}
+			// Silently deduplicate
 			modifiers.SqlSmallResult = true
 			return true, nil
 		},
 		"SQL_BIG_RESULT": func() (bool, error) {
-			if modifiers.SqlBigResult {
-				return false, fmt.Errorf("Duplicate SQL_BIG_RESULT")
-			}
+			// Silently deduplicate
 			modifiers.SqlBigResult = true
 			return true, nil
 		},
 		"SQL_BUFFER_RESULT": func() (bool, error) {
-			if modifiers.SqlBufferResult {
-				return false, fmt.Errorf("Duplicate SQL_BUFFER_RESULT")
-			}
+			// Silently deduplicate
 			modifiers.SqlBufferResult = true
 			return true, nil
 		},
 		"SQL_NO_CACHE": func() (bool, error) {
-			if modifiers.SqlNoCache {
-				return false, fmt.Errorf("Duplicate SQL_NO_CACHE")
-			}
+			// Silently deduplicate
 			modifiers.SqlNoCache = true
 			return true, nil
 		},
 		"SQL_CALC_FOUND_ROWS": func() (bool, error) {
-			if modifiers.SqlCalcFoundRows {
-				return false, fmt.Errorf("Duplicate SQL_CALC_FOUND_ROWS")
-			}
+			// Silently deduplicate
 			modifiers.SqlCalcFoundRows = true
 			return true, nil
 		},
@@ -1275,6 +1261,19 @@ func isIdentifierNamed(e interface{}, name string) bool {
 // parseProjection parses the SELECT list
 func parseProjection(p *Parser) ([]query.SelectItem, error) {
 	var items []query.SelectItem
+
+	// Check for empty projection (dialects that support it can have SELECT FROM without items)
+	// Reference: src/parser/mod.rs - empty projection support
+	if dialects.SupportsEmptyProjections(p.GetDialect()) {
+		nextTok := p.PeekToken()
+		if isWordToken(nextTok.Token) {
+			word := getWordValue(nextTok.Token)
+			// If next token is a clause keyword like FROM, we have an empty projection
+			if word != "" && isClauseKeyword(word) {
+				return []query.SelectItem{}, nil
+			}
+		}
+	}
 
 	for {
 		item, err := parseSelectItem(p)
@@ -3956,6 +3955,11 @@ func parseTableAlias(p *Parser) (*query.TableAlias, error) {
 			return nil, err
 		}
 		name = &query.Ident{Value: ident.Value}
+		// Preserve quote style from parsed identifier
+		if ident.QuoteStyle != nil {
+			q := byte(*ident.QuoteStyle)
+			name.QuoteStyle = &q
+		}
 	} else {
 		// Try implicit alias
 		tok := p.PeekToken()
@@ -3963,6 +3967,11 @@ func parseTableAlias(p *Parser) (*query.TableAlias, error) {
 			if !isReservedForTableAlias(strings.ToUpper(string(word.Word.Keyword))) {
 				p.AdvanceToken()
 				name = &query.Ident{Value: word.Word.Value}
+				// Preserve quote style from parsed identifier
+				if word.Word.QuoteStyle != nil {
+					q := byte(*word.Word.QuoteStyle)
+					name.QuoteStyle = &q
+				}
 			}
 		}
 	}

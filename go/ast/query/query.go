@@ -337,7 +337,9 @@ func (s *Select) String() string {
 	for i, item := range s.Projection {
 		proj[i] = item.String()
 	}
-	parts = append(parts, strings.Join(proj, ", "))
+	if len(proj) > 0 {
+		parts = append(parts, strings.Join(proj, ", "))
+	}
 
 	if s.Exclude != nil {
 		parts = append(parts, s.Exclude.String())

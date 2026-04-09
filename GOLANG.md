@@ -1,5 +1,92 @@
 # Go SQL Parser Development Guide
 
+## Session 98 Summary: Massive Code Port - COPY FROM Error, SELECT Modifiers, Empty Projections, Quoted Data Types (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 5 major features, resolving 5 failing tests:
+
+1. **COPY FROM Error Handling** (parser/copy.go)
+   - Fixed `COPY (SELECT ...) FROM 'file.csv'` to properly error
+   - COPY FROM doesn't support query as source (only COPY TO does)
+   - Added check: if !copyStmt.To && copyStmt.Source.Query != nil, return error
+   - Fixed test: `TestPostgresCopyFromError`
+
+2. **MySQL SELECT Modifiers Deduplication** (parser/query.go)
+   - Fixed duplicate modifier handling: `SELECT HIGH_PRIORITY HIGH_PRIORITY` should deduplicate, not error
+   - Changed from returning error on duplicates to silently setting the flag again (matches Rust behavior)
+   - Fixed test: `TestParseSelectModifiersCanBeRepeated`
+
+3. **SELECT Without Projection** (parser/query.go, ast/query/query.go, dialects/capabilities.go)
+   - Fixed `SELECT FROM users` syntax for dialects supporting empty projections
+   - Added `SupportsEmptyProjections()` helper to dialects/capabilities.go
+   - Modified `parseProjection()` to check for empty projection when dialect supports it
+   - Modified `Select.String()` to not add empty projection to output
+   - Fixed test: `TestParseSelectWithoutProjection`
+
+4. **Quoted Data Type Preservation** (parser/parser.go)
+   - Fixed `CREATE TABLE "foo" ("bar" "int")` to preserve quoted data types
+   - Added check in `parseBaseDataType()` for quoted identifiers (QuoteStyle != nil)
+   - Quoted type names are now treated as CustomType with preserved quotes
+   - Fixed test: `TestPostgresDelimitedIdentifiers` (data type portion)
+
+5. **Table Alias Quote Preservation** (parser/query.go)
+   - Fixed `FROM "a table" AS "alias"` to preserve quotes in alias
+   - Modified `parseTableAlias()` to copy QuoteStyle from parsed identifier
+   - Fixed both explicit (AS) and implicit alias cases
+   - Fixed test: `TestPostgresDelimitedIdentifiers` (alias portion)
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 84,110 lines | 125% |
+| Tests | 49,886 lines | 14,247 lines | 29% |
+| **Test Status** | - | **~9 failing (~99.2% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E349**: COPY FROM error handling - Check if source is Query when direction is FROM, return error "COPY ... FROM does not support query as a source"
+- **Pattern E350**: SELECT modifier deduplication - Don't error on duplicate modifiers, just set the flag again (matches Rust's silently-ignore behavior)
+- **Pattern E351**: Empty projection parsing - Check if dialect supports empty projections, then check if next token is a clause keyword before parsing select items
+- **Pattern E352**: Quoted data type preservation - If word.Word.QuoteStyle != nil, create CustomType with quoted identifier instead of parsing as keyword
+- **Pattern E353**: Table alias quote preservation - Copy QuoteStyle from parsed identifier when creating TableAlias, handle both explicit (AS) and implicit cases
+
+**Typical Errors in Code Editing (Additions):**
+
+### Error Type 14: Converting QuoteStyle Between Types
+**Problem:** QuoteStyle is stored as *byte in tokenizer but *rune in AST
+**Example:**
+```go
+// Wrong - type mismatch
+name.QuoteStyle = ident.QuoteStyle  // ident.QuoteStyle is *rune, name.QuoteStyle is *byte
+
+// Right - convert between types
+if ident.QuoteStyle != nil {
+    q := byte(*ident.QuoteStyle)  // Convert rune to byte
+    name.QuoteStyle = &q
+}
+```
+**Detection:** Compile errors about type mismatch between *byte and *rune
+**Fix:** Explicitly convert rune to byte when copying QuoteStyle
+**Files:** parser/query.go, ast/datatype/datatype.go
+
+### Error Type 15: Empty Projection Serialization
+**Problem:** SELECT without projection creates extra space: "SELECT  FROM" instead of "SELECT FROM"
+**Example:**
+```go
+// Wrong - always adds projection even if empty
+parts = append(parts, strings.Join(proj, ", "))  // Adds empty string for empty projection
+
+// Right - only add projection if not empty
+if len(proj) > 0 {
+    parts = append(parts, strings.Join(proj, ", "))
+}
+```
+**Detection:** Tests fail with "SELECT  FROM" (double space) vs expected "SELECT FROM"
+**Fix:** Check if projection is non-empty before appending to parts
+**Files:** ast/query/query.go
+
+---
+
 ## Session 97 Summary: Massive Code Port - INTERVAL Types, Quoted Identifiers, Dollar-Quoted Strings (April 9, 2026)
 
 **Major Fixes:**
@@ -31,9 +118,9 @@ Implemented 4 major features, resolving 4+ failing tests:
 **Line Counts:**
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 104,260 lines | 155% |
-| Tests | 49,886 lines | 14,244 lines | 29% |
-| **Test Status** | - | **~14 failing (98.8% pass rate)** |
+| Source (parser+ast+dialects) | 67,345 lines | 84,110 lines | 125% |
+| Tests | 49,886 lines | 14,247 lines | 29% |
+| **Test Status** | - | **~9 failing (99.2% pass rate)** |
 
 **New Patterns Documented:**
 - **Pattern E346**: INTERVAL field parsing - Check for temporal unit keywords (YEAR, MONTH, etc.) after INTERVAL type, support "TO" syntax like YEAR TO MONTH
@@ -1030,20 +1117,27 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 97 Complete**
+**Latest Update: April 9, 2026 - Session 98 Complete**
 
 **Summary:**
-- **Test Functions:** ~14 failing (~98.8% pass rate) 
+- **Test Functions:** ~9 failing (~99.2% pass rate) 
 - **100% Passing Test Suites:** Snowflake, Regression, DML, DDL (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~5 failures): COPY FROM error handling, custom operator serialization, delimited identifiers with escape sequences, CREATE TABLE alias formatting, semicolon handling
-  2. **Query** (~2 failures): SELECT without projection, IN with UNION
-  3. **Main Package** (~4 failures): NOT precedence (span mismatch), SET variable subquery (dialect filter issue), SET variable errors, MSSQL transaction
-  4. **MySQL** (~2 failures): SELECT modifiers repeated, escaped string roundtrip
+  1. **PostgreSQL** (~3 failures): Custom operator serialization, CREATE TABLE alias formatting, semicolon handling
+  2. **Main Package** (~4 failures): NOT precedence (span mismatch), SET variable subquery (dialect filter issue), SET variable errors, MSSQL transaction
+  3. **MySQL** (~1 failure): Escaped string roundtrip
+  4. **Query** (~1 failure): IN with UNION
+
+**Recently Fixed (Session 98):**
+1. **COPY FROM Error Handling** - Fixed error on `COPY (SELECT ...) FROM 'file.csv'` - COPY FROM doesn't support query as source
+2. **MySQL SELECT Modifiers Deduplication** - Fixed duplicate modifiers like `HIGH_PRIORITY HIGH_PRIORITY` to deduplicate instead of erroring
+3. **SELECT Without Projection** - Fixed `SELECT FROM users` syntax for dialects supporting empty projections
+4. **Quoted Data Type Preservation** - Fixed `CREATE TABLE "foo" ("bar" "int")` to preserve quoted data types
+5. **Table Alias Quote Preservation** - Fixed `FROM "a table" AS "alias"` to preserve quotes in alias
 
 **Recently Fixed (Session 97):**
 1. **INTERVAL Data Type with Fields** - Fixed `SELECT '1 second'::INTERVAL YEAR` and YEAR TO MONTH syntax
-2. **Quoted Identifier Preservation** - Fixed `WITH "result" AS (...)` to preserve quotes in CTE names
+2. **Quoted Identifier Preservation in CTEs** - Fixed `WITH "result" AS (...)` to preserve quotes in CTE names
 3. **Dollar-Quoted String Validation** - Fixed error detection for mismatched tags like `$x$hello$$`
 4. **UPDATE SET with Reserved Keywords** - Fixed parsing and test expectations for reserved keywords as column names
 

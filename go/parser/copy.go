@@ -87,6 +87,11 @@ func parseCopy(p *Parser) (ast.Statement, error) {
 	}
 	copyStmt.To = direction == "TO"
 
+	// COPY ... FROM does not support query as a source (only COPY ... TO does)
+	if !copyStmt.To && copyStmt.Source.Query != nil {
+		return nil, fmt.Errorf("COPY ... FROM does not support query as a source")
+	}
+
 	// Parse target: STDIN, STDOUT, PROGRAM 'cmd', or 'filename'
 	switch {
 	case p.ParseKeyword("STDIN"):
