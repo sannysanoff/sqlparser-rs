@@ -1011,14 +1011,13 @@ func isTableConstraint(p *Parser) bool {
 		}
 	}
 
-	// MySQL-specific: INDEX/KEY/FULLTEXT/SPATIAL inline index constraints
+	// INDEX/KEY/FULLTEXT/SPATIAL inline index constraints
 	// Reference: src/parser/mod.rs:9732-9760
-	if p.GetDialect().SupportsIndexHints() {
-		mysqlConstraintKeywords := []string{"INDEX", "KEY", "FULLTEXT", "SPATIAL"}
-		for _, kw := range mysqlConstraintKeywords {
-			if p.PeekKeyword(kw) {
-				return true
-			}
+	// Note: These are valid DDL syntax across many dialects
+	indexConstraintKeywords := []string{"INDEX", "KEY", "FULLTEXT", "SPATIAL"}
+	for _, kw := range indexConstraintKeywords {
+		if p.PeekKeyword(kw) {
+			return true
 		}
 	}
 

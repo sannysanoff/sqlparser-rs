@@ -161,6 +161,7 @@ func (p *PrimaryKeyConstraint) String() string {
 type UniqueConstraint struct {
 	NullsDistinct   NullsDistinctOption
 	HasIndexKeyword bool // true if INDEX/KEY keyword was explicitly specified (MySQL style)
+	DisplayAsKey    bool // true = KEY, false = INDEX (only relevant if HasIndexKeyword is true)
 	IndexName       *ast.Ident
 	IndexType       *IndexType
 	Columns         []*IndexColumn
@@ -174,9 +175,13 @@ func (u *UniqueConstraint) String() string {
 	if u.NullsDistinct != NullsDistinctOptionNone {
 		parts = append(parts, u.NullsDistinct.String())
 	}
-	// Include INDEX keyword if explicitly specified (MySQL style)
+	// Include INDEX/KEY keyword if explicitly specified (MySQL style)
 	if u.HasIndexKeyword {
-		parts = append(parts, "INDEX")
+		if u.DisplayAsKey {
+			parts = append(parts, "KEY")
+		} else {
+			parts = append(parts, "INDEX")
+		}
 	}
 	if u.IndexName != nil {
 		parts = append(parts, u.IndexName.String())
@@ -367,8 +372,11 @@ func (i *IndexConstraint) String() string {
 // FullTextOrSpatialConstraint represents a FULLTEXT or SPATIAL constraint (MySQL-specific).
 // {FULLTEXT | SPATIAL} [INDEX | KEY] [index_name] (columns)
 type FullTextOrSpatialConstraint struct {
-	Fulltext bool // true = FULLTEXT, false = SPATIAL
-	Columns  []*IndexColumn
+	Fulltext        bool // true = FULLTEXT, false = SPATIAL
+	HasIndexKeyword bool // true if INDEX/KEY was explicitly specified
+	DisplayAsKey    bool // true = KEY, false = INDEX (only relevant if HasIndexKeyword is true)
+	IndexName       *ast.Ident
+	Columns         []*IndexColumn
 }
 
 func (f *FullTextOrSpatialConstraint) String() string {
@@ -377,6 +385,16 @@ func (f *FullTextOrSpatialConstraint) String() string {
 		parts = append(parts, "FULLTEXT")
 	} else {
 		parts = append(parts, "SPATIAL")
+	}
+	if f.HasIndexKeyword {
+		if f.DisplayAsKey {
+			parts = append(parts, "KEY")
+		} else {
+			parts = append(parts, "INDEX")
+		}
+	}
+	if f.IndexName != nil {
+		parts = append(parts, f.IndexName.String())
 	}
 	if len(f.Columns) > 0 {
 		colStrs := make([]string, len(f.Columns))
@@ -1427,10 +1445,11 @@ func (v *ViewEnvelope) String() string   { return "" }
 
 // IndexColumn represents an index column.
 type IndexColumn struct {
-	Expr       Expr
-	Opclass    *ast.ObjectName
-	Asc        *bool // nil means not specified
-	NullsFirst *bool // nil means not specified
+	Expr         Expr
+	Opclass      *ast.ObjectName
+	Asc          *bool   // nil means not specified
+	NullsFirst   *bool   // nil means not specified
+	PrefixLength *uint64 // MySQL: prefix length for indexing (e.g., col(10))
 }
 
 func (i *IndexColumn) exprNode()        {}
@@ -1441,6 +1460,9 @@ func (i *IndexColumn) String() string {
 	var parts []string
 	if i.Expr != nil {
 		parts = append(parts, i.Expr.String())
+	}
+	if i.PrefixLength != nil {
+		parts = append(parts, fmt.Sprintf("(%d)", *i.PrefixLength))
 	}
 	if i.Opclass != nil {
 		parts = append(parts, i.Opclass.String())

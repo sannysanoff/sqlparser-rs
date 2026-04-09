@@ -791,8 +791,14 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Optional INDEX/KEY keyword (MySQL) - for UNIQUE INDEX index_name syntax
-		if p.ParseKeyword("INDEX") || p.ParseKeyword("KEY") {
+		isUniqueIndex := p.ParseKeyword("INDEX")
+		isUniqueKey := false
+		if !isUniqueIndex {
+			isUniqueKey = p.ParseKeyword("KEY")
+		}
+		if isUniqueIndex || isUniqueKey {
 			uniqueConstraint.HasIndexKeyword = true
+			uniqueConstraint.DisplayAsKey = isUniqueKey // Track KEY vs INDEX
 		}
 
 		// Optional index name (MySQL)
@@ -940,47 +946,54 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		return constraint, nil
 	}
 
-	// MySQL-specific: INDEX/KEY inline index constraints
+	// INDEX/KEY inline index constraints (MySQL and Generic)
 	// Reference: src/parser/mod.rs:9732-9756
-	if p.GetDialect().SupportsIndexHints() {
-		if p.ParseKeyword("INDEX") || p.ParseKeyword("KEY") {
-			indexConstraint := &expr.IndexConstraint{}
-
-			// Optional index name (skip if USING follows)
-			if !p.PeekKeyword("USING") {
-				if ident, err := p.ParseIdentifier(); err == nil {
-					indexConstraint.Name = ident
-				}
-			}
-
-			// Optional USING index_type (e.g., USING BTREE, USING HASH)
-			if p.ParseKeyword("USING") {
-				if typeIdent, err := p.ParseIdentifier(); err == nil {
-					switch strings.ToUpper(typeIdent.Value) {
-					case "BTREE":
-						btree := expr.IndexTypeBTree
-						indexConstraint.IndexType = &btree
-					case "HASH":
-						hash := expr.IndexTypeHash
-						indexConstraint.IndexType = &hash
-					}
-				}
-			}
-
-			// Parse column list with ASC/DESC support
-			cols, err := parseParenthesizedIndexColumnList(p)
-			if err != nil {
-				return nil, err
-			}
-			indexConstraint.Columns = cols
-
-			constraint.Constraint = indexConstraint
-			return constraint, nil
+	// Note: INDEX constraints are valid DDL syntax across many dialects
+	isIndex := p.ParseKeyword("INDEX")
+	isKey := false
+	if !isIndex {
+		isKey = p.ParseKeyword("KEY")
+	}
+	if isIndex || isKey {
+		indexConstraint := &expr.IndexConstraint{
+			DisplayAsKey: isKey, // Track whether it was KEY or INDEX
 		}
+
+		// Optional index name (skip if USING follows)
+		if !p.PeekKeyword("USING") {
+			if ident, err := p.ParseIdentifier(); err == nil {
+				indexConstraint.Name = ident
+			}
+		}
+
+		// Optional USING index_type (e.g., USING BTREE, USING HASH)
+		if p.ParseKeyword("USING") {
+			if typeIdent, err := p.ParseIdentifier(); err == nil {
+				switch strings.ToUpper(typeIdent.Value) {
+				case "BTREE":
+					btree := expr.IndexTypeBTree
+					indexConstraint.IndexType = &btree
+				case "HASH":
+					hash := expr.IndexTypeHash
+					indexConstraint.IndexType = &hash
+				}
+			}
+		}
+
+		// Parse column list with ASC/DESC support
+		cols, err := parseParenthesizedIndexColumnList(p)
+		if err != nil {
+			return nil, err
+		}
+		indexConstraint.Columns = cols
+
+		constraint.Constraint = indexConstraint
+		return constraint, nil
 	}
 
-	// MySQL-specific: FULLTEXT/SPATIAL index constraints
+	// FULLTEXT/SPATIAL index constraints
 	// Reference: src/parser/mod.rs:9758-9789
+	// Note: While these are MySQL-specific features, the Generic dialect supports parsing them
 	isFulltext := p.ParseKeyword("FULLTEXT")
 	isSpatial := p.ParseKeyword("SPATIAL")
 	if isFulltext || isSpatial {
@@ -989,12 +1002,20 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 
 		// Optional INDEX/KEY keyword
-		if !p.ParseKeyword("INDEX") {
-			p.ParseKeyword("KEY")
+		isIndex := p.ParseKeyword("INDEX")
+		isKey := false
+		if !isIndex {
+			isKey = p.ParseKeyword("KEY")
+		}
+		if isIndex || isKey {
+			ftsConstraint.HasIndexKeyword = true
+			ftsConstraint.DisplayAsKey = isKey
 		}
 
 		// Optional index name
-		p.ParseIdentifier()
+		if ident, err := p.ParseIdentifier(); err == nil {
+			ftsConstraint.IndexName = ident
+		}
 
 		// Parse column list with ASC/DESC support
 		cols, err := parseParenthesizedIndexColumnList(p)
@@ -1297,6 +1318,18 @@ func parseParenthesizedIndexColumnList(p *Parser) ([]*expr.IndexColumn, error) {
 
 		indexCol := &expr.IndexColumn{
 			Expr: colExpr,
+		}
+
+		// Check for prefix length: col(10) - MySQL feature for indexing part of a column
+		if p.ConsumeToken(token.TokenLParen{}) {
+			// Parse the prefix length number
+			tok := p.PeekToken()
+			if numLit, ok := tok.Token.(token.TokenNumber); ok {
+				val, _ := strconv.ParseUint(numLit.Value, 10, 64)
+				indexCol.PrefixLength = &val
+				p.AdvanceToken()
+			}
+			p.ExpectToken(token.TokenRParen{})
 		}
 
 		// Check for ASC/DESC

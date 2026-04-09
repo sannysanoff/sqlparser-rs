@@ -412,12 +412,11 @@ func looksLikeTableConstraint(p *Parser) bool {
 		return true
 	}
 
-	// MySQL-specific: INDEX, KEY, FULLTEXT, SPATIAL
-	if p.GetDialect().SupportsIndexHints() {
-		if p.PeekKeyword("INDEX") || p.PeekKeyword("KEY") ||
-			p.PeekKeyword("FULLTEXT") || p.PeekKeyword("SPATIAL") {
-			return true
-		}
+	// INDEX, KEY, FULLTEXT, SPATIAL constraints
+	// Note: These are DDL index operations, not query index hints, so check regardless of SupportsIndexHints
+	if p.PeekKeyword("INDEX") || p.PeekKeyword("KEY") ||
+		p.PeekKeyword("FULLTEXT") || p.PeekKeyword("SPATIAL") {
+		return true
 	}
 
 	return false

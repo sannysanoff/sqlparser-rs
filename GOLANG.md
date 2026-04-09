@@ -1,5 +1,50 @@
 # Go SQL Parser Development Guide
 
+## Session 91 Summary: Massive Code Port - MySQL Index Constraints, Prefix Key Parts (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented MySQL index constraint parsing with full keyword tracking, fixing multiple failing tests:
+
+1. **MySQL Prefix Key Parts** (parser/ddl.go, ast/expr/ddl.go)
+   - Fixed `CREATE INDEX idx ON t(textcol(10))` syntax for indexing column prefixes
+   - Added `PrefixLength *uint64` field to `IndexColumn` struct
+   - Updated `parseParenthesizedIndexColumnList()` to parse `(N)` after column name
+
+2. **GenericDialect INDEX Constraint Support** (parser/alter.go, parser/create.go, parser/ddl.go)
+   - Fixed `ALTER TABLE tab ADD INDEX idx (cols)` for GenericDialect
+   - Root cause: `looksLikeTableConstraint()` and `isTableConstraint()` only checked INDEX for MySQL dialect
+   - Fixed by removing `SupportsIndexHints()` check - INDEX is valid DDL across dialects
+
+3. **UNIQUE KEY vs UNIQUE INDEX Tracking** (ast/expr/ddl.go, parser/ddl.go)
+   - Fixed `ALTER TABLE tab ADD UNIQUE KEY (cols)` serialization
+   - Added `DisplayAsKey bool` field to `UniqueConstraint` struct
+   - Parser now tracks whether UNIQUE KEY or UNIQUE INDEX was used
+
+4. **FULLTEXT/SPATIAL INDEX Keyword Tracking** (ast/expr/ddl.go, parser/ddl.go)
+   - Fixed `ALTER TABLE tab ADD FULLTEXT INDEX (cols)` serialization
+   - Added `HasIndexKeyword` and `DisplayAsKey` fields to `FullTextOrSpatialConstraint`
+   - Parser now properly tracks and serializes optional INDEX/KEY keyword
+
+5. **IndexConstraint KEY Tracking** (parser/ddl.go)
+   - Fixed `ALTER TABLE tab ADD KEY idx (cols)` to serialize as KEY not INDEX
+   - Parser now sets `DisplayAsKey` field based on which keyword was parsed
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,536 lines | 133% |
+| Tests | 49,886 lines | 14,243 lines | 29% |
+| **Test Status** | - | **~786 passing, ~27 failing (96.7% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E326**: Prefix key part parsing - Add `PrefixLength` field to `IndexColumn`, parse `(N)` syntax after column name in index definitions
+- **Pattern E327**: INDEX constraint dialect support - INDEX/KEY/FULLTEXT/SPATIAL constraints should be recognized regardless of `SupportsIndexHints()` - they are DDL features, not query hints
+- **Pattern E328**: Keyword variant tracking in constraints - Use `DisplayAsKey` bool field to track whether `UNIQUE KEY` vs `UNIQUE INDEX` was used
+- **Pattern E329**: Optional keyword tracking - Add `HasIndexKeyword` field to track whether optional INDEX/KEY keyword was explicitly present
+
+---
+
 ## Session 90 Summary: Massive Code Port - Dollar-Quoted Strings, CREATE FUNCTION, Compound Expressions (April 9, 2026)
 
 **Major Fixes:**
@@ -674,7 +719,32 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 90 Complete**
+**Latest Update: April 9, 2026 - Session 91 Complete**
+
+**Summary:**
+- **Test Functions:** ~786 passing, ~27 failing (~96.7% pass rate)
+- **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
+- **Major Areas Needing Implementation:**
+  1. **PostgreSQL** (~15 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, copy from error handling, semicolon handling
+  2. **MySQL** (~4 failures): SHOW EXTENDED/FULL, escaped strings roundtrip, SELECT modifiers errors, DDL with INDEX USING positions
+  3. **DDL** (~2 failures): CREATE INDEX USING positions, multiple ON DELETE validation
+  4. **Query** (~2 failures): SELECT without projection, IN with UNION
+  5. **Main Package** (~4 failures): NOT precedence, MSSQL transaction, SET variable subquery, SET variable errors
+- **Recently Fixed (Session 91):**
+  1. **MySQL Prefix Key Parts** - Fixed `textcol(10)` syntax in index columns
+  2. **GenericDialect INDEX constraints** - Removed SupportsIndexHints() guard for DDL index operations
+  3. **UNIQUE KEY vs INDEX tracking** - Added DisplayAsKey field to track keyword variant
+  4. **FULLTEXT/SPATIAL INDEX tracking** - Added HasIndexKeyword and DisplayAsKey fields
+  5. **TestParsePrefixKeyPart** - Now passing (was failing for both MySQL and Generic)
+- **Line Counts:**
+  | Component | Rust | Go | Ratio |
+  |-----------|------|-----|-------|
+  | Source (parser+ast+dialects) | 67,345 lines | 89,536 lines | 133% |
+  | Tests | 49,886 lines | 14,243 lines | 29% |
+
+---
+
+## Previous: April 9, 2026 - Session 90 Complete
 
 **Summary:**
 - **Test Functions:** ~788 passing, ~28 failing (~96.6% pass rate)
@@ -2381,6 +2451,82 @@ Pattern E320: Dialect Adapter Delegation
   }
   ```
 - Files typically modified: parser/dialect_adapter.go
+
+Pattern E326: Prefix Key Part Parsing
+- When: Parsing MySQL index column prefix syntax like `col(10)`
+- Problem: Parser doesn't recognize `(N)` after column name in index definitions
+- Solution: Add `PrefixLength *uint64` field to `IndexColumn`, parse `(N)` in `parseParenthesizedIndexColumnList()`
+  ```go
+  type IndexColumn struct {
+      // ... other fields ...
+      PrefixLength *uint64 // MySQL: prefix length for indexing (e.g., col(10))
+  }
+  
+  // In parseParenthesizedIndexColumnList():
+  if p.ConsumeToken(token.TokenLParen{}) {
+      if numLit, ok := p.PeekToken().Token.(token.TokenNumber); ok {
+          val, _ := strconv.ParseUint(numLit.Value, 10, 64)
+          indexCol.PrefixLength = &val
+          p.AdvanceToken()
+      }
+      p.ExpectToken(token.TokenRParen{})
+  }
+  ```
+- Files typically modified: ast/expr/ddl.go, parser/ddl.go
+
+Pattern E327: INDEX Constraint Dialect Support
+- When: Parsing INDEX/KEY/FULLTEXT/SPATIAL constraints in DDL
+- Problem: Parser only recognizes these for MySQL dialect due to `SupportsIndexHints()` check
+- Solution: Remove dialect check - these are DDL features, not query hints. Recognize them for all dialects.
+  ```go
+  // Before (wrong):
+  if p.GetDialect().SupportsIndexHints() {
+      if p.PeekKeyword("INDEX") || p.PeekKeyword("KEY") { ... }
+  }
+  
+  // After (correct):
+  if p.PeekKeyword("INDEX") || p.PeekKeyword("KEY") ||
+      p.PeekKeyword("FULLTEXT") || p.PeekKeyword("SPATIAL") {
+      return true
+  }
+  ```
+- Files typically modified: parser/alter.go (looksLikeTableConstraint), parser/create.go (isTableConstraint)
+
+Pattern E328: Keyword Variant Tracking in Constraints
+- When: Need to distinguish `UNIQUE KEY` from `UNIQUE INDEX` in serialization
+- Problem: Cannot reproduce original SQL keyword choice in output
+- Solution: Add `DisplayAsKey bool` field to track which keyword was used
+  ```go
+  type UniqueConstraint struct {
+      HasIndexKeyword bool // true if INDEX/KEY was explicitly specified
+      DisplayAsKey    bool // true = KEY, false = INDEX
+      // ... other fields ...
+  }
+  
+  // In String():
+  if u.HasIndexKeyword {
+      if u.DisplayAsKey {
+          parts = append(parts, "KEY")
+      } else {
+          parts = append(parts, "INDEX")
+      }
+  }
+  ```
+- Files typically modified: ast/expr/ddl.go, parser/ddl.go
+
+Pattern E329: Optional Keyword Tracking in Constraints
+- When: Optional keywords like INDEX/KEY in FULLTEXT constraint affect serialization
+- Problem: Cannot distinguish `FULLTEXT (cols)` from `FULLTEXT INDEX (cols)`
+- Solution: Add `HasIndexKeyword` and `DisplayAsKey` fields
+  ```go
+  type FullTextOrSpatialConstraint struct {
+      Fulltext        bool
+      HasIndexKeyword bool // true if INDEX/KEY was explicitly specified
+      DisplayAsKey    bool // true = KEY, false = INDEX
+      // ... other fields ...
+  }
+  ```
+- Files typically modified: ast/expr/ddl.go, parser/ddl.go
 
 **See full pattern catalog in code comments and previous session notes.**
 
