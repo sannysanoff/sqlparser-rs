@@ -351,7 +351,7 @@ func TestParseInsertSqlite(t *testing.T) {
 	check(t, "INSERT INTO test_table(id) VALUES(1)", 0)
 
 	// REPLACE INTO
-	check(t, "INSERT INTO test_table(id) VALUES(1)", 1)
+	check(t, "REPLACE INTO test_table(id) VALUES(1)", 1)
 
 	// INSERT OR REPLACE
 	check(t, "INSERT OR REPLACE INTO test_table(id) VALUES(1)", 1)

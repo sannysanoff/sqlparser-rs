@@ -1,5 +1,55 @@
 # Go SQL Parser Development Guide
 
+## Session 86 Summary: INSERT RETURNING, REPLACE INTO, FETCH, FOREIGN KEY Index Name, Reserved Keywords Fix (April 9, 2026)
+
+**Major Fixes:**
+
+Fixed 5 tests by resolving parsing and serialization issues:
+
+1. **INSERT SELECT RETURNING** (tests/dml/insert_test.go)
+   - Root cause: "RETURNING" was not in `isReservedForColumnAlias()` reserved keywords
+   - When parsing `SELECT 1 RETURNING 2`, the "RETURNING" was consumed as implicit column alias for "1"
+   - Fixed by adding "RETURNING" to reserved column alias keywords in parser/query.go:1685
+
+2. **INSERT SELECT FROM RETURNING** (tests/dml/insert_test.go)
+   - Root cause: "RETURNING" was not in `isReservedForTableAlias()` reserved keywords  
+   - When parsing `SELECT * FROM table2 RETURNING id`, the "RETURNING" was consumed as table alias for "table2"
+   - Fixed by adding "RETURNING" to reserved table alias keywords in parser/query.go:4004
+
+3. **SQLite REPLACE INTO** (tests/dml/insert_test.go)
+   - Root cause: `parseInsertInternal()` didn't check if the insertToken was REPLACE keyword
+   - SQLite dialect's `ParseStatement()` intercepts REPLACE and redirects to `ParseInsert()`
+   - But `parseInsertInternal()` only checked for OR REPLACE, not standalone REPLACE token
+   - Fixed by checking insertToken for REPLACE keyword in parser/dml.go:77-80
+   - Also fixed test bug: line 354 was testing plain INSERT but expecting OR clause
+
+4. **PostgreSQL FETCH** (tests/postgres/postgres_test.go)
+   - Root cause: `parseFetch()` used `ParseExpr()` to parse count, which treated IN as an operator
+   - When parsing `FETCH 2048 IN "cursor"`, it parsed `2048 IN "cursor"` as an IN expression
+   - Fixed by creating `parseFetchNumber()` helper that only parses numeric literals (parser/misc.go:2103-2115)
+   - Also fixed FETCH.String() to include INTO clause (ast/statement/misc.go:704-707)
+
+5. **MySQL FOREIGN KEY with Index Name** (tests/mysql/mysql_batch2_test.go)
+   - Root cause: Missing support for MySQL's `FOREIGN KEY index_name (columns)` syntax
+   - Parser expected `(` immediately after `FOREIGN KEY`, but found index name
+   - Fixed by adding optional index name parsing in parser/ddl.go:847-850
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,518 lines | 133% |
+| Tests | 49,886 lines | 14,003 lines | 28% |
+| **Test Status** | - | **~784 passing, ~37 failing** (was ~780 passing, ~42 failing) |
+
+**New Patterns Documented:**
+- **Pattern E307**: Keywords as column aliases - When DML clause keywords (RETURNING) are consumed as column aliases, add them to `isReservedForColumnAlias()` 
+- **Pattern E308**: Keywords as table aliases - When DML clause keywords are consumed as table aliases, add them to `isReservedForTableAlias()`
+- **Pattern E309**: SQLite REPLACE INTO - The insertToken itself may be REPLACE (not INSERT), check this in conflict clause parsing
+- **Pattern E310**: FETCH count parsing - Use dedicated number parser for FETCH counts to avoid IN being treated as operator
+- **Pattern E311**: MySQL FOREIGN KEY index name - Parse optional identifier after FOREIGN KEY before column list
+
+---
+
 ## Session 85 Summary: DECLARE Cursor, DML in CTEs, OFFSET Clause Fix (April 9, 2026)
 
 **Major Fixes:**

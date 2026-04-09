@@ -1681,7 +1681,8 @@ func isReservedForColumnAlias(keyword string) bool {
 		"BETWEEN": true, "LIKE": true, "ILIKE": true, "IS": true,
 		"NULL": true, "TRUE": true, "FALSE": true,
 		"WINDOW": true, "QUALIFY": true, "INTO": true,
-		"FOR": true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
+		"FOR":       true, // FOR XML, FOR JSON, FOR BROWSE, lock clauses
+		"RETURNING": true, // RETURNING clause (DML)
 	}
 	return reserved[keyword]
 }
@@ -4000,6 +4001,8 @@ func isReservedForTableAlias(keyword string) bool {
 		// and should not be treated as table aliases
 		"PARQUET": true, "CSV": true, "JSON": true, "ORC": true, "AVRO": true,
 		"XML": true, "PROTOBUF": true, "THRIFT": true,
+		// DML clause keywords - these start DML-specific clauses
+		"RETURNING": true,
 	}
 	return reserved[keyword]
 }

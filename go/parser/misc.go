@@ -2100,6 +2100,19 @@ func parseClose(p *Parser) (ast.Statement, error) {
 	return &statement.Close{Cursor: cursor}, nil
 }
 
+// parseFetchNumber parses a numeric literal for FETCH count/limit
+// This is different from ParseExpr because it doesn't treat IN as an operator
+func parseFetchNumber(p *Parser) (expr.Expr, error) {
+	numStr, err := p.ParseNumber()
+	if err != nil {
+		return nil, err
+	}
+	// Create a ValueExpr with the numeric value
+	return &expr.ValueExpr{
+		Value: numStr,
+	}, nil
+}
+
 func parseFetch(p *Parser) (ast.Statement, error) {
 	var direction *expr.FetchDirection
 	type fetchDir struct {
@@ -2120,7 +2133,7 @@ func parseFetch(p *Parser) (ast.Statement, error) {
 		if p.ParseKeyword(fd.keyword) {
 			dir := &expr.FetchDirection{Kind: fd.kind}
 			if fd.hasExpr {
-				limit, err := NewExpressionParser(p).ParseExpr()
+				limit, err := parseFetchNumber(p)
 				if err != nil {
 					return nil, err
 				}
@@ -2136,7 +2149,7 @@ func parseFetch(p *Parser) (ast.Statement, error) {
 			if p.ParseKeyword("ALL") {
 				direction = &expr.FetchDirection{Kind: expr.FetchDirectionForwardAll}
 			} else {
-				limit, err := NewExpressionParser(p).ParseExpr()
+				limit, err := parseFetchNumber(p)
 				if err != nil {
 					return nil, err
 				}
@@ -2147,7 +2160,7 @@ func parseFetch(p *Parser) (ast.Statement, error) {
 			if p.ParseKeyword("ALL") {
 				direction = &expr.FetchDirection{Kind: expr.FetchDirectionBackwardAll}
 			} else {
-				limit, err := NewExpressionParser(p).ParseExpr()
+				limit, err := parseFetchNumber(p)
 				if err != nil {
 					return nil, err
 				}
@@ -2160,7 +2173,7 @@ func parseFetch(p *Parser) (ast.Statement, error) {
 		}
 	}
 	if !parsed {
-		limit, err := NewExpressionParser(p).ParseExpr()
+		limit, err := parseFetchNumber(p)
 		if err != nil {
 			return nil, err
 		}

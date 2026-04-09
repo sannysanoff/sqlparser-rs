@@ -701,6 +701,10 @@ func (f *Fetch) String() string {
 		sb.WriteString(" ")
 	}
 	sb.WriteString(f.Name.String())
+	if f.Into != nil {
+		sb.WriteString(" INTO ")
+		sb.WriteString(f.Into.String())
+	}
 	return sb.String()
 }
 

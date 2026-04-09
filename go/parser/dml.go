@@ -72,7 +72,12 @@ func parseInsertInternal(p *Parser, insertToken token.TokenWithSpan) (ast.Statem
 
 	// Parse optional OR conflict clause (SQLite style: INSERT OR REPLACE)
 	var orConflict *expr.SqliteOnConflict
-	if p.ParseKeywords([]string{"OR", "REPLACE"}) {
+
+	// Check if the insert token itself was REPLACE (for SQLite dialect handling)
+	if word, ok := insertToken.Token.(token.TokenWord); ok && word.Word.Keyword == "REPLACE" {
+		orConflictVal := expr.SqliteOnConflictReplace
+		orConflict = &orConflictVal
+	} else if p.ParseKeywords([]string{"OR", "REPLACE"}) {
 		orConflictVal := expr.SqliteOnConflictReplace
 		orConflict = &orConflictVal
 	} else if p.ParseKeywords([]string{"OR", "ROLLBACK"}) {

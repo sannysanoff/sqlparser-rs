@@ -844,6 +844,11 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 	if p.ParseKeywords([]string{"FOREIGN", "KEY"}) {
 		fkConstraint := &expr.ForeignKeyConstraint{}
 
+		// Parse optional index name (MySQL-specific: FOREIGN KEY idx_name (cols))
+		if ident, err := p.ParseIdentifier(); err == nil {
+			fkConstraint.IndexName = ident
+		}
+
 		// Parse column list
 		cols, err := p.ParseParenthesizedColumnList()
 		if err != nil {
