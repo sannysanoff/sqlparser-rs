@@ -1046,6 +1046,12 @@ func (ep *ExpressionParser) parseParenthesizedPrefix() (expr.Expr, error) {
 			subqueryAttemptedPositions[currentIdx] = true
 			subq, err := ep.parseSubqueryWithSetOps()
 			if err == nil && subq != nil {
+				// parseSubqueryWithSetOps successfully parsed the subquery but didn't
+				// consume the outer closing paren (e.g., for ((SELECT ...)) it consumed
+				// the inner ) but not the outer one). Consume it now.
+				if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+					return nil, err
+				}
 				return subq, nil
 			}
 		}

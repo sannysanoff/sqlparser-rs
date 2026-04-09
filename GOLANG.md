@@ -1,5 +1,68 @@
 # Go SQL Parser Development Guide
 
+## Session 96 Summary: Massive Code Port - MySQL Index USING, SET Subquery, Double-Paren Subquery Fixes (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 3 major features, resolving 1+ failing tests and improving parsing infrastructure:
+
+1. **MySQL CREATE TABLE Index USING after Columns** (parser/ddl.go)
+   - Fixed `CREATE TABLE foo (cols, KEY idx (cols) USING BTREE)` syntax
+   - Added call to `parseIndexOptions()` after parsing column list in INDEX/KEY constraint parsing
+   - Parser now correctly handles modern MySQL syntax where USING appears after column list
+   - Fixed test: `TestDDLWithIndexUsing`
+
+2. **SET Variable Subquery Parsing** (parser/misc.go, parser/special.go)
+   - Added `tryParseSubquery()` helper to attempt subquery parsing before regular expression parsing
+   - Updated SET variable parsing to try subqueries first (following Rust pattern)
+   - SET statements with subquery values like `SET (a) = (SELECT 22 FROM tbl1)` now parse correctly
+   - Note: Test uses multiple dialects, some don't support parenthesized SET variables - test needs dialect filter update
+
+3. **Double-Parenthesized Subquery Fix** (parser/prefix.go)
+   - Fixed parsing of `((SELECT ...))` double-parenthesized subqueries
+   - `parseParenthesizedPrefix()` now consumes closing paren after `parseSubqueryWithSetOps()` returns
+   - Resolves issue where double-paren subqueries left an unconsumed closing paren
+   - Fixes: `SET (a) = ((SELECT 22 FROM tbl1))` and similar patterns
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,439 lines | 133% |
+| Tests | 49,886 lines | 14,244 lines | 29% |
+| **Test Status** | - | **~17 failing (98.1% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E343**: MySQL INDEX USING position - Call `parseIndexOptions()` after parsing column list to handle `USING BTREE` after columns
+- **Pattern E344**: Try-parse pattern for subqueries - Add `tryParseSubquery()` helper that attempts subquery parsing, returns nil if not a subquery
+- **Pattern E345**: Double-paren subquery consumption - After `parseSubqueryWithSetOps()` returns, consume the closing paren that the outer `parseParenthesizedPrefix()` expects
+
+**Typical Errors in Code Editing (Additions):**
+
+### Error Type 12: Subquery Parenthesis Mismatch in Double-Paren Cases
+**Problem:** When parsing `((SELECT ...))`, inner subquery parsers consume their own parens but outer level expects a closing paren
+**Example:**
+```go
+// Wrong - double-paren subquery leaves unconsumed paren
+subq, err := ep.parseSubqueryWithSetOps()
+if err == nil && subq != nil {
+    return subq, nil  // Missing: consume the outer paren
+}
+
+// Right - consume the closing paren after subquery parsing
+subq, err := ep.parseSubqueryWithSetOps()
+if err == nil && subq != nil {
+    if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+        return nil, err
+    }
+    return subq, nil
+}
+```
+**Detection:** Tests fail with "Expected: end of statement, found: )" when parsing double-parenthesized subqueries
+**Fix:** Add `ExpectToken(token.TokenRParen{})` after successful subquery parsing in parenthesized prefix handler
+**Files:** parser/prefix.go
+
+---
+
 ## Session 95 Summary: Massive Code Port - CREATE OPERATOR CLASS, ON DELETE Validation (April 9, 2026)
 
 **Major Fixes:**
@@ -902,16 +965,21 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 95 Complete**
+**Latest Update: April 9, 2026 - Session 96 Complete**
 
 **Summary:**
-- **Test Functions:** ~18 failing (~98% pass rate)
+- **Test Functions:** ~17 failing (~98.1% pass rate) 
 - **100% Passing Test Suites:** Snowflake, Regression, DML, DDL (all tests passing!)
 - **Major Areas Needing Implementation:**
   1. **PostgreSQL** (~9 failures): dollar-quoted string error handling, CREATE TABLE alias formatting, delimited identifiers with escape sequences, COPY FROM error handling, UPDATE with FROM, UPDATE in WITH subquery, semicolon handling, INTERVAL data type, custom operator serialization
   2. **Query** (~2 failures): SELECT without projection, IN with UNION
-  3. **Main Package** (~4 failures): NOT precedence (span mismatch), SET variable subquery, SET variable errors, MSSQL transaction
-  4. **MySQL** (~3 failures): SELECT modifiers repeated, DDL index using, escaped string roundtrip
+  3. **Main Package** (~4 failures): NOT precedence (span mismatch), SET variable subquery (dialect filter issue), SET variable errors, MSSQL transaction
+  4. **MySQL** (~2 failures): SELECT modifiers repeated, escaped string roundtrip
+
+**Recently Fixed (Session 96):**
+1. **MySQL Index USING after Columns** - Fixed `KEY idx (cols) USING BTREE` syntax by calling `parseIndexOptions()` after column list
+2. **SET Variable Subquery Parsing** - Added `tryParseSubquery()` helper, SET statements with subquery values now parse correctly
+3. **Double-Parenthesized Subqueries** - Fixed `((SELECT ...))` parsing by consuming closing paren after subquery parsing
 
 **Recently Fixed (Session 95):**
 1. **CREATE OPERATOR CLASS** - Fixed multi-token operator parsing (`<<->`), FUNCTION item op_types parsing, serialization spacing
@@ -929,7 +997,7 @@ Pattern E###: Brief description
 **Line Counts:**
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 83,767 lines | 124% |
+| Source (parser+ast+dialects) | 67,345 lines | 89,472 lines | 133% |
 | Tests | 49,886 lines | 14,244 lines | 29% |
 
 ---

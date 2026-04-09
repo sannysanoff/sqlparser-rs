@@ -1199,6 +1199,17 @@ func (ep *ExpressionParser) parseCaseExpr() (expr.Expr, error) {
 	}, nil
 }
 
+// tryParseSubquery attempts to parse a subquery at the current position.
+// Returns (subquery, nil) if successful, (nil, nil) if not a subquery, or (nil, error) on parse error.
+// This follows the Rust pattern: try_parse_expr_sub_query
+func (ep *ExpressionParser) tryParseSubquery() (expr.Expr, error) {
+	// Check if next token indicates a subquery
+	if !ep.peekSubquery() {
+		return nil, nil
+	}
+	return ep.parseSubqueryExpr()
+}
+
 // parseSubqueryExpr parses a subquery expression assuming LParen was already consumed
 func (ep *ExpressionParser) parseSubqueryExpr() (expr.Expr, error) {
 	// Note: The opening parenthesis has already been consumed by parseParenthesizedPrefix

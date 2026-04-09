@@ -990,6 +990,14 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 		}
 		indexConstraint.Columns = cols
 
+		// Parse optional index options (e.g., USING BTREE, COMMENT 'string')
+		// This handles the modern MySQL syntax: INDEX (cols) USING BTREE
+		indexOptions, err := parseIndexOptions(p)
+		if err != nil {
+			return nil, err
+		}
+		indexConstraint.IndexOptions = indexOptions
+
 		constraint.Constraint = indexConstraint
 		return constraint, nil
 	}

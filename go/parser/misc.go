@@ -787,13 +787,23 @@ func parseSet(p *Parser) (ast.Statement, error) {
 				}
 			}
 			// For parenthesized variables, values must also be parenthesized
-			// Parse each value as an expression (ParseExpr will handle the parenthesized expression)
+			// Parse each value as an expression, trying subquery first (following Rust pattern)
 			ep := NewExpressionParser(p)
 			values := []expr.Expr{}
 			for {
-				val, err := ep.ParseExpr()
+				var val expr.Expr
+				var err error
+				// Try to parse as subquery first
+				val, err = ep.tryParseSubquery()
 				if err != nil {
 					return nil, err
+				}
+				// If not a subquery, parse as regular expression
+				if val == nil {
+					val, err = ep.ParseExpr()
+					if err != nil {
+						return nil, err
+					}
 				}
 				values = append(values, val)
 				if !p.ConsumeToken(token.TokenComma{}) {
