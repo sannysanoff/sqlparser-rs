@@ -1962,7 +1962,21 @@ func (p *Parser) ParseOperatorName() (*ast.ObjectName, error) {
 		// Advance past this token
 		p.AdvanceToken()
 
-		// Create an identifier from the token string
+		// For operators, check if the next token is also an operator
+		// This handles cases like <<-> where << and -> are separate tokens
+		// but form a single operator name in PostgreSQL
+		for {
+			peeked := p.PeekToken()
+			if isOperatorToken(peeked.Token) && !isOperatorTerminator(peeked.Token) {
+				// Concatenate operator tokens
+				p.AdvanceToken()
+				tokenStr += peeked.Token.String()
+			} else {
+				break
+			}
+		}
+
+		// Create an identifier from the token string (potentially concatenated)
 		parts = append(parts, &ast.ObjectNamePartIdentifier{
 			Ident: &ast.Ident{Value: tokenStr},
 		})
@@ -1974,6 +1988,38 @@ func (p *Parser) ParseOperatorName() (*ast.ObjectName, error) {
 	}
 
 	return &ast.ObjectName{Parts: parts}, nil
+}
+
+// isOperatorToken returns true if the token is an operator symbol
+func isOperatorToken(tok token.Token) bool {
+	switch tok.(type) {
+	case token.TokenPlus, token.TokenMinus, token.TokenMul, token.TokenDiv,
+		token.TokenLt, token.TokenGt, token.TokenLtEq, token.TokenGtEq,
+		token.TokenEq, token.TokenNeq, token.TokenShiftLeft, token.TokenShiftRight,
+		token.TokenArrow, token.TokenLongArrow, token.TokenTwoWayArrow,
+		token.TokenHashArrow, token.TokenHashLongArrow, token.TokenHashMinus,
+		token.TokenCaret, token.TokenPipe, token.TokenAmpersand, token.TokenTilde,
+		token.TokenExclamationMark, token.TokenMod, token.TokenQuestion,
+		token.TokenArrowAt, token.TokenCaretAt, token.TokenOverlap,
+		token.TokenPGSquareRoot, token.TokenPGCubeRoot, token.TokenAtDashAt:
+		return true
+	default:
+		return false
+	}
+}
+
+// isOperatorTerminator returns true if the token should terminate operator name parsing
+func isOperatorTerminator(tok token.Token) bool {
+	// Tokens that should terminate operator name parsing
+	switch tok.(type) {
+	case token.TokenComma, token.TokenRParen, token.TokenLParen:
+		return true
+	default:
+		if token.IsEOF(tok) {
+			return true
+		}
+		return false
+	}
 }
 
 // ParseParenthesizedColumnList parses a parenthesized list of column names: (col1, col2, ...)

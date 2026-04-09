@@ -4113,15 +4113,35 @@ func (o *OperatorClassItem) String() string {
 		var sb strings.Builder
 		sb.WriteString("FUNCTION ")
 		sb.WriteString(fmt.Sprintf("%d", o.SupportNumber))
+		// Optional operator types (op_types) - space before parens
+		if len(o.FuncOpTypes) > 0 {
+			sb.WriteString(" (")
+			for i, t := range o.FuncOpTypes {
+				if i > 0 {
+					sb.WriteString(", ")
+				}
+				if dt, ok := t.(fmt.Stringer); ok {
+					sb.WriteString(dt.String())
+				} else {
+					sb.WriteString(fmt.Sprintf("%v", t))
+				}
+			}
+			sb.WriteString(")")
+		}
 		sb.WriteString(" ")
 		sb.WriteString(o.FunctionName.String())
+		// Function argument types - NO space before parens
 		if len(o.ArgumentTypes) > 0 {
 			sb.WriteString("(")
 			for i, t := range o.ArgumentTypes {
 				if i > 0 {
 					sb.WriteString(", ")
 				}
-				sb.WriteString(fmt.Sprintf("%v", t))
+				if dt, ok := t.(fmt.Stringer); ok {
+					sb.WriteString(dt.String())
+				} else {
+					sb.WriteString(fmt.Sprintf("%v", t))
+				}
 			}
 			sb.WriteString(")")
 		}

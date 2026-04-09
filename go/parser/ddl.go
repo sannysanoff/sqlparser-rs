@@ -895,12 +895,15 @@ func parseTableConstraint(p *Parser) (*expr.TableConstraint, error) {
 			}
 		}
 
-		// Parse ON DELETE/ON UPDATE actions (in any order)
+		// Parse ON DELETE/ON UPDATE actions (in any order, but only one of each)
 		for {
-			if p.ParseKeywords([]string{"ON", "DELETE"}) {
+			if fkConstraint.OnDelete == expr.ReferentialActionNone && p.ParseKeywords([]string{"ON", "DELETE"}) {
 				fkConstraint.OnDelete = parseReferentialAction(p)
-			} else if p.ParseKeywords([]string{"ON", "UPDATE"}) {
+			} else if fkConstraint.OnUpdate == expr.ReferentialActionNone && p.ParseKeywords([]string{"ON", "UPDATE"}) {
 				fkConstraint.OnUpdate = parseReferentialAction(p)
+			} else if p.ParseKeywords([]string{"ON", "DELETE"}) || p.ParseKeywords([]string{"ON", "UPDATE"}) {
+				// Duplicate ON DELETE or ON UPDATE found
+				return nil, errors.New("sql ParserError: Duplicate ON DELETE or ON UPDATE clause")
 			} else {
 				break
 			}

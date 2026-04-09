@@ -4431,19 +4431,40 @@ func parseOperatorClassItem(p *Parser) (*expr.OperatorClassItem, error) {
 			return nil, err
 		}
 
+		item := &expr.OperatorClassItem{
+			IsFunction:    true,
+			SupportNumber: supportNum,
+		}
+
+		// Parse optional operator types (op_types) - this comes BEFORE the function name
+		// Reference: src/parser/mod.rs:7184-7201
+		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
+			p.NextToken()
+			if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {
+				for {
+					argType, err := p.ParseDataType()
+					if err != nil {
+						return nil, err
+					}
+					item.FuncOpTypes = append(item.FuncOpTypes, argType)
+					if !p.ConsumeToken(token.TokenComma{}) {
+						break
+					}
+				}
+			}
+			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
+				return nil, err
+			}
+		}
+
 		// Parse function name
 		funcName, err := p.ParseObjectName()
 		if err != nil {
 			return nil, err
 		}
+		item.FunctionName = funcName
 
-		item := &expr.OperatorClassItem{
-			IsFunction:    true,
-			SupportNumber: supportNum,
-			FunctionName:  funcName,
-		}
-
-		// Parse argument types
+		// Parse function argument types (after function name)
 		if _, ok := p.PeekToken().Token.(token.TokenLParen); ok {
 			p.NextToken()
 			if _, ok := p.PeekToken().Token.(token.TokenRParen); !ok {

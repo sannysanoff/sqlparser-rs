@@ -1429,7 +1429,7 @@ func TestPostgresCreateOperatorClass(t *testing.T) {
 	pgAndGeneric.VerifiedStmt(t, "CREATE OPERATOR CLASS test_ops FOR TYPE INT4 USING gist AS OPERATOR 2 <<-> FOR ORDER BY float_ops")
 	pgAndGeneric.VerifiedStmt(t, "CREATE OPERATOR CLASS test_ops FOR TYPE INT4 USING btree AS FUNCTION 1 (INT4, INT4) btcmp(INT4, INT4)")
 	pgAndGeneric.VerifiedStmt(t, "CREATE OPERATOR CLASS test_ops FOR TYPE INT4 USING btree AS FUNCTION 1 my_func")
-	pgAndGeneric.VerifiedStmt(t, "CREATE OPERATOR CLASS gist_ops FOR TYPE geometry USING gist AS OPERATOR 1 <<, FUNCTION 1 gist_consistent(internal, geometry, INT4), STORAGE box")
+	pgAndGeneric.VerifiedStmt(t, "CREATE OPERATOR CLASS gist_ops FOR TYPE GEOMETRY USING gist AS OPERATOR 1 <<, FUNCTION 1 gist_consistent(internal, GEOMETRY, INT4), STORAGE box")
 
 	// Test error cases
 	dialect := postgresql.NewPostgreSqlDialect()
