@@ -4518,8 +4518,14 @@ func parseCTE(p *Parser) (query.CTE, error) {
 	}
 
 	cte := query.CTE{}
+	// Preserve quote style for the CTE name (e.g., "result" should stay quoted)
 	alias := query.TableAlias{
 		Name: query.Ident{Value: name.Value},
+	}
+	// Convert QuoteStyle from *rune to *byte
+	if name.QuoteStyle != nil {
+		quoteByte := byte(*name.QuoteStyle)
+		alias.Name.QuoteStyle = &quoteByte
 	}
 
 	// Check for optional column list: CTE_name (col1, col2, ...) AS ...

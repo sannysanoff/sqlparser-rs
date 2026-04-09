@@ -722,7 +722,10 @@ func TestPostgresDelimitedIdentifiers(t *testing.T) {
 // Reference: tests/sqlparser_postgres.rs:4396
 func TestPostgresUpdateHasKeyword(t *testing.T) {
 	pg := pg()
-	pg.VerifiedStmt(t, "UPDATE test SET name=$1, value=$2, where=$3, create=$4, is_default=$5, classification=$6, sort=$7 WHERE id=$8")
+	// Rust canonical form has spaces around =
+	pg.OneStatementParsesTo(t,
+		"UPDATE test SET name=$1, value=$2, where=$3, create=$4, is_default=$5, classification=$6, sort=$7 WHERE id=$8",
+		"UPDATE test SET name = $1, value = $2, where = $3, create = $4, is_default = $5, classification = $6, sort = $7 WHERE id = $8")
 }
 
 // TestPostgresUpdateInWithSubquery tests UPDATE in WITH subquery

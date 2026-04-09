@@ -1272,21 +1272,21 @@ func parseVarBitType(p *Parser, span token.Span) (*datatype.VarBitType, error) {
 	return result, nil
 }
 
-// parseIntervalType parses INTERVAL [(precision)] data type
+// parseIntervalType parses INTERVAL [fields] [(precision)] data type
 // Reference: src/parser/mod.rs:12151
+// Examples: INTERVAL, INTERVAL YEAR, INTERVAL YEAR TO MONTH, INTERVAL(6)
 func parseIntervalType(p *Parser, spanVal token.Span) (*datatype.IntervalType, error) {
 	result := &datatype.IntervalType{
 		SpanVal: spanVal,
 	}
 
 	// Check if dialect supports interval options (fields, precision)
-	if p.GetDialect().SupportsIntervalOptions() {
-		// Try to parse optional interval fields (YEAR, MONTH, DAY, etc.)
-		// For now, we just parse the precision as it's the most common case
-		// Full interval fields parsing can be added later if needed
+	// Parse optional interval fields (YEAR, MONTH, DAY, etc.)
+	if fields := tryParseIntervalFields(p); fields != nil {
+		result.Fields = fields
 	}
 
-	// Check for optional precision specification like INTERVAL(0)
+	// Check for optional precision specification like INTERVAL YEAR(0) or INTERVAL(0)
 	if p.ConsumeToken(token.TokenLParen{}) {
 		tok := p.PeekToken()
 		if numTok, ok := tok.Token.(token.TokenNumber); ok {
@@ -1301,6 +1301,83 @@ func parseIntervalType(p *Parser, spanVal token.Span) (*datatype.IntervalType, e
 	}
 
 	return result, nil
+}
+
+// tryParseIntervalFields attempts to parse interval fields (YEAR, MONTH, YEAR TO MONTH, etc.)
+// Returns nil if no interval field is found
+// Reference: src/parser/mod.rs:3316 next_token_is_temporal_unit
+func tryParseIntervalFields(p *Parser) *datatype.IntervalFields {
+	// List of temporal unit keywords that can follow INTERVAL
+	temporalUnits := map[string]datatype.IntervalFields{
+		"YEAR":    datatype.Year,
+		"YEARS":   datatype.Year,
+		"MONTH":   datatype.Month,
+		"MONTHS":  datatype.Month,
+		"DAY":     datatype.Day,
+		"DAYS":    datatype.Day,
+		"HOUR":    datatype.Hour,
+		"HOURS":   datatype.Hour,
+		"MINUTE":  datatype.Minute,
+		"MINUTES": datatype.Minute,
+		"SECOND":  datatype.Second,
+		"SECONDS": datatype.Second,
+	}
+
+	tok := p.PeekToken()
+	word, ok := tok.Token.(token.TokenWord)
+	if !ok {
+		return nil
+	}
+
+	kw := strings.ToUpper(string(word.Word.Keyword))
+	firstField, isTemporal := temporalUnits[kw]
+	if !isTemporal {
+		return nil
+	}
+
+	// Consume the first temporal unit keyword
+	p.AdvanceToken()
+
+	// Check for "TO second_unit" (e.g., YEAR TO MONTH)
+	if p.ParseKeyword("TO") {
+		tok2 := p.PeekToken()
+		word2, ok2 := tok2.Token.(token.TokenWord)
+		if ok2 {
+			kw2 := strings.ToUpper(string(word2.Word.Keyword))
+			secondField, isSecondTemporal := temporalUnits[kw2]
+			if isSecondTemporal {
+				p.AdvanceToken()
+				// Map the combination to the appropriate IntervalFields value
+				switch {
+				case firstField == datatype.Year && secondField == datatype.Month:
+					result := datatype.YearToMonth
+					return &result
+				case firstField == datatype.Day && secondField == datatype.Hour:
+					result := datatype.DayToHour
+					return &result
+				case firstField == datatype.Day && secondField == datatype.Minute:
+					result := datatype.DayToMinute
+					return &result
+				case firstField == datatype.Day && secondField == datatype.Second:
+					result := datatype.DayToSecond
+					return &result
+				case firstField == datatype.Hour && secondField == datatype.Minute:
+					result := datatype.HourToMinute
+					return &result
+				case firstField == datatype.Hour && secondField == datatype.Second:
+					result := datatype.HourToSecond
+					return &result
+				case firstField == datatype.Minute && secondField == datatype.Second:
+					result := datatype.MinuteToSecond
+					return &result
+				}
+			}
+		}
+		// If we couldn't parse the second field, we don't consume it
+		// and return just the first field
+	}
+
+	return &firstField
 }
 
 // parseParenthesizedIndexColumnList parses a parenthesized list of index columns

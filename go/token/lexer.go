@@ -1483,6 +1483,8 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 	}
 
 	// Parse the tag/value
+	// Note: We must NOT consume '$' here even if dialect supports dollar placeholders,
+	// because '$' is the delimiter for dollar-quoted strings.
 	var value strings.Builder
 	for {
 		ch, ok := state.Peek()
@@ -1490,8 +1492,9 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 			break
 		}
 
-		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' ||
-			(ch == '$' && t.dialect.SupportsDollarPlaceholder()) {
+		// Only consume letters, digits, and underscores as part of the tag
+		// '$' is the delimiter and must NOT be consumed here
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' {
 			state.Next()
 			value.WriteRune(ch)
 		} else {
@@ -1501,10 +1504,12 @@ func (t *Tokenizer) tokenizeDollar(state *State) (Token, error) {
 
 	val := value.String()
 
-	// Check for tagged dollar-quoted string
-	// Only if the dialect supports dollar-quoted strings AND doesn't support dollar placeholders
+	// Check for tagged dollar-quoted string (e.g., $tag$content$tag$)
+	// Only if the dialect supports dollar-quoted strings
+	// Note: Even if dialect supports dollar placeholders, we should still parse tagged dollar-quoted strings
+	// The key is that tagged strings have a non-empty tag, which makes them unambiguous
 	if next, ok := state.Peek(); ok && next == '$' &&
-		t.dialect.SupportsDollarQuotedString() && !t.dialect.SupportsDollarPlaceholder() {
+		t.dialect.SupportsDollarQuotedString() && val != "" {
 		state.Next() // consume '$'
 
 		var s strings.Builder

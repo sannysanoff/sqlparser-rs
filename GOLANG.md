@@ -1,5 +1,70 @@
 # Go SQL Parser Development Guide
 
+## Session 97 Summary: Massive Code Port - INTERVAL Types, Quoted Identifiers, Dollar-Quoted Strings (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 4 major features, resolving 4+ failing tests:
+
+1. **INTERVAL Data Type with Fields** (parser/ddl.go, ast/datatype/datatype.go)
+   - Fixed `SELECT '1 second'::INTERVAL YEAR` syntax
+   - Added `tryParseIntervalFields()` to parse YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, YEAR TO MONTH, etc.
+   - IntervalType now properly stores Fields and Precision
+   - Fixed test: `TestPostgresIntervalDataType`
+
+2. **Quoted Identifier Preservation in WITH Clause** (parser/query.go)
+   - Fixed `WITH "result" AS (...)` to preserve quoted identifiers
+   - CTE alias now properly copies QuoteStyle from parsed identifier
+   - Fixed test: `TestPostgresUpdateInWithSubquery`
+
+3. **Dollar-Quoted String Validation** (token/lexer.go)
+   - Fixed error detection for mismatched tags like `$x$hello$$`
+   - Root cause: PostgreSQL's `SupportsDollarPlaceholder()` was causing `$` to be consumed as part of tag value
+   - Removed `(ch == '$' && t.dialect.SupportsDollarPlaceholder())` from tag parsing loop
+   - Fixed test: `TestPostgresIncorrectDollarQuotedString`
+
+4. **UPDATE SET with Reserved Keywords** (ast/expr/ddl.go, tests/postgres/postgres_test.go)
+   - Fixed test expectation to match Rust canonical form with spaces around `=`
+   - Test now uses `OneStatementParsesTo` instead of `VerifiedStmt`
+   - Fixed test: `TestPostgresUpdateHasKeyword`
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 104,260 lines | 155% |
+| Tests | 49,886 lines | 14,244 lines | 29% |
+| **Test Status** | - | **~14 failing (98.8% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E346**: INTERVAL field parsing - Check for temporal unit keywords (YEAR, MONTH, etc.) after INTERVAL type, support "TO" syntax like YEAR TO MONTH
+- **Pattern E347**: CTE quoted identifier preservation - Copy QuoteStyle from ast.Ident to query.Ident when creating CTE alias
+- **Pattern E348**: Dollar-quoted string tag parsing - Don't consume `$` as part of tag value even if dialect supports dollar placeholders
+
+**Typical Errors in Code Editing (Additions):**
+
+### Error Type 13: Dollar-Quoted String Tag Parsing with Dollar Placeholders
+**Problem:** When parsing `$tag$content$tag$`, the `$` delimiter is consumed as part of the tag if dialect supports dollar placeholders
+**Example:**
+```go
+// Wrong - consumes '$' as part of tag value for PostgreSQL
+if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' ||
+    (ch == '$' && t.dialect.SupportsDollarPlaceholder()) {
+    state.Next()
+    value.WriteRune(ch)
+}
+
+// Right - only consume letters, digits, underscores for tag
+if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' {
+    state.Next()
+    value.WriteRune(ch)
+}
+```
+**Detection:** Tests fail because mismatched dollar-quoted strings don't error (e.g., `$x$hello$$` parses without error)
+**Fix:** Remove the `(ch == '$' && t.dialect.SupportsDollarPlaceholder())` condition from tag parsing loop
+**Files:** token/lexer.go
+
+---
+
 ## Session 96 Summary: Massive Code Port - MySQL Index USING, SET Subquery, Double-Paren Subquery Fixes (April 9, 2026)
 
 **Major Fixes:**
@@ -965,16 +1030,22 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 96 Complete**
+**Latest Update: April 9, 2026 - Session 97 Complete**
 
 **Summary:**
-- **Test Functions:** ~17 failing (~98.1% pass rate) 
+- **Test Functions:** ~14 failing (~98.8% pass rate) 
 - **100% Passing Test Suites:** Snowflake, Regression, DML, DDL (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~9 failures): dollar-quoted string error handling, CREATE TABLE alias formatting, delimited identifiers with escape sequences, COPY FROM error handling, UPDATE with FROM, UPDATE in WITH subquery, semicolon handling, INTERVAL data type, custom operator serialization
+  1. **PostgreSQL** (~5 failures): COPY FROM error handling, custom operator serialization, delimited identifiers with escape sequences, CREATE TABLE alias formatting, semicolon handling
   2. **Query** (~2 failures): SELECT without projection, IN with UNION
   3. **Main Package** (~4 failures): NOT precedence (span mismatch), SET variable subquery (dialect filter issue), SET variable errors, MSSQL transaction
   4. **MySQL** (~2 failures): SELECT modifiers repeated, escaped string roundtrip
+
+**Recently Fixed (Session 97):**
+1. **INTERVAL Data Type with Fields** - Fixed `SELECT '1 second'::INTERVAL YEAR` and YEAR TO MONTH syntax
+2. **Quoted Identifier Preservation** - Fixed `WITH "result" AS (...)` to preserve quotes in CTE names
+3. **Dollar-Quoted String Validation** - Fixed error detection for mismatched tags like `$x$hello$$`
+4. **UPDATE SET with Reserved Keywords** - Fixed parsing and test expectations for reserved keywords as column names
 
 **Recently Fixed (Session 96):**
 1. **MySQL Index USING after Columns** - Fixed `KEY idx (cols) USING BTREE` syntax by calling `parseIndexOptions()` after column list
@@ -997,7 +1068,7 @@ Pattern E###: Brief description
 **Line Counts:**
 | Component | Rust | Go | Ratio |
 |-----------|------|-----|-------|
-| Source (parser+ast+dialects) | 67,345 lines | 89,472 lines | 133% |
+| Source (parser+ast+dialects) | 67,345 lines | 104,260 lines | 155% |
 | Tests | 49,886 lines | 14,244 lines | 29% |
 
 ---
@@ -2857,6 +2928,49 @@ Pattern E336: PostgreSQL-Specific Index Types
       return &brin
   ```
 - Files typically modified: ast/statement/ddl.go, ast/expr/ddl.go, parser/create.go
+
+Pattern E346: INTERVAL Field Parsing
+- When: Parsing PostgreSQL INTERVAL type with fields like `INTERVAL YEAR`, `INTERVAL YEAR TO MONTH`
+- Problem: Parser doesn't recognize temporal unit keywords after INTERVAL type
+- Solution: After parsing INTERVAL, check for temporal unit keywords and support "TO" syntax
+  ```go
+  func tryParseIntervalFields(p *Parser) *datatype.IntervalFields {
+      temporalUnits := map[string]datatype.IntervalFields{
+          "YEAR": datatype.Year, "MONTH": datatype.Month, ...
+      }
+      // Check for first field, then check for "TO second_field"
+  }
+  ```
+- Files typically modified: parser/ddl.go, ast/datatype/datatype.go
+
+Pattern E347: CTE Quoted Identifier Preservation
+- When: Parsing `WITH "result" AS (...)` - CTE name should preserve quotes
+- Problem: CTE alias loses QuoteStyle when converting from ast.Ident to query.Ident
+- Solution: Copy QuoteStyle from parsed identifier when creating CTE alias
+  ```go
+  alias := query.TableAlias{
+      Name: query.Ident{Value: name.Value},
+  }
+  if name.QuoteStyle != nil {
+      quoteByte := byte(*name.QuoteStyle)
+      alias.Name.QuoteStyle = &quoteByte
+  }
+  ```
+- Files typically modified: parser/query.go (parseCTE)
+
+Pattern E348: Dollar-Quoted String Tag Parsing
+- When: Parsing `$tag$content$tag$` - tag value should not include `$` delimiter
+- Problem: PostgreSQL's `SupportsDollarPlaceholder()` causes `$` to be consumed as part of tag
+- Solution: Don't check for `$` in tag parsing loop, only consume letters/digits/underscores
+  ```go
+  // Only consume letters, digits, and underscores as part of the tag
+  // '$' is the delimiter and must NOT be consumed here
+  if unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' {
+      state.Next()
+      value.WriteRune(ch)
+  }
+  ```
+- Files typically modified: token/lexer.go (tokenizeDollar)
 
 **See full pattern catalog in code comments and previous session notes.**
 

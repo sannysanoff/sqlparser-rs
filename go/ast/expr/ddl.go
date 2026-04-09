@@ -4614,6 +4614,7 @@ func (a *Assignment) IsExpr()          {}
 func (a *Assignment) Span() token.Span { return token.Span{} }
 func (a *Assignment) String() string {
 	if a.Column != nil && a.Value != nil {
+		// Rust canonical form: spaces around =
 		return fmt.Sprintf("%s = %s", a.Column.String(), a.Value.String())
 	}
 	return ""
