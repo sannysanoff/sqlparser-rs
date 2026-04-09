@@ -1790,6 +1790,20 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 		}
 	}
 
+	// Parse additional index options like USING HASH (when USING was already set before columns)
+	// This handles the case: CREATE INDEX idx USING BTREE ON t(c) USING HASH
+	var indexOpts []*expr.IndexOption
+	for p.PeekKeyword("USING") {
+		p.AdvanceToken() // consume USING
+		indexType := parseIndexType()
+		if indexType != nil {
+			indexOpts = append(indexOpts, &expr.IndexOption{
+				Name:  "USING",
+				Value: &expr.ValueExpr{Value: indexType.String()},
+			})
+		}
+	}
+
 	// Parse INCLUDE clause (PostgreSQL 11+)
 	var include []*ast.Ident
 	if p.ParseKeyword("INCLUDE") {
@@ -1875,8 +1889,8 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 
 	return &statement.CreateIndex{
 		Unique:         unique,
-		Concurrently:   concurrently,
 		IfNotExists:    ifNotExists,
+		Concurrently:   concurrently,
 		Name:           indexName,
 		TableName:      tableName,
 		Using:          using,
@@ -1888,6 +1902,7 @@ func parseCreateIndex(p *Parser, unique bool) (ast.Statement, error) {
 		TableSpace:     tablespace,
 		Predicate:      predicate,
 		MySQLOptions:   mysqlOpts,
+		IndexOptions:   indexOpts,
 	}, nil
 }
 

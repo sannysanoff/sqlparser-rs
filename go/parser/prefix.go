@@ -428,15 +428,14 @@ func (ep *ExpressionParser) tryParseReservedWordPrefix(word *token.TokenWord, sp
 		return ep.parseValue()
 
 	case "CURRENT_CATALOG", "CURRENT_USER", "SESSION_USER", "USER":
-		if dialect.Dialect() == "postgresql" {
-			// These are treated as functions in PostgreSQL
+		// These are treated as special functions in PostgreSQL and Generic dialects
+		if dialect.Dialect() == "postgresql" || dialect.Dialect() == "generic" {
 			return &expr.FunctionExpr{
 				Name: &expr.ObjectName{
 					SpanVal: span,
 					Parts:   []*expr.ObjectNamePart{{SpanVal: span, Ident: ep.wordToIdent(word, span)}},
 				},
 				UsesOdbcSyntax: false,
-				Args:           &expr.FunctionArguments{None: true},
 				SpanVal:        span,
 			}, nil
 		}

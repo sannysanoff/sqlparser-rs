@@ -54,7 +54,11 @@ func parseShow(p *Parser) (ast.Statement, error) {
 doneModifiers:
 
 	// Check for CREATE (e.g., SHOW CREATE TABLE)
+	// EXTENDED and FULL are not valid with CREATE
 	if p.PeekKeyword("CREATE") {
+		if extended || full {
+			return nil, fmt.Errorf("EXTENDED/FULL are not supported with SHOW CREATE")
+		}
 		return parseShowCreate(p)
 	}
 
@@ -99,16 +103,25 @@ doneModifiers:
 
 	// Check for STATUS
 	if p.PeekKeyword("STATUS") {
+		if extended || full {
+			return nil, fmt.Errorf("EXTENDED/FULL are not supported with SHOW STATUS")
+		}
 		return parseShowStatus(p, global, session)
 	}
 
 	// Check for VARIABLES
 	if p.PeekKeyword("VARIABLES") {
+		if extended || full {
+			return nil, fmt.Errorf("EXTENDED/FULL are not supported with SHOW VARIABLES")
+		}
 		return parseShowVariables(p, global, session)
 	}
 
 	// Check for COLLATION
 	if p.PeekKeyword("COLLATION") {
+		if extended || full {
+			return nil, fmt.Errorf("EXTENDED/FULL are not supported with SHOW COLLATION")
+		}
 		return parseShowCollation(p)
 	}
 

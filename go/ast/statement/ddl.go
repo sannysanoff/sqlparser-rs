@@ -575,7 +575,8 @@ type CreateIndex struct {
 	TableSpace     *ast.Ident
 	SortedBy       []*expr.OrderByExpr
 	IgnoreOrRevert *string
-	MySQLOptions   []*expr.SqlOption // MySQL-specific options like LOCK, KEY_BLOCK_SIZE
+	MySQLOptions   []*expr.SqlOption   // MySQL-specific options like LOCK, KEY_BLOCK_SIZE
+	IndexOptions   []*expr.IndexOption // Additional index options like USING HASH (after columns)
 }
 
 func (c *CreateIndex) statementNode() {}
@@ -654,6 +655,12 @@ func (c *CreateIndex) String() string {
 
 	// Serialize MySQL-specific index options
 	for _, opt := range c.MySQLOptions {
+		f.WriteString(" ")
+		f.WriteString(opt.String())
+	}
+
+	// Serialize additional index options (e.g., second USING clause)
+	for _, opt := range c.IndexOptions {
 		f.WriteString(" ")
 		f.WriteString(opt.String())
 	}

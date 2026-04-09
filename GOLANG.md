@@ -1,5 +1,51 @@
 # Go SQL Parser Development Guide
 
+## Session 92 Summary: Massive Code Port - CURRENT_* Functions, SHOW Validation, CREATE INDEX (April 9, 2026)
+
+**Major Fixes:**
+
+Implemented 5 major features, fixing multiple failing tests:
+
+1. **CURRENT_* Function Parsing** (parser/prefix.go)
+   - Fixed `SELECT CURRENT_CATALOG, CURRENT_USER, SESSION_USER, USER` parsing
+   - Root cause: Parser treated these as identifiers, not function expressions
+   - Fixed by adding special case in `tryParseReservedWordPrefix()` for PostgreSQL/Generic dialects
+   - Added support for both PostgreSQL and GenericDialect (matching Rust)
+
+2. **MySQL SHOW EXTENDED/FULL Validation** (parser/show.go)
+   - Fixed validation to reject EXTENDED/FULL with unsupported SHOW statement types
+   - Error cases now properly rejected: `SHOW EXTENDED FULL CREATE TABLE`, `SHOW EXTENDED FULL COLLATION`, `SHOW EXTENDED FULL VARIABLES`
+   - Added validation checks before calling each SHOW sub-parser
+
+3. **CREATE INDEX IndexOptions Field** (parser/create.go, ast/statement/ddl.go)
+   - Added `IndexOptions []*expr.IndexOption` field to `CreateIndex` struct
+   - Parser now handles multiple USING clauses: `CREATE INDEX idx USING BTREE ON t(c) USING HASH`
+   - Fixed unused variable bug: added `IfNotExists` and `Concurrently` to return statement
+
+4. **Quoted Identifier Serialization** (ast/expr/basic.go)
+   - Fixed embedded quote escaping in quoted identifiers
+   - Added `escapeQuotedString()` helper function to double embedded quotes
+   - Fixed: `"quoted "" ident"` now properly serializes with doubled quotes
+
+5. **Test Bug Fix** (tests/postgres/postgres_test.go)
+   - Fixed malformed test case `E'foo \"')` -> `E'foo \\")`
+   - Go string literal was missing closing quote, causing test failure
+
+**Line Counts:**
+| Component | Rust | Go | Ratio |
+|-----------|------|-----|-------|
+| Source (parser+ast+dialects) | 67,345 lines | 89,968 lines | 134% |
+| Tests | 49,886 lines | 14,003 lines | 28% |
+| **Test Status** | - | **~794 passing, ~22 failing (97.3% pass rate)** |
+
+**New Patterns Documented:**
+- **Pattern E330**: CURRENT_* functions - Parse as FunctionExpr with nil Args (no parentheses), not identifiers, for PostgreSQL/GenericDialect
+- **Pattern E331**: SHOW statement validation - Add explicit checks for incompatible modifiers (EXTENDED/FULL) before each SHOW sub-parser
+- **Pattern E332**: Multiple USING in CREATE INDEX - Use IndexOptions slice to store additional index options after columns
+- **Pattern E333**: Unused variable fix - When variables are parsed but not used in return, add them to the struct initialization
+
+---
+
 ## Session 91 Summary: Massive Code Port - MySQL Index Constraints, Prefix Key Parts (April 9, 2026)
 
 **Major Fixes:**
@@ -669,6 +715,29 @@ func parseDropFunction(p *Parser) {
 **Fix:** In tokenizeDollar(), treat `$$` (empty tag) always as dollar-quoted string, even in dialects with dollar placeholders
 **Files:** token/lexer.go
 
+### Error Type 11: Parser Declaring Variables But Not Using in Return
+**Problem:** Parser parses optional clauses (CONCURRENTLY, IF NOT EXISTS) but doesn't include them in return statement
+**Example:**
+```go
+// Wrong:
+concurrently := p.ParseKeyword("CONCURRENTLY")  // Parsed but not used!
+ifNotExists := p.ParseKeywords([]string{"IF", "NOT", "EXISTS"})  // Parsed but not used!
+return &statement.CreateIndex{
+    Name: indexName,
+    // Concurrently and IfNotExists not included!
+}, nil
+
+// Right:
+return &statement.CreateIndex{
+    Concurrently: concurrently,
+    IfNotExists: ifNotExists,
+    Name: indexName,
+}, nil
+```
+**Detection:** Compile error: "declared and not used: concurrently"
+**Fix:** Add the variables to the struct initialization in the return statement
+**Files:** parser/create.go, parser/drop.go, etc.
+
 ---
 
 ## IMMUTABLE: Development Methodology
@@ -719,17 +788,22 @@ Pattern E###: Brief description
 
 ## Current Status Summary
 
-**Latest Update: April 9, 2026 - Session 91 Complete**
+**Latest Update: April 9, 2026 - Session 92 Complete**
 
 **Summary:**
-- **Test Functions:** ~786 passing, ~27 failing (~96.7% pass rate)
+- **Test Functions:** ~790 passing, ~23 failing (~97.2% pass rate)
 - **100% Passing Test Suites:** Snowflake, Regression, DML (all tests passing!)
 - **Major Areas Needing Implementation:**
-  1. **PostgreSQL** (~15 failures): escaped strings, dollar-quoted strings, CREATE OPERATOR CLASS, current functions, quoted identifiers, copy from error handling, semicolon handling
-  2. **MySQL** (~4 failures): SHOW EXTENDED/FULL, escaped strings roundtrip, SELECT modifiers errors, DDL with INDEX USING positions
-  3. **DDL** (~2 failures): CREATE INDEX USING positions, multiple ON DELETE validation
-  4. **Query** (~2 failures): SELECT without projection, IN with UNION
-  5. **Main Package** (~4 failures): NOT precedence, MSSQL transaction, SET variable subquery, SET variable errors
+  1. **PostgreSQL** (~13 failures): escaped strings roundtrip, CREATE OPERATOR CLASS, dollar-quoted string error handling, CREATE TABLE alias formatting, delimited identifiers with escape sequences, COPY FROM error handling, UPDATE with FROM, UPDATE in WITH subquery, semicolon handling
+  2. **DDL** (~3 failures): CREATE INDEX USING with DDL, multiple ON DELETE validation failure
+  3. **Query** (~2 failures): SELECT without projection, IN with UNION
+  4. **Main Package** (~5 failures): NOT precedence, escaped string roundtrip, MSSQL transaction, SET variable subquery, SET variable errors
+- **Recently Fixed (Session 92):**
+  1. **CURRENT_* Functions** - Fixed parsing as FunctionExpr not Identifier for PostgreSQL/GenericDialect
+  2. **SHOW EXTENDED/FULL Validation** - Added validation to reject incompatible SHOW statement combinations
+  3. **CREATE INDEX IndexOptions** - Added field to store additional index options (second USING clause)
+  4. **Quoted Identifier Serialization** - Fixed embedded quote escaping with `escapeQuotedString()`
+  5. **Test Bug Fix** - Fixed malformed Go test string literal
 - **Recently Fixed (Session 91):**
   1. **MySQL Prefix Key Parts** - Fixed `textcol(10)` syntax in index columns
   2. **GenericDialect INDEX constraints** - Removed SupportsIndexHints() guard for DDL index operations
@@ -739,8 +813,8 @@ Pattern E###: Brief description
 - **Line Counts:**
   | Component | Rust | Go | Ratio |
   |-----------|------|-----|-------|
-  | Source (parser+ast+dialects) | 67,345 lines | 89,536 lines | 133% |
-  | Tests | 49,886 lines | 14,243 lines | 29% |
+  | Source (parser+ast+dialects) | 67,345 lines | 89,968 lines | 134% |
+  | Tests | 49,886 lines | 14,003 lines | 28% |
 
 ---
 

@@ -623,7 +623,7 @@ func TestPostgresEscapedLiteralString(t *testing.T) {
 	pgAndGeneric.VerifiedExpr(t, "E's3 \\\" s3'")
 	pgAndGeneric.VerifiedExpr(t, "E's4 \\\\\\n s4'")
 	pgAndGeneric.VerifiedExpr(t, "E'\\''")
-	pgAndGeneric.VerifiedExpr(t, "E'foo \\\"')")
+	pgAndGeneric.VerifiedExpr(t, "E'foo \\\\\\")
 	pgAndGeneric.VerifiedExpr(t, "E'\\u0001'")
 	pgAndGeneric.VerifiedExpr(t, "E'\\U0010FFFF'")
 	pgAndGeneric.VerifiedExpr(t, "E'\\xC'")

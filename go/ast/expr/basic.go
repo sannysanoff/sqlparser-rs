@@ -260,13 +260,30 @@ func (i *Ident) Span() token.Span {
 	return i.SpanVal
 }
 
+// escapeQuotedString escapes special characters in a quoted string.
+func escapeQuotedString(s string, quote rune) string {
+	// For single quotes, double them
+	if quote == '\'' {
+		return strings.ReplaceAll(s, "'", "''")
+	}
+	// For double quotes and backticks, double them
+	if quote == '"' {
+		return strings.ReplaceAll(s, "\"", "\"\"")
+	}
+	if quote == '`' {
+		return strings.ReplaceAll(s, "`", "``")
+	}
+	return s
+}
+
 // String returns the SQL representation of the identifier.
 func (i *Ident) String() string {
 	if i.QuoteStyle != nil {
 		q := *i.QuoteStyle
 		switch q {
 		case '"', '\'', '`':
-			return fmt.Sprintf("%c%s%c", q, i.Value, q)
+			escaped := escapeQuotedString(i.Value, q)
+			return fmt.Sprintf("%c%s%c", q, escaped, q)
 		case '[':
 			return fmt.Sprintf("[%s]", i.Value)
 		}
