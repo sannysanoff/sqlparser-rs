@@ -18,7 +18,7 @@
 package parser
 
 import (
-	"github.com/user/sqlparser/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
 )
 
 // dialectAdapter wraps a parseriface.CompleteDialect to implement tokenizer.Dialect

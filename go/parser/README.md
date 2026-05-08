@@ -59,8 +59,8 @@ This package contains all SQL statement-specific parsing methods transpiled from
 
 ```go
 import (
-    "github.com/user/sqlparser-parser"
-    "github.com/user/sqlparser-dialects/generic"
+    "github.com/sannysanoff/sqlparser-rs/go-parser"
+    "github.com/sannysanoff/sqlparser-rs/go-dialects/generic"
 )
 
 // Create a parser

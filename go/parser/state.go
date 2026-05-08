@@ -17,7 +17,7 @@
 
 package parser
 
-import "github.com/user/sqlparser/parseriface"
+import "github.com/sannysanoff/sqlparser-rs/go/parseriface"
 
 // ParserState represents the current state of the parser.
 // The parser can be in different states depending on what

@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
 )
 
 // ============================================================================

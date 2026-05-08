@@ -3,8 +3,8 @@ package parser
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // parseJsonAccess parses JSON/semi-structured data access expressions like a:b or a.b:c:d[0]

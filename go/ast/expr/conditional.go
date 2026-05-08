@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // CaseWhen represents a WHEN clause in a CASE expression.

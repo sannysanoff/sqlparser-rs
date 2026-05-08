@@ -23,8 +23,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects/postgresql"
-	"github.com/user/sqlparser/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
 )
 
 // TestPostgresPgBinaryOps tests PostgreSQL-specific binary operators

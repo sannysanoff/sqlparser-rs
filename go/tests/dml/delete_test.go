@@ -24,13 +24,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/bigquery"
-	"github.com/user/sqlparser/dialects/generic"
-	"github.com/user/sqlparser/dialects/oracle"
-	"github.com/user/sqlparser/parser"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/bigquery"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/oracle"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // TestParseDelete verifies DELETE statement parsing.

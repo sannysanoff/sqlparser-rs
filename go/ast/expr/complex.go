@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // ArrayExpr represents an array expression (Expr::Array in Rust).

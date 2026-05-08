@@ -24,15 +24,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/datatype"
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/ast/query"
-	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/errors"
-	"github.com/user/sqlparser/parseriface"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/datatype"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/query"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/errors"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Compile-time interface check: ensure Parser implements parseriface.Parser

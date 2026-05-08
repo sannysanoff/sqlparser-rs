@@ -20,3 +20,10 @@ Cargo.lock
 *.bak
 
 .DS_store
+
+# Go binaries and scratch
+**/ast_to_json
+**/ast_to_json_bin
+**/test_output/
+**/_scratch/
+**/scratch_test.go

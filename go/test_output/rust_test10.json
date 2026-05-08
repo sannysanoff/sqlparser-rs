@@ -1,0 +1,280 @@
+[
+  {
+    "Query": {
+      "with": null,
+      "body": {
+        "Select": {
+          "select_token": {
+            "token": {
+              "Word": {
+                "value": "SELECT",
+                "quote_style": null,
+                "keyword": "SELECT"
+              }
+            },
+            "span": {
+              "start": {
+                "line": 1,
+                "column": 1
+              },
+              "end": {
+                "line": 1,
+                "column": 7
+              }
+            }
+          },
+          "optimizer_hints": [],
+          "distinct": null,
+          "select_modifiers": null,
+          "top": null,
+          "top_before_distinct": false,
+          "projection": [
+            {
+              "ExprWithAlias": {
+                "expr": {
+                  "Function": {
+                    "name": [
+                      {
+                        "Identifier": {
+                          "value": "toYear",
+                          "quote_style": null,
+                          "span": {
+                            "start": {
+                              "line": 1,
+                              "column": 8
+                            },
+                            "end": {
+                              "line": 1,
+                              "column": 14
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "uses_odbc_syntax": false,
+                    "parameters": "None",
+                    "args": {
+                      "List": {
+                        "duplicate_treatment": null,
+                        "args": [
+                          {
+                            "Unnamed": {
+                              "Expr": {
+                                "Identifier": {
+                                  "value": "timestamp",
+                                  "quote_style": null,
+                                  "span": {
+                                    "start": {
+                                      "line": 1,
+                                      "column": 15
+                                    },
+                                    "end": {
+                                      "line": 1,
+                                      "column": 24
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "clauses": []
+                      }
+                    },
+                    "filter": null,
+                    "null_treatment": null,
+                    "over": null,
+                    "within_group": []
+                  }
+                },
+                "alias": {
+                  "value": "year",
+                  "quote_style": null,
+                  "span": {
+                    "start": {
+                      "line": 1,
+                      "column": 29
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 33
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "UnnamedExpr": {
+                "Function": {
+                  "name": [
+                    {
+                      "Identifier": {
+                        "value": "sum",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 35
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 38
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "uses_odbc_syntax": false,
+                  "parameters": "None",
+                  "args": {
+                    "List": {
+                      "duplicate_treatment": null,
+                      "args": [
+                        {
+                          "Unnamed": {
+                            "Expr": {
+                              "Identifier": {
+                                "value": "revenue",
+                                "quote_style": null,
+                                "span": {
+                                  "start": {
+                                    "line": 1,
+                                    "column": 39
+                                  },
+                                  "end": {
+                                    "line": 1,
+                                    "column": 46
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "clauses": []
+                    }
+                  },
+                  "filter": null,
+                  "null_treatment": null,
+                  "over": null,
+                  "within_group": []
+                }
+              }
+            }
+          ],
+          "exclude": null,
+          "into": null,
+          "from": [
+            {
+              "relation": {
+                "Table": {
+                  "name": [
+                    {
+                      "Identifier": {
+                        "value": "sales",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 53
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 58
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "alias": null,
+                  "args": null,
+                  "with_hints": [],
+                  "version": null,
+                  "with_ordinality": false,
+                  "partitions": [],
+                  "json_path": null,
+                  "sample": null,
+                  "index_hints": []
+                }
+              },
+              "joins": []
+            }
+          ],
+          "lateral_views": [],
+          "prewhere": null,
+          "selection": null,
+          "connect_by": [],
+          "group_by": {
+            "Expressions": [
+              [
+                {
+                  "Identifier": {
+                    "value": "year",
+                    "quote_style": null,
+                    "span": {
+                      "start": {
+                        "line": 1,
+                        "column": 68
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 72
+                      }
+                    }
+                  }
+                }
+              ],
+              []
+            ]
+          },
+          "cluster_by": [],
+          "distribute_by": [],
+          "sort_by": [],
+          "having": null,
+          "named_window": [],
+          "qualify": null,
+          "window_before_qualify": false,
+          "value_table_mode": null,
+          "flavor": "Standard"
+        }
+      },
+      "order_by": {
+        "kind": {
+          "Expressions": [
+            {
+              "expr": {
+                "Identifier": {
+                  "value": "year",
+                  "quote_style": null,
+                  "span": {
+                    "start": {
+                      "line": 1,
+                      "column": 82
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 86
+                    }
+                  }
+                }
+              },
+              "options": {
+                "asc": null,
+                "nulls_first": null
+              },
+              "with_fill": null
+            }
+          ]
+        },
+        "interpolate": null
+      },
+      "limit_clause": null,
+      "fetch": null,
+      "locks": [],
+      "for_clause": null,
+      "settings": null,
+      "format_clause": null,
+      "pipe_operators": []
+    }
+  }
+]

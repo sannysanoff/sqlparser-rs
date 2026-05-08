@@ -22,7 +22,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Value represents a primitive SQL value (literal).

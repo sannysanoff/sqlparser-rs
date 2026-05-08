@@ -20,9 +20,9 @@ package statement
 import (
 	"strings"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/ast/query"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/query"
 )
 
 // ============================================================================

@@ -1,0 +1,193 @@
+[
+  {
+    "Query": {
+      "flavor": 0,
+      "from": [
+        {
+          "relation": {
+            "TableTableFactor": {
+              "name": {
+                "parts": [
+                  {
+                    "value": "products"
+                  }
+                ]
+              },
+              "with_ordinality": false
+            }
+          }
+        }
+      ],
+      "optimizer_hints": [],
+      "projection": [
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "FunctionExpr": {
+                    "args": {
+                      "list": {
+                        "args": [
+                          {
+                            "FunctionArgExpr": {
+                              "expr": {
+                                "Wildcard": {}
+                              }
+                            }
+                          }
+                        ],
+                        "duplicate_treatment": 0
+                      },
+                      "none": false
+                    },
+                    "name": {
+                      "parts": [
+                        {
+                          "ident": {
+                            "value": "count"
+                          }
+                        }
+                      ]
+                    },
+                    "null_treatment": 0,
+                    "uses_odbc_syntax": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "FunctionExpr": {
+                    "args": {
+                      "list": {
+                        "args": [
+                          {
+                            "FunctionArgExpr": {
+                              "expr": {
+                                "Identifier": {
+                                  "ident": {
+                                    "value": "price"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "duplicate_treatment": 0
+                      },
+                      "none": false
+                    },
+                    "name": {
+                      "parts": [
+                        {
+                          "ident": {
+                            "value": "min"
+                          }
+                        }
+                      ]
+                    },
+                    "null_treatment": 0,
+                    "uses_odbc_syntax": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "FunctionExpr": {
+                    "args": {
+                      "list": {
+                        "args": [
+                          {
+                            "FunctionArgExpr": {
+                              "expr": {
+                                "Identifier": {
+                                  "ident": {
+                                    "value": "price"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "duplicate_treatment": 0
+                      },
+                      "none": false
+                    },
+                    "name": {
+                      "parts": [
+                        {
+                          "ident": {
+                            "value": "max"
+                          }
+                        }
+                      ]
+                    },
+                    "null_treatment": 0,
+                    "uses_odbc_syntax": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "FunctionExpr": {
+                    "args": {
+                      "list": {
+                        "args": [
+                          {
+                            "FunctionArgExpr": {
+                              "expr": {
+                                "Identifier": {
+                                  "ident": {
+                                    "value": "price"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "duplicate_treatment": 0
+                      },
+                      "none": false
+                    },
+                    "name": {
+                      "parts": [
+                        {
+                          "ident": {
+                            "value": "avg"
+                          }
+                        }
+                      ]
+                    },
+                    "null_treatment": 0,
+                    "uses_odbc_syntax": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "top_before_distinct": false,
+      "value_table_mode": 0,
+      "window_before_qualify": false
+    }
+  }
+]

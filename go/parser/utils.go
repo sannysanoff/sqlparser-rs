@@ -20,8 +20,8 @@ package parser
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/errors"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/errors"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // ============================================================

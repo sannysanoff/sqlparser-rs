@@ -21,10 +21,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/generic"
-	"github.com/user/sqlparser/dialects/redshift"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/redshift"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 func redshiftDialects() *utils.TestedDialects {

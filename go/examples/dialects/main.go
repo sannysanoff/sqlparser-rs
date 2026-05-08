@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/user/sqlparser/dialects/bigquery"
-	"github.com/user/sqlparser/dialects/mysql"
-	"github.com/user/sqlparser/dialects/postgresql"
-	"github.com/user/sqlparser/dialects/snowflake"
-	"github.com/user/sqlparser/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/bigquery"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/mysql"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/snowflake"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
 )
 
 func main() {

@@ -1,0 +1,192 @@
+[
+  {
+    "Query": {
+      "with": null,
+      "body": {
+        "Select": {
+          "select_token": {
+            "token": {
+              "Word": {
+                "value": "SELECT",
+                "quote_style": null,
+                "keyword": "SELECT"
+              }
+            },
+            "span": {
+              "start": {
+                "line": 1,
+                "column": 1
+              },
+              "end": {
+                "line": 1,
+                "column": 7
+              }
+            }
+          },
+          "optimizer_hints": [],
+          "distinct": null,
+          "select_modifiers": null,
+          "top": null,
+          "top_before_distinct": false,
+          "projection": [
+            {
+              "ExprWithAlias": {
+                "expr": {
+                  "Function": {
+                    "name": [
+                      {
+                        "Identifier": {
+                          "value": "arrayJoin",
+                          "quote_style": null,
+                          "span": {
+                            "start": {
+                              "line": 1,
+                              "column": 8
+                            },
+                            "end": {
+                              "line": 1,
+                              "column": 17
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "uses_odbc_syntax": false,
+                    "parameters": "None",
+                    "args": {
+                      "List": {
+                        "duplicate_treatment": null,
+                        "args": [
+                          {
+                            "Unnamed": {
+                              "Expr": {
+                                "Array": {
+                                  "elem": [
+                                    {
+                                      "Value": {
+                                        "value": {
+                                          "Number": [
+                                            "1",
+                                            false
+                                          ]
+                                        },
+                                        "span": {
+                                          "start": {
+                                            "line": 1,
+                                            "column": 19
+                                          },
+                                          "end": {
+                                            "line": 1,
+                                            "column": 20
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "Value": {
+                                        "value": {
+                                          "Number": [
+                                            "2",
+                                            false
+                                          ]
+                                        },
+                                        "span": {
+                                          "start": {
+                                            "line": 1,
+                                            "column": 22
+                                          },
+                                          "end": {
+                                            "line": 1,
+                                            "column": 23
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "Value": {
+                                        "value": {
+                                          "Number": [
+                                            "3",
+                                            false
+                                          ]
+                                        },
+                                        "span": {
+                                          "start": {
+                                            "line": 1,
+                                            "column": 25
+                                          },
+                                          "end": {
+                                            "line": 1,
+                                            "column": 26
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ],
+                                  "named": false
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "clauses": []
+                      }
+                    },
+                    "filter": null,
+                    "null_treatment": null,
+                    "over": null,
+                    "within_group": []
+                  }
+                },
+                "alias": {
+                  "value": "num",
+                  "quote_style": null,
+                  "span": {
+                    "start": {
+                      "line": 1,
+                      "column": 32
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 35
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "exclude": null,
+          "into": null,
+          "from": [],
+          "lateral_views": [],
+          "prewhere": null,
+          "selection": null,
+          "connect_by": [],
+          "group_by": {
+            "Expressions": [
+              [],
+              []
+            ]
+          },
+          "cluster_by": [],
+          "distribute_by": [],
+          "sort_by": [],
+          "having": null,
+          "named_window": [],
+          "qualify": null,
+          "window_before_qualify": false,
+          "value_table_mode": null,
+          "flavor": "Standard"
+        }
+      },
+      "order_by": null,
+      "limit_clause": null,
+      "fetch": null,
+      "locks": [],
+      "for_clause": null,
+      "settings": null,
+      "format_clause": null,
+      "pipe_operators": []
+    }
+  }
+]

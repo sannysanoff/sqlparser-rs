@@ -23,11 +23,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/generic"
-	"github.com/user/sqlparser/dialects/sqlite"
-	"github.com/user/sqlparser/parser"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/sqlite"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // sqliteDialect returns a TestedDialects with only SQLite dialect

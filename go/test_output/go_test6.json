@@ -1,0 +1,136 @@
+[
+  {
+    "Query": {
+      "flavor": 0,
+      "from": [
+        {
+          "joins": [
+            {
+              "global": false,
+              "join_operator": {
+                "StandardJoinOp": {
+                  "constraint": {
+                    "OnJoinConstraint": {
+                      "expr": {
+                        "queryExprWrapper": {
+                          "expr": {
+                            "BinaryOp": {
+                              "left": {
+                                "CompoundIdentifier": {
+                                  "idents": [
+                                    {
+                                      "value": "a"
+                                    },
+                                    {
+                                      "value": "id"
+                                    }
+                                  ]
+                                }
+                              },
+                              "op": "=",
+                              "right": {
+                                "CompoundIdentifier": {
+                                  "idents": [
+                                    {
+                                      "value": "b"
+                                    },
+                                    {
+                                      "value": "id"
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "type": "INNER JOIN"
+                }
+              },
+              "relation": {
+                "TableTableFactor": {
+                  "alias": {
+                    "explicit": true,
+                    "name": {
+                      "value": "b"
+                    }
+                  },
+                  "name": {
+                    "parts": [
+                      {
+                        "value": "table_b"
+                      }
+                    ]
+                  },
+                  "with_ordinality": false
+                }
+              }
+            }
+          ],
+          "relation": {
+            "TableTableFactor": {
+              "alias": {
+                "explicit": true,
+                "name": {
+                  "value": "a"
+                }
+              },
+              "name": {
+                "parts": [
+                  {
+                    "value": "table_a"
+                  }
+                ]
+              },
+              "with_ordinality": false
+            }
+          }
+        }
+      ],
+      "optimizer_hints": [],
+      "projection": [
+        {
+          "QualifiedWildcard": {
+            "additional_options": {},
+            "kind": {
+              "ObjectNameWildcard": {
+                "name": {
+                  "parts": [
+                    {
+                      "value": "a"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "CompoundIdentifier": {
+                    "idents": [
+                      {
+                        "value": "b"
+                      },
+                      {
+                        "value": "name"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "top_before_distinct": false,
+      "value_table_mode": 0,
+      "window_before_qualify": false
+    }
+  }
+]

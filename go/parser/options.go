@@ -17,7 +17,7 @@
 
 package parser
 
-import "github.com/user/sqlparser/parseriface"
+import "github.com/sannysanoff/sqlparser-rs/go/parseriface"
 
 // ParserOptions controls how the Parser parses SQL text.
 // These options allow you to mix & match behavior otherwise

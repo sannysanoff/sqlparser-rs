@@ -21,10 +21,10 @@ package parser
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/parseriface"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // mergeSpans combines two spans into one that covers both

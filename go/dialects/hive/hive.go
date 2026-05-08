@@ -18,9 +18,9 @@
 package hive
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // HiveDialect is a dialect for Apache Hive SQL implementation.

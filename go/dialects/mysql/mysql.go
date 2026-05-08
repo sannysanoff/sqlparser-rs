@@ -20,10 +20,10 @@ package mysql
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Reserved keywords for table alias in MySQL

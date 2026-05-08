@@ -24,8 +24,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // TestParseCopyOptions verifies COPY statement options parsing.

@@ -25,10 +25,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/ansi"
-	"github.com/user/sqlparser/parser"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/ansi"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // TestParseWindowFunctionsAdvanced verifies advanced window function parsing.

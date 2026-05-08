@@ -29,9 +29,9 @@
 package ansi
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // AnsiDialect is a dialect for strict ANSI SQL:2011 compliance.

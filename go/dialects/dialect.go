@@ -27,9 +27,9 @@
 package dialects
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/parseriface"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Re-export types from parseriface for backward compatibility

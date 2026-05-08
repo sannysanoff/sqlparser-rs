@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Identifier represents a single identifier expression (Expr::Identifier in Rust).

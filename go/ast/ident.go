@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Ident represents an SQL identifier (e.g., table name, column name).

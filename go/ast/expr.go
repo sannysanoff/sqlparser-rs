@@ -20,7 +20,7 @@ package ast
 import (
 	"fmt"
 
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // ExpressionBase provides common functionality for expression implementations.

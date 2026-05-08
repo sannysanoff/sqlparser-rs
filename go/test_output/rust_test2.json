@@ -1,0 +1,176 @@
+[
+  {
+    "Query": {
+      "with": null,
+      "body": {
+        "Select": {
+          "select_token": {
+            "token": {
+              "Word": {
+                "value": "SELECT",
+                "quote_style": null,
+                "keyword": "SELECT"
+              }
+            },
+            "span": {
+              "start": {
+                "line": 1,
+                "column": 1
+              },
+              "end": {
+                "line": 1,
+                "column": 7
+              }
+            }
+          },
+          "optimizer_hints": [],
+          "distinct": null,
+          "select_modifiers": null,
+          "top": null,
+          "top_before_distinct": false,
+          "projection": [
+            {
+              "UnnamedExpr": {
+                "Function": {
+                  "name": [
+                    {
+                      "Identifier": {
+                        "value": "count",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 8
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 13
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "uses_odbc_syntax": false,
+                  "parameters": "None",
+                  "args": {
+                    "List": {
+                      "duplicate_treatment": null,
+                      "args": [],
+                      "clauses": []
+                    }
+                  },
+                  "filter": null,
+                  "null_treatment": null,
+                  "over": null,
+                  "within_group": []
+                }
+              }
+            }
+          ],
+          "exclude": null,
+          "into": null,
+          "from": [
+            {
+              "relation": {
+                "Table": {
+                  "name": [
+                    {
+                      "Identifier": {
+                        "value": "events",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 21
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 27
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "alias": null,
+                  "args": null,
+                  "with_hints": [],
+                  "version": null,
+                  "with_ordinality": false,
+                  "partitions": [],
+                  "json_path": null,
+                  "sample": null,
+                  "index_hints": []
+                }
+              },
+              "joins": []
+            }
+          ],
+          "lateral_views": [],
+          "prewhere": null,
+          "selection": {
+            "BinaryOp": {
+              "left": {
+                "Identifier": {
+                  "value": "event_date",
+                  "quote_style": null,
+                  "span": {
+                    "start": {
+                      "line": 1,
+                      "column": 34
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 44
+                    }
+                  }
+                }
+              },
+              "op": "Gt",
+              "right": {
+                "Value": {
+                  "value": {
+                    "SingleQuotedString": "2024-01-01"
+                  },
+                  "span": {
+                    "start": {
+                      "line": 1,
+                      "column": 47
+                    },
+                    "end": {
+                      "line": 1,
+                      "column": 59
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "connect_by": [],
+          "group_by": {
+            "Expressions": [
+              [],
+              []
+            ]
+          },
+          "cluster_by": [],
+          "distribute_by": [],
+          "sort_by": [],
+          "having": null,
+          "named_window": [],
+          "qualify": null,
+          "window_before_qualify": false,
+          "value_table_mode": null,
+          "flavor": "Standard"
+        }
+      },
+      "order_by": null,
+      "limit_clause": null,
+      "fetch": null,
+      "locks": [],
+      "for_clause": null,
+      "settings": null,
+      "format_clause": null,
+      "pipe_operators": []
+    }
+  }
+]

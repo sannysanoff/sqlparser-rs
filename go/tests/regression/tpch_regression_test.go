@@ -25,8 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects/generic"
-	"github.com/user/sqlparser/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
 )
 
 func TestTPCHQueries(t *testing.T) {

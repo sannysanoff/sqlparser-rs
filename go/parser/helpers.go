@@ -21,10 +21,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/parseriface"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // parseCommaSeparatedExprs parses a comma-separated list of expressions

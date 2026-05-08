@@ -18,9 +18,9 @@
 package generic
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // GenericDialect is a permissive, general purpose dialect which parses a wide

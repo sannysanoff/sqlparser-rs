@@ -19,7 +19,7 @@
 package expr
 
 import (
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Expr is the interface for all SQL expression types.

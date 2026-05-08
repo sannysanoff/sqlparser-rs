@@ -1,0 +1,323 @@
+[
+  {
+    "Query": {
+      "with": null,
+      "body": {
+        "Select": {
+          "select_token": {
+            "token": {
+              "Word": {
+                "value": "SELECT",
+                "quote_style": null,
+                "keyword": "SELECT"
+              }
+            },
+            "span": {
+              "start": {
+                "line": 1,
+                "column": 1
+              },
+              "end": {
+                "line": 1,
+                "column": 7
+              }
+            }
+          },
+          "optimizer_hints": [],
+          "distinct": null,
+          "select_modifiers": null,
+          "top": null,
+          "top_before_distinct": false,
+          "projection": [
+            {
+              "QualifiedWildcard": [
+                {
+                  "ObjectName": [
+                    {
+                      "Identifier": {
+                        "value": "a",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 8
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 9
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "wildcard_token": {
+                    "token": "Mul",
+                    "span": {
+                      "start": {
+                        "line": 1,
+                        "column": 10
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 11
+                      }
+                    }
+                  },
+                  "opt_ilike": null,
+                  "opt_exclude": null,
+                  "opt_except": null,
+                  "opt_replace": null,
+                  "opt_rename": null,
+                  "opt_alias": null
+                }
+              ]
+            },
+            {
+              "UnnamedExpr": {
+                "CompoundIdentifier": [
+                  {
+                    "value": "b",
+                    "quote_style": null,
+                    "span": {
+                      "start": {
+                        "line": 1,
+                        "column": 13
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 14
+                      }
+                    }
+                  },
+                  {
+                    "value": "name",
+                    "quote_style": null,
+                    "span": {
+                      "start": {
+                        "line": 1,
+                        "column": 15
+                      },
+                      "end": {
+                        "line": 1,
+                        "column": 19
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "exclude": null,
+          "into": null,
+          "from": [
+            {
+              "relation": {
+                "Table": {
+                  "name": [
+                    {
+                      "Identifier": {
+                        "value": "table_a",
+                        "quote_style": null,
+                        "span": {
+                          "start": {
+                            "line": 1,
+                            "column": 25
+                          },
+                          "end": {
+                            "line": 1,
+                            "column": 32
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "alias": {
+                    "explicit": true,
+                    "name": {
+                      "value": "a",
+                      "quote_style": null,
+                      "span": {
+                        "start": {
+                          "line": 1,
+                          "column": 36
+                        },
+                        "end": {
+                          "line": 1,
+                          "column": 37
+                        }
+                      }
+                    },
+                    "columns": []
+                  },
+                  "args": null,
+                  "with_hints": [],
+                  "version": null,
+                  "with_ordinality": false,
+                  "partitions": [],
+                  "json_path": null,
+                  "sample": null,
+                  "index_hints": []
+                }
+              },
+              "joins": [
+                {
+                  "relation": {
+                    "Table": {
+                      "name": [
+                        {
+                          "Identifier": {
+                            "value": "table_b",
+                            "quote_style": null,
+                            "span": {
+                              "start": {
+                                "line": 1,
+                                "column": 49
+                              },
+                              "end": {
+                                "line": 1,
+                                "column": 56
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "alias": {
+                        "explicit": true,
+                        "name": {
+                          "value": "b",
+                          "quote_style": null,
+                          "span": {
+                            "start": {
+                              "line": 1,
+                              "column": 60
+                            },
+                            "end": {
+                              "line": 1,
+                              "column": 61
+                            }
+                          }
+                        },
+                        "columns": []
+                      },
+                      "args": null,
+                      "with_hints": [],
+                      "version": null,
+                      "with_ordinality": false,
+                      "partitions": [],
+                      "json_path": null,
+                      "sample": null,
+                      "index_hints": []
+                    }
+                  },
+                  "global": false,
+                  "join_operator": {
+                    "Inner": {
+                      "On": {
+                        "BinaryOp": {
+                          "left": {
+                            "CompoundIdentifier": [
+                              {
+                                "value": "a",
+                                "quote_style": null,
+                                "span": {
+                                  "start": {
+                                    "line": 1,
+                                    "column": 65
+                                  },
+                                  "end": {
+                                    "line": 1,
+                                    "column": 66
+                                  }
+                                }
+                              },
+                              {
+                                "value": "id",
+                                "quote_style": null,
+                                "span": {
+                                  "start": {
+                                    "line": 1,
+                                    "column": 67
+                                  },
+                                  "end": {
+                                    "line": 1,
+                                    "column": 69
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "op": "Eq",
+                          "right": {
+                            "CompoundIdentifier": [
+                              {
+                                "value": "b",
+                                "quote_style": null,
+                                "span": {
+                                  "start": {
+                                    "line": 1,
+                                    "column": 72
+                                  },
+                                  "end": {
+                                    "line": 1,
+                                    "column": 73
+                                  }
+                                }
+                              },
+                              {
+                                "value": "id",
+                                "quote_style": null,
+                                "span": {
+                                  "start": {
+                                    "line": 1,
+                                    "column": 74
+                                  },
+                                  "end": {
+                                    "line": 1,
+                                    "column": 76
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "lateral_views": [],
+          "prewhere": null,
+          "selection": null,
+          "connect_by": [],
+          "group_by": {
+            "Expressions": [
+              [],
+              []
+            ]
+          },
+          "cluster_by": [],
+          "distribute_by": [],
+          "sort_by": [],
+          "having": null,
+          "named_window": [],
+          "qualify": null,
+          "window_before_qualify": false,
+          "value_table_mode": null,
+          "flavor": "Standard"
+        }
+      },
+      "order_by": null,
+      "limit_clause": null,
+      "fetch": null,
+      "locks": [],
+      "for_clause": null,
+      "settings": null,
+      "format_clause": null,
+      "pipe_operators": []
+    }
+  }
+]

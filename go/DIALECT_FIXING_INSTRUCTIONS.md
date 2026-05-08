@@ -125,12 +125,12 @@ type ParserAccessor interface {
 **Common missing imports**:
 ```go
 import (
-    "github.com/user/sqlparser/ast"
-    "github.com/user/sqlparser/ast/expr"        // For BinaryOp, etc.
-    "github.com/user/sqlparser/ast/operator"    // For BOpMatch, etc.
-    "github.com/user/sqlparser/dialects"
-    "github.com/user/sqlparser/token"
-    "github.com/user/sqlparser/tokenizer"
+    "github.com/sannysanoff/sqlparser-rs/go/ast"
+    "github.com/sannysanoff/sqlparser-rs/go/ast/expr"        // For BinaryOp, etc.
+    "github.com/sannysanoff/sqlparser-rs/go/ast/operator"    // For BOpMatch, etc.
+    "github.com/sannysanoff/sqlparser-rs/go/dialects"
+    "github.com/sannysanoff/sqlparser-rs/go/token"
+    "github.com/sannysanoff/sqlparser-rs/go/tokenizer"
 )
 ```
 

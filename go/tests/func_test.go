@@ -26,11 +26,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/ast/statement"
-	sqlparserDialects "github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/postgresql"
-	"github.com/user/sqlparser/parser"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	sqlparserDialects "github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // TestParseFunctionCall verifies function call parsing.

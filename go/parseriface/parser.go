@@ -26,10 +26,10 @@
 package parseriface
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/datatype"
-	"github.com/user/sqlparser/ast/query"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/datatype"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/query"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // Parser defines the interface that the parser must implement

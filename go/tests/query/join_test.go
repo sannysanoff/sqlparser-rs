@@ -22,7 +22,7 @@ package query
 import (
 	"testing"
 
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // TestParseJoin verifies JOIN parsing.

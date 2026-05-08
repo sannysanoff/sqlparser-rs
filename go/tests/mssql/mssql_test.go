@@ -24,11 +24,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/generic"
-	"github.com/user/sqlparser/dialects/mssql"
-	"github.com/user/sqlparser/parser"
-	"github.com/user/sqlparser/tests/utils"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/mssql"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
 // MSSQL returns a TestedDialects with MSSQL dialect only.

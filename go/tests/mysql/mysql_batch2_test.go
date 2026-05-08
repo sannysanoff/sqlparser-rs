@@ -22,8 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/user/sqlparser/dialects/mysql"
-	"github.com/user/sqlparser/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/mysql"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
 )
 
 // TestParseUpdateWithJoins verifies UPDATE with JOINs parsing.

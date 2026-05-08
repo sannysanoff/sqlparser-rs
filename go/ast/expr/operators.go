@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/ast/operator"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/operator"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // UnaryOp represents a unary operation (e.g., NOT, -, +).

@@ -2,7 +2,7 @@ package errors
 
 import (
 	"fmt"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // ParserError represents errors that can occur during parsing

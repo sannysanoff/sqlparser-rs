@@ -15,7 +15,7 @@ A complete SQL parser for Go, transpiled from the popular Rust sqlparser-rs libr
 ## Installation
 
 ```bash
-go get github.com/user/sqlparser
+go get github.com/sannysanoff/sqlparser-rs/go
 ```
 
 ## Quick Start
@@ -27,8 +27,8 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser/parser"
-    "github.com/user/sqlparser/dialects/generic"
+    "github.com/sannysanoff/sqlparser-rs/go/parser"
+    "github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
 )
 
 func main() {
@@ -60,10 +60,10 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser/parser"
-    "github.com/user/sqlparser/dialects/postgresql"
-    "github.com/user/sqlparser/dialects/mysql"
-    "github.com/user/sqlparser/dialects/bigquery"
+    "github.com/sannysanoff/sqlparser-rs/go/parser"
+    "github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
+    "github.com/sannysanoff/sqlparser-rs/go/dialects/mysql"
+    "github.com/sannysanoff/sqlparser-rs/go/dialects/bigquery"
 )
 
 func main() {
@@ -101,8 +101,8 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser/parser"
-    "github.com/user/sqlparser/dialects/generic"
+    "github.com/sannysanoff/sqlparser-rs/go/parser"
+    "github.com/sannysanoff/sqlparser-rs/go/dialects/generic"
 )
 
 func main() {

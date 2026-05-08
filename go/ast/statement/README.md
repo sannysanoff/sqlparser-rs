@@ -96,8 +96,8 @@ Other:
 
 ```go
 import (
-    "github.com/user/sqlparser-ast/statement"
-    "github.com/user/sqlparser-ast"
+    "github.com/sannysanoff/sqlparser-rs/go-ast/statement"
+    "github.com/sannysanoff/sqlparser-rs/go-ast"
 )
 
 // Create a CREATE TABLE statement

@@ -23,8 +23,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // DataType represents a SQL data type.

@@ -1,0 +1,92 @@
+[
+  {
+    "CreateTable": {
+      "columns": [
+        {
+          "data_type": {
+            "CustomType": {
+              "name": {
+                "parts": [
+                  {
+                    "ident": {
+                      "value": "UInt64"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "name": {
+            "value": "id"
+          }
+        },
+        {
+          "data_type": {
+            "CustomType": {
+              "name": {
+                "parts": [
+                  {
+                    "ident": {
+                      "value": "String"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "name": {
+            "value": "name"
+          }
+        },
+        {
+          "data_type": {
+            "DatetimeType": {}
+          },
+          "name": {
+            "value": "timestamp"
+          }
+        }
+      ],
+      "constraints": [],
+      "copy_grants": false,
+      "dynamic": false,
+      "external": false,
+      "iceberg": false,
+      "if_not_exists": false,
+      "name": {
+        "parts": [
+          {
+            "ObjectNamePartIdentifier": {
+              "ident": {
+                "value": "test_table"
+              }
+            }
+          }
+        ]
+      },
+      "or_replace": false,
+      "require_user": false,
+      "snapshot": false,
+      "strict": false,
+      "table_options": {
+        "options": [
+          {
+            "name": {
+              "value": "ENGINE"
+            },
+            "value": {
+              "Ident": {
+                "value": "MergeTree"
+              }
+            }
+          }
+        ],
+        "type": 3
+      },
+      "temporary": false,
+      "transient": false,
+      "volatile": false,
+      "without_rowid": false
+    }
+  }
+]

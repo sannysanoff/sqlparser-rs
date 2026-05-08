@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/user/sqlparser/dialects/snowflake"
-	"github.com/user/sqlparser/parser"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/snowflake"
+	"github.com/sannysanoff/sqlparser-rs/go/parser"
 )
 
 func main() {

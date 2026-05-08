@@ -23,12 +23,12 @@ Complete Go port of sqlparser-rs with full feature parity.
 
 ## Module Status
 
-### ✅ Core Module (github.com/user/sqlparser-core)
+### ✅ Core Module (github.com/sannysanoff/sqlparser-rs/go-core)
 - **Keywords**: 800+ SQL keywords with binary search lookup
 - **Span**: Source location tracking (line, column)
 - **Errors**: ParserError with error types and location info
 
-### ✅ Tokenizer Module (github.com/user/sqlparser-tokenizer)
+### ✅ Tokenizer Module (github.com/sannysanoff/sqlparser-rs/go-tokenizer)
 - **Token Types**: 70+ token types (operators, literals, keywords)
 - **String Literals**: Single, double, triple quoted, dollar quoted
 - **Numbers**: Integers, decimals, scientific notation
@@ -36,7 +36,7 @@ Complete Go port of sqlparser-rs with full feature parity.
 - **Location Tracking**: Every token has source span
 - **Tests**: 29 unit tests passing
 
-### ✅ AST Module (github.com/user/sqlparser-ast)
+### ✅ AST Module (github.com/sannysanoff/sqlparser-rs/go-ast)
 - **Node Interface**: Sealed interface hierarchy
 - **Statements**: 131 statement types (DDL, DML, DCL, Transaction)
 - **Expressions**: 69 expression types (operators, functions, literals)
@@ -44,7 +44,7 @@ Complete Go port of sqlparser-rs with full feature parity.
 - **Query**: 50+ query-related types (SELECT, JOIN, CTE, Window)
 - **Operators**: BinaryOperator (83 variants), UnaryOperator (15 variants)
 
-### ✅ Parser Module (github.com/user/sqlparser-parser)
+### ✅ Parser Module (github.com/sannysanoff/sqlparser-rs/go-parser)
 - **Core Parser**: Token stream management, recursion protection
 - **Statement Parsers**: ~40 statement types (SELECT, INSERT, CREATE, ALTER, etc.)
 - **Expression Parsers**: Pratt parsing with precedence climbing
@@ -53,7 +53,7 @@ Complete Go port of sqlparser-rs with full feature parity.
   - Postfix expressions: array subscripts, COLLATE
   - Special: window functions, aggregates, lambdas
 
-### ✅ Dialects Module (github.com/user/sqlparser-dialects)
+### ✅ Dialects Module (github.com/sannysanoff/sqlparser-rs/go-dialects)
 All 14 dialects implemented with full Dialect interface (~85 methods each):
 
 | Dialect | Status | File |
@@ -73,13 +73,13 @@ All 14 dialects implemented with full Dialect interface (~85 methods each):
 | ✅ Oracle | Complete | `dialects/oracle/oracle.go` |
 | ✅ ANSI | Complete | `dialects/ansi/ansi.go` |
 
-### ✅ Tests Module (github.com/user/sqlparser-tests)
+### ✅ Tests Module (github.com/sannysanoff/sqlparser-rs/go-tests)
 - **TPC-H Fixtures**: 22 SQL files copied from Rust
 - **TPC-H Tests**: `tests/tpch_regression_test.go`
   - Tests all 22 TPC-H queries parse successfully
   - Round-trip testing (parse → String() → parse)
 
-### ✅ Fuzz Module (github.com/user/sqlparser-fuzz)
+### ✅ Fuzz Module (github.com/sannysanoff/sqlparser-rs/go-fuzz)
 - **Fuzz Tests**: 4 comprehensive fuzzers
   - FuzzParser (Generic dialect)
   - FuzzPostgreSQL
@@ -255,8 +255,8 @@ import (
     "fmt"
     "log"
     
-    "github.com/user/sqlparser-parser"
-    "github.com/user/sqlparser-dialects/generic"
+    "github.com/sannysanoff/sqlparser-rs/go-parser"
+    "github.com/sannysanoff/sqlparser-rs/go-dialects/generic"
 )
 
 func main() {

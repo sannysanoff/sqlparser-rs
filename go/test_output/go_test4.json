@@ -1,0 +1,85 @@
+[
+  {
+    "Query": {
+      "flavor": 0,
+      "from": [
+        {
+          "relation": {
+            "TableTableFactor": {
+              "name": {
+                "parts": [
+                  {
+                    "value": "table1"
+                  }
+                ]
+              },
+              "with_ordinality": false
+            }
+          }
+        }
+      ],
+      "optimizer_hints": [],
+      "projection": [
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "Identifier": {
+                    "ident": {
+                      "value": "column1"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "UnnamedExpr": {
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "Identifier": {
+                    "ident": {
+                      "value": "column2"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "selection": {
+        "queryExprWrapper": {
+          "expr": {
+            "BinaryOp": {
+              "left": {
+                "Identifier": {
+                  "ident": {
+                    "value": "column1"
+                  }
+                }
+              },
+              "op": "\u003e",
+              "right": {
+                "ValueExpr": {
+                  "value": {
+                    "TokenNumber": {
+                      "long": false,
+                      "value": "0"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "top_before_distinct": false,
+      "value_table_mode": 0,
+      "window_before_qualify": false
+    }
+  }
+]

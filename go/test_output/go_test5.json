@@ -1,0 +1,89 @@
+[
+  {
+    "Query": {
+      "flavor": 0,
+      "optimizer_hints": [],
+      "projection": [
+        {
+          "AliasedExpr": {
+            "alias": {
+              "value": "num"
+            },
+            "explicit": true,
+            "expr": {
+              "queryExprWrapper": {
+                "expr": {
+                  "FunctionExpr": {
+                    "args": {
+                      "list": {
+                        "args": [
+                          {
+                            "FunctionArgExpr": {
+                              "expr": {
+                                "ArrayExpr": {
+                                  "elems": [
+                                    {
+                                      "ValueExpr": {
+                                        "value": {
+                                          "TokenNumber": {
+                                            "long": false,
+                                            "value": "1"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "ValueExpr": {
+                                        "value": {
+                                          "TokenNumber": {
+                                            "long": false,
+                                            "value": "2"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "ValueExpr": {
+                                        "value": {
+                                          "TokenNumber": {
+                                            "long": false,
+                                            "value": "3"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ],
+                                  "named": false
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "duplicate_treatment": 0
+                      },
+                      "none": false
+                    },
+                    "name": {
+                      "parts": [
+                        {
+                          "ident": {
+                            "value": "arrayJoin"
+                          }
+                        }
+                      ]
+                    },
+                    "null_treatment": 0,
+                    "uses_odbc_syntax": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "top_before_distinct": false,
+      "value_table_mode": 0,
+      "window_before_qualify": false
+    }
+  }
+]

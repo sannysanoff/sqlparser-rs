@@ -18,8 +18,8 @@
 package parser
 
 import (
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // ParseGroupingSets parses a GROUPING SETS expression

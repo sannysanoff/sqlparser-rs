@@ -22,16 +22,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/ast/operator"
-	"github.com/user/sqlparser/ast/query"
-	"github.com/user/sqlparser/ast/statement"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/dialects/postgresql"
-	"github.com/user/sqlparser/dialects/snowflake"
-	"github.com/user/sqlparser/parseriface"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/operator"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/query"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/snowflake"
+	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // SelectStatement wraps query.Select to implement ast.Statement

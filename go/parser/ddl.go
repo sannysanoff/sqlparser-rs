@@ -26,10 +26,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/ast/datatype"
-	"github.com/user/sqlparser/ast/expr"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/datatype"
+	"github.com/sannysanoff/sqlparser-rs/go/ast/expr"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // parseColumnDef parses a single column definition

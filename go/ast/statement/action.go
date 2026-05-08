@@ -20,7 +20,7 @@ package statement
 import (
 	"strings"
 
-	"github.com/user/sqlparser/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
 )
 
 // ============================================================================

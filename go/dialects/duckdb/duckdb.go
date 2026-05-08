@@ -18,9 +18,9 @@
 package duckdb
 
 import (
-	"github.com/user/sqlparser/ast"
-	"github.com/user/sqlparser/dialects"
-	"github.com/user/sqlparser/token"
+	"github.com/sannysanoff/sqlparser-rs/go/ast"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/token"
 )
 
 // DuckDbDialect is a dialect for DuckDB SQL implementation.

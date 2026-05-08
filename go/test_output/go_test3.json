@@ -1,0 +1,40 @@
+[
+  {
+    "Query": {
+      "flavor": 0,
+      "from": [
+        {
+          "relation": {
+            "TableTableFactor": {
+              "alias": {
+                "explicit": false,
+                "name": {
+                  "value": "FINAL"
+                }
+              },
+              "name": {
+                "parts": [
+                  {
+                    "value": "events"
+                  }
+                ]
+              },
+              "with_ordinality": false
+            }
+          }
+        }
+      ],
+      "optimizer_hints": [],
+      "projection": [
+        {
+          "Wildcard": {
+            "additional_options": {}
+          }
+        }
+      ],
+      "top_before_distinct": false,
+      "value_table_mode": 0,
+      "window_before_qualify": false
+    }
+  }
+]
