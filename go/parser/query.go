@@ -42,6 +42,7 @@ type SelectStatement struct {
 	LimitClause   query.LimitClause
 	FetchClause   *query.Fetch         // FETCH clause (standard SQL alternative to LIMIT)
 	ForClause     *query.ForClause     // MSSQL FOR XML/FOR JSON clause
+	Settings      []query.Setting      // ClickHouse SETTINGS clause
 	PipeOperators []query.PipeOperator // Pipe operators for |> syntax
 }
 
@@ -199,18 +200,20 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
-	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, FOR clause, or locks)
+	// Check if we need to create a Query wrapper (for WITH clause, pipe operators, FOR clause, locks, or SETTINGS)
 	needsQueryWrapper := withClause != nil
 
-	// Get pipe operators, FOR clause, and locks from SelectStatement if present
+	// Get pipe operators, FOR clause, locks, and settings from SelectStatement if present
 	var pipeOperators []query.PipeOperator
 	var forClause *query.ForClause
 	var locks []query.LockClause
+	var settings []query.Setting
 	if selStmt, ok := body.(*SelectStatement); ok {
 		pipeOperators = selStmt.PipeOperators
 		forClause = selStmt.ForClause
 		locks = selStmt.Select.Locks
-		if len(pipeOperators) > 0 || forClause != nil || len(locks) > 0 {
+		settings = selStmt.Settings
+		if len(pipeOperators) > 0 || forClause != nil || len(locks) > 0 || len(settings) > 0 {
 			needsQueryWrapper = true
 		}
 	}
@@ -234,6 +237,7 @@ func parseQuery(p *Parser) (ast.Statement, error) {
 					OrderBy:       orderByPtr,
 					LimitClause:   selStmt.LimitClause,
 					Fetch:         selStmt.FetchClause,
+					Settings:      settings,
 					Locks:         locks,
 					ForClause:     forClause,
 					PipeOperators: pipeOperators,
@@ -872,6 +876,19 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse PREWHERE clause (ClickHouse)
+	var prewhere query.Expr
+	if dialects.SupportsPrewhere(p.GetDialect()) {
+		if p.ParseKeyword("PREWHERE") {
+			ep := NewExpressionParser(p)
+			expr, err := ep.ParseExpr()
+			if err != nil {
+				return nil, err
+			}
+			prewhere = &queryExprWrapper{expr: expr}
+		}
+	}
+
 	// Parse WHERE clause
 	var selection query.Expr
 	if p.ParseKeyword("WHERE") {
@@ -1106,6 +1123,18 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		}
 	}
 
+	// Parse LIMIT ... BY clause (ClickHouse)
+	// e.g., LIMIT 10 BY category, LIMIT 5 OFFSET 2 BY category
+	if dialects.SupportsLimitBy(p.GetDialect()) {
+		if limitOffset, ok := limitClause.(*query.LimitOffset); ok && p.ParseKeyword("BY") {
+			byExprs, err := parseCommaSeparatedQueryExprs(p)
+			if err != nil {
+				return nil, err
+			}
+			limitOffset.LimitBy = byExprs
+		}
+	}
+
 	// Parse FETCH clause (standard SQL alternative to LIMIT)
 	// Reference: src/parser/mod.rs:13676-13680, 18465-18491
 	var fetchClause *query.Fetch
@@ -1206,6 +1235,16 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		return nil, err
 	}
 
+	// Parse SETTINGS clause (ClickHouse)
+	// e.g., SELECT ... SETTINGS max_threads = 4, optimize_aggregation_in_order = 1
+	var settings []query.Setting
+	if dialects.SupportsSettings(p.GetDialect()) && p.ParseKeyword("SETTINGS") {
+		settings, err = parseClickHouseSettings(p)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &SelectStatement{
 		Select: query.Select{
 			OptimizerHints:      convertToQueryOptimizerHints(optimizerHints),
@@ -1215,6 +1254,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 			TopBeforeDistinct:   topBeforeDistinct,
 			Projection:          projection,
 			From:                from,
+			Prewhere:            prewhere,
 			Selection:           selection,
 			ConnectBy:           connectBy,
 			GroupBy:             groupBy,
@@ -1229,6 +1269,7 @@ func parseSelect(p *Parser) (ast.Statement, error) {
 		LimitClause:   limitClause,
 		FetchClause:   fetchClause,
 		ForClause:     forClause,
+		Settings:      settings,
 		PipeOperators: pipeOperators,
 	}, nil
 }
@@ -4064,6 +4105,10 @@ func isReservedForTableAlias(keyword string) bool {
 		"XML": true, "PROTOBUF": true, "THRIFT": true,
 		// DML clause keywords - these start DML-specific clauses
 		"RETURNING": true,
+		// ClickHouse-specific clause keywords - these start SELECT clauses
+		"PREWHERE": true, "SETTINGS": true,
+		// ClickHouse table modifiers - these are not aliases
+		"FINAL": true,
 	}
 	return reserved[keyword]
 }
@@ -4655,6 +4700,43 @@ func parseOptionalOrderBy(p *Parser) (interface{}, error) {
 
 func parseOptionalLimitClause(p *Parser) (interface{}, error) {
 	return nil, nil
+}
+
+// parseClickHouseSettings parses ClickHouse SETTINGS clause: key = value, key = value, ...
+func parseClickHouseSettings(p *Parser) ([]query.Setting, error) {
+	var settings []query.Setting
+
+	for {
+		// Parse the setting name (identifier)
+		ident, err := p.ParseIdentifier()
+		if err != nil {
+			return nil, err
+		}
+
+		// Expect equals sign
+		if _, err := p.ExpectToken(token.TokenEq{}); err != nil {
+			return nil, fmt.Errorf("expected = after setting name '%s'", ident.Value)
+		}
+
+		// Parse the value as an expression
+		ep := NewExpressionParser(p)
+		valueExpr, err := ep.ParseExpr()
+		if err != nil {
+			return nil, err
+		}
+
+		settings = append(settings, query.Setting{
+			Key:   query.Ident{Value: ident.Value},
+			Value: &queryExprWrapper{expr: valueExpr},
+		})
+
+		// Check for comma-separated next setting
+		if !p.ConsumeToken(token.TokenComma{}) {
+			break
+		}
+	}
+
+	return settings, nil
 }
 
 func parseSettings(p *Parser) (interface{}, error) {

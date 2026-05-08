@@ -398,7 +398,15 @@ func TestClickHouseSelectFormat(t *testing.T) {
 // TestClickHouseSelectSettings tests SELECT with SETTINGS
 // Reference: tests/sqlparser_clickhouse.rs:972 (parse_settings_in_query)
 func TestClickHouseSelectSettings(t *testing.T) {
-	t.Skip("SELECT SETTINGS not yet fully implemented in Go parser")
+	dialects := clickhouseDialect()
+
+	t.Run("basic settings", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t SETTINGS max_threads = 2")
+	})
+
+	t.Run("multiple settings", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t SETTINGS max_threads = 4, optimize_aggregation_in_order = 1")
+	})
 }
 
 // TestClickHouseSelectFinal tests SELECT with FINAL
@@ -410,19 +418,36 @@ func TestClickHouseSelectFinal(t *testing.T) {
 // TestClickHouseSelectPrewhere tests SELECT with PREWHERE
 // Reference: tests/sqlparser_clickhouse.rs:1347 (test_prewhere)
 func TestClickHouseSelectPrewhere(t *testing.T) {
-	t.Skip("SELECT PREWHERE not yet fully implemented in Go parser")
+	dialects := clickhouseDialect()
+
+	t.Run("basic prewhere", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t PREWHERE x > 1 WHERE y > 2")
+	})
+
+	t.Run("prewhere only", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t PREWHERE x > 1")
+	})
 }
 
 // TestClickHouseSelectLimitBy tests SELECT with LIMIT BY
 // Reference: tests/sqlparser_clickhouse.rs:956 (parse_limit_by)
 func TestClickHouseSelectLimitBy(t *testing.T) {
-	t.Skip("SELECT LIMIT BY not yet fully implemented in Go parser")
+	dialects := clickhouseDialect()
+
+	t.Run("basic limit by", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t LIMIT 10 BY category")
+	})
+
+	t.Run("limit by multiple columns", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT * FROM t LIMIT 10 BY category, id")
+	})
 }
 
 // TestClickHouseSelectLimitByWithOffset tests SELECT with LIMIT BY and OFFSET
 // Reference: tests/sqlparser_clickhouse.rs:956 (parse_limit_by)
 func TestClickHouseSelectLimitByWithOffset(t *testing.T) {
-	t.Skip("SELECT LIMIT BY with OFFSET not yet fully implemented in Go parser")
+	dialects := clickhouseDialect()
+	dialects.VerifiedStmt(t, "SELECT * FROM t LIMIT 5 OFFSET 2 BY category")
 }
 
 // TestClickHouseSelectTop tests SELECT with TOP
@@ -497,7 +522,15 @@ func TestClickHouseDataTypes(t *testing.T) {
 // TestClickHouseParametricFunction tests parametric functions like HISTOGRAM
 // Reference: tests/sqlparser_clickhouse.rs:1078 (parse_select_parametric_function)
 func TestClickHouseParametricFunction(t *testing.T) {
-	t.Skip("Parametric functions not yet fully implemented in Go parser")
+	dialects := clickhouseDialect()
+
+	t.Run("quantile with parameters", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT quantile(0.5)(x) FROM t")
+	})
+
+	t.Run("quantileExact with parameters", func(t *testing.T) {
+		dialects.VerifiedStmt(t, "SELECT quantileExact(0.99)(x) FROM t")
+	})
 }
 
 // TestClickHouseDescribe tests DESCRIBE statement

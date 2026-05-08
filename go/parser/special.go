@@ -123,6 +123,47 @@ func (ep *ExpressionParser) parseFunctionWithName(name *expr.ObjectName) (expr.E
 		SpanVal: mergeSpans(name.Span(), ep.parser.GetCurrentToken().Span),
 	}
 
+	// Check for parametric aggregate functions (ClickHouse)
+	// e.g., quantile(0.5)(x) — first parens are aggregate parameters, second are actual args
+	if _, ok := ep.parser.PeekToken().Token.(token.TokenLParen); ok {
+		// Move current Args to Parameters
+		fnExpr.Parameters = fnExpr.Args
+		fnExpr.Args = nil
+
+		// Parse the second set of parens as the actual arguments
+		if _, err := ep.parser.ExpectToken(token.TokenLParen{}); err != nil {
+			return nil, err
+		}
+
+		// Check for DISTINCT/ALL in the second parens
+		duplicateTreatment2 := expr.DuplicateNone
+		if ep.parser.ParseKeyword("DISTINCT") {
+			duplicateTreatment2 = expr.DuplicateDistinct
+		} else if ep.parser.ParseKeyword("ALL") {
+			duplicateTreatment2 = expr.DuplicateAll
+		}
+
+		args2, clauses2, err := ep.parseFunctionArgs()
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := ep.parser.ExpectToken(token.TokenRParen{}); err != nil {
+			return nil, err
+		}
+
+		fnExpr.Args = &expr.FunctionArguments{
+			List: &expr.FunctionArgumentList{
+				DuplicateTreatment: duplicateTreatment2,
+				Args:               args2,
+				Clauses:            clauses2,
+			},
+		}
+
+		// Update the span to include the second parens
+		fnExpr.SpanVal = mergeSpans(fnExpr.SpanVal, ep.parser.GetCurrentToken().Span)
+	}
+
 	// Note: Null treatment is handled differently based on dialect:
 	// - For dialects that support window_function_null_treatment_arg(), it's parsed as a
 	//   FunctionArgumentClause inside the args list (e.g., FIRST_VALUE(a IGNORE NULLS))
