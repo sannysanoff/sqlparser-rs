@@ -11,23 +11,8 @@ import (
 	"unsafe"
 )
 
-// baseTypes lists type names that are base/marker implementations to skip.
-var baseTypes = map[string]bool{
-	"BaseNode":       true,
-	"BaseStatement":  true,
-	"ExpressionBase": true,
-	"DataTypeBase":   true,
-	"QueryBase":      true,
-	"SBaseStatement": true,
-	"BaseSetExpr":    true,
-	"SelectItemBase": true,
-}
-
-// fields to skip in serialization - source location info.
-var skipFields = map[string]bool{
-	"SpanVal": true,
-	"span":    true,
-}
+// fields to skip in serialization.
+var skipFields = map[string]bool{}
 
 // statementTypes maps known Go statement type names to their JSON tag names.
 var statementTypes = map[string]string{
@@ -119,6 +104,8 @@ func valToJSON(rv reflect.Value) interface{} {
 			}
 		}
 		return rv.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return rv.Uint()
 	case reflect.Float32, reflect.Float64:
 		return rv.Float()
 	case reflect.Slice:
@@ -163,6 +150,8 @@ func taggedUnion(rv reflect.Value) interface{} {
 		return rv.String()
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return rv.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return rv.Uint()
 	case reflect.Float32, reflect.Float64:
 		return rv.Float()
 	}
@@ -205,15 +194,8 @@ func structToMap(rv reflect.Value) map[string]interface{} {
 
 		// Handle anonymous/embedded fields
 		if f.Anonymous {
-			if baseTypes[f.Name] || baseTypes[f.Type.Name()] {
-				continue
-			}
-			// For embedded structs, merge their fields (skip span)
 			embMap := structToMap(fv)
 			for k, v := range embMap {
-				if k == "span" || k == "span_val" {
-					continue
-				}
 				result[k] = v
 			}
 			continue
@@ -223,8 +205,7 @@ func structToMap(rv reflect.Value) map[string]interface{} {
 		var val interface{}
 		if f.IsExported() {
 			val = valToJSON(fv)
-		} else if !skipFields[f.Name] {
-			// Use unsafe to access unexported fields (except span metadata)
+		} else {
 			val = getUnexportedVal(fv)
 		}
 

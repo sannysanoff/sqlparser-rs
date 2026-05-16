@@ -85,11 +85,12 @@ func (s *State) PeekN(n int) (rune, bool) {
 	return 0, false
 }
 
-// Location returns the current location (line and column)
+// Location returns the current location (line, column, and byte offset)
 func (s *State) Location() Location {
 	return Location{
 		Line:   s.line,
 		Column: s.column,
+		Offset: uint64(s.pos),
 	}
 }
 

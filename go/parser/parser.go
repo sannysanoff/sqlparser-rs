@@ -1863,61 +1863,47 @@ func (p *Parser) Expected(expected string, found token.TokenWithSpan) error {
 // Supports double-dot notation (e.g., "db_name..table_name") for dialects that allow it.
 func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 	var parts []ast.ObjectNamePart
+	var startSpan, endSpan token.Span
 
 	for {
 		// Check for double-dot notation (empty schema name)
-		// This happens when we have "db_name..table_name" in Snowflake
-		// The tokenizer produces two separate TokenPeriod tokens for ".."
-		// The first period is consumed at the end of the previous iteration (line ~1896)
-		// So when we enter this iteration, we're at the SECOND period of ".."
 		if len(parts) > 0 && dialects.SupportsObjectNameDoubleDotNotation(p.GetDialect()) {
-			// Check if current token is a period (this is the second period of "..")
-			// and the NEXT token is an identifier (table name after "..")
 			if _, isPeriod := p.PeekTokenRef().Token.(token.TokenPeriod); isPeriod {
-				// Peek ahead to see what follows this period
 				nextTok := p.PeekNthToken(1)
 				_, nextIsPeriod := nextTok.Token.(token.TokenPeriod)
 				_, nextIsWord := nextTok.Token.(token.TokenWord)
-
-				// If next is NOT a period but IS a word, we have "..table_name" pattern
-				// (current=second_period, next=table_name)
 				if !nextIsPeriod && nextIsWord {
-					// Double-dot notation detected: current token is the second period
-					// Consume this period and add an empty part for the schema
-					p.AdvanceToken() // consume the second period
-					parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: &ast.Ident{Value: ""}})
+					p.AdvanceToken()
+					emptyIdent := &ast.Ident{Value: ""}
+					parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: emptyIdent})
 					continue
 				}
-				// If next is also a period, we have "..." which is unusual but handle it
-				// If next is neither period nor word, fall through to error handling
 			}
 		}
 
-		// Parse the next identifier
 		ident, err := p.ParseIdentifier()
 		if err != nil {
 			return nil, err
 		}
 
-		// Check if this is an identifier-generating function (e.g., IDENTIFIER() in Snowflake)
+		if len(parts) == 0 {
+			startSpan = ident.Span()
+		}
+		endSpan = ident.Span()
+
 		if p.GetDialect().IsIdentifierGeneratingFunctionName(ident, parts) {
-			// Expect opening parenthesis
 			if _, err := p.ExpectToken(token.TokenLParen{}); err != nil {
 				return nil, err
 			}
 
-			// Parse function arguments
 			var args []ast.Expr
 			if _, ok := p.PeekTokenRef().Token.(token.TokenRParen); !ok {
 				for {
-					// Parse expression as argument
 					arg, err := p.ParseExpression()
 					if err != nil {
 						return nil, err
 					}
 					args = append(args, arg)
-
-					// Check for comma or closing parenthesis
 					if p.ConsumeToken(token.TokenComma{}) {
 						continue
 					}
@@ -1925,7 +1911,6 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 				}
 			}
 
-			// Expect closing parenthesis
 			if _, err := p.ExpectToken(token.TokenRParen{}); err != nil {
 				return nil, err
 			}
@@ -1935,17 +1920,18 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 			parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
 		}
 
-		// Check if there's a period - if so, continue to next part
 		if p.ConsumeToken(token.TokenPeriod{}) {
-			// Continue to parse the next part
 			continue
 		}
 
-		// No more parts
 		break
 	}
 
-	return &ast.ObjectName{Parts: parts}, nil
+	objName := &ast.ObjectName{Parts: parts}
+	if startSpan.IsValid() && endSpan.IsValid() {
+		objName.SetSpan(startSpan.Merge(endSpan))
+	}
+	return objName, nil
 }
 
 // ParseOperatorName parses an operator name which can be either an identifier
@@ -1953,41 +1939,40 @@ func (p *Parser) ParseObjectName() (*ast.ObjectName, error) {
 // Reference: src/parser/mod.rs parse_operator_name
 func (p *Parser) ParseOperatorName() (*ast.ObjectName, error) {
 	var parts []ast.ObjectNamePart
+	var firstSpan, lastSpan token.Span
 
 	for {
-		// Get the next token - for operators, we accept any token type
 		tok := p.PeekToken()
 		tokenStr := tok.Token.String()
-
-		// Advance past this token
+		firstSpan = tok.Span
+		lastSpan = tok.Span
 		p.AdvanceToken()
 
-		// For operators, check if the next token is also an operator
-		// This handles cases like <<-> where << and -> are separate tokens
-		// but form a single operator name in PostgreSQL
 		for {
 			peeked := p.PeekToken()
 			if isOperatorToken(peeked.Token) && !isOperatorTerminator(peeked.Token) {
-				// Concatenate operator tokens
 				p.AdvanceToken()
 				tokenStr += peeked.Token.String()
+				lastSpan = peeked.Span
 			} else {
 				break
 			}
 		}
 
-		// Create an identifier from the token string (potentially concatenated)
-		parts = append(parts, &ast.ObjectNamePartIdentifier{
-			Ident: &ast.Ident{Value: tokenStr},
-		})
+		ident := &ast.Ident{Value: tokenStr}
+		ident.SetSpan(firstSpan.Merge(lastSpan))
+		parts = append(parts, &ast.ObjectNamePartIdentifier{Ident: ident})
 
-		// Check for period (schema qualification)
 		if !p.ConsumeToken(token.TokenPeriod{}) {
 			break
 		}
 	}
 
-	return &ast.ObjectName{Parts: parts}, nil
+	objName := &ast.ObjectName{Parts: parts}
+	if firstSpan.IsValid() && lastSpan.IsValid() {
+		objName.SetSpan(firstSpan.Merge(lastSpan))
+	}
+	return objName, nil
 }
 
 // isOperatorToken returns true if the token is an operator symbol
@@ -2215,32 +2200,31 @@ func (p *Parser) ParseStandardColumnOption() (*expr.ColumnOptionDef, error) {
 }
 
 // ParseIdentifier parses a single identifier
-// TODO: Implement proper identifier parsing
 func (p *Parser) ParseIdentifier() (*ast.Ident, error) {
 	tok := p.PeekToken()
 	if word, ok := tok.Token.(token.TokenWord); ok {
 		p.AdvanceToken()
-		// Preserve original case for all dialects
-		// This matches the Rust reference implementation
 		ident := &ast.Ident{Value: word.Word.Value}
-		// If the word has a quote style, set it on the identifier
+		ident.SetSpan(tok.Span)
 		if word.Word.QuoteStyle != nil {
 			quoteStyle := rune(*word.Word.QuoteStyle)
 			ident.QuoteStyle = &quoteStyle
 		}
 		return ident, nil
 	}
-	// Following Rust pattern: accept quoted strings as identifiers
-	// Reference: src/parser/mod.rs:12926
 	if singleStr, ok := tok.Token.(token.TokenSingleQuotedString); ok {
 		p.AdvanceToken()
 		quoteStyle := rune('\'')
-		return &ast.Ident{Value: singleStr.Value, QuoteStyle: &quoteStyle}, nil
+		ident := &ast.Ident{Value: singleStr.Value, QuoteStyle: &quoteStyle}
+		ident.SetSpan(tok.Span)
+		return ident, nil
 	}
 	if doubleStr, ok := tok.Token.(token.TokenDoubleQuotedString); ok {
 		p.AdvanceToken()
 		quoteStyle := rune('"')
-		return &ast.Ident{Value: doubleStr.Value, QuoteStyle: &quoteStyle}, nil
+		ident := &ast.Ident{Value: doubleStr.Value, QuoteStyle: &quoteStyle}
+		ident.SetSpan(tok.Span)
+		return ident, nil
 	}
 	return nil, fmt.Errorf("Expected: identifier, found: %v", tok.Token)
 }

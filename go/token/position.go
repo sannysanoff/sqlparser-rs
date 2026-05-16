@@ -21,6 +21,7 @@ package token
 type Location struct {
 	Line   uint64
 	Column uint64
+	Offset uint64 // byte offset from start of input
 }
 
 // Span represents a range of source code from start to end

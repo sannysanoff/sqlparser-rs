@@ -669,6 +669,7 @@ func (i *IdentWithAlias) String() string {
 type Ident struct {
 	Value      string
 	QuoteStyle *byte
+	SpanVal    token.Span
 }
 
 func (i Ident) String() string {

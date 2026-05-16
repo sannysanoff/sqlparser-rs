@@ -1792,7 +1792,7 @@ func astObjectNameToQuery(name *ast.ObjectName) query.ObjectName {
 
 // astIdentToQuery converts ast.Ident to query.Ident
 func astIdentToQuery(ident *ast.Ident) query.Ident {
-	q := query.Ident{Value: ident.Value}
+	q := query.Ident{Value: ident.Value, SpanVal: ident.Span()}
 	if ident.QuoteStyle != nil {
 		quoteByte := byte(*ident.QuoteStyle)
 		q.QuoteStyle = &quoteByte
@@ -1805,13 +1805,18 @@ func queryObjectNameToAst(name query.ObjectName) *ast.ObjectName {
 	parts := make([]ast.ObjectNamePart, len(name.Parts))
 	for i, part := range name.Parts {
 		ident := &ast.Ident{Value: part.Value}
+		ident.SetSpan(part.SpanVal)
 		if part.QuoteStyle != nil {
 			quoteRune := rune(*part.QuoteStyle)
 			ident.QuoteStyle = &quoteRune
 		}
 		parts[i] = &ast.ObjectNamePartIdentifier{Ident: ident}
 	}
-	return &ast.ObjectName{Parts: parts}
+	objName := &ast.ObjectName{Parts: parts}
+	if len(name.Parts) > 0 {
+		objName.SetSpan(name.Parts[0].SpanVal.Merge(name.Parts[len(name.Parts)-1].SpanVal))
+	}
+	return objName
 }
 
 // queryExprToAstExpr converts query.Expr to expr.Expr
