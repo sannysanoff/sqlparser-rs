@@ -84,7 +84,6 @@ func (i *Ident) String() string {
 	}
 
 	quote := *i.QuoteStyle
-	fmt.Printf("DEBUG Ident.String: Value=%q QuoteStyle=%q\n", i.Value, quote)
 	switch quote {
 	case '"', '\'', '`':
 		// Special case: if the value starts with @ (Snowflake stage reference),
@@ -97,9 +96,7 @@ func (i *Ident) String() string {
 		escaped := escapeQuotedString(i.Value, quote)
 		return fmt.Sprintf("%c%s%c", quote, escaped, quote)
 	case '[':
-		result := fmt.Sprintf("[%s]", i.Value)
-		fmt.Printf("DEBUG Ident.String result: %q\n", result)
-		return result
+		return fmt.Sprintf("[%s]", i.Value)
 	default:
 		panic(fmt.Sprintf("unexpected quote style: %c", quote))
 	}

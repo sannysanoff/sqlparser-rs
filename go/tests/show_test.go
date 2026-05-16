@@ -134,6 +134,31 @@ func TestExplainDesc(t *testing.T) {
 	dialects.VerifiedStmt(t, "DESC test.table")
 }
 
+// TestDescribeTableName verifies DESCRIBE/DESC with simple table name parsing.
+func TestDescribeTableName(t *testing.T) {
+	dialects := utils.NewTestedDialects()
+
+	testCases := []string{
+		"DESCRIBE tablename",
+		"DESC tablename",
+		"DESCRIBE TABLE tablename",
+		"DESC TABLE tablename",
+	}
+
+	for _, sql := range testCases {
+		t.Run(sql, func(t *testing.T) {
+			stmts := dialects.ParseSQL(t, sql)
+			require.Len(t, stmts, 1)
+
+			explainTable, ok := stmts[0].(*statement.ExplainTable)
+			require.True(t, ok, "Expected ExplainTable statement, got %T", stmts[0])
+
+			// Verify the table name is parsed correctly
+			assert.Equal(t, "tablename", explainTable.TableName.String())
+		})
+	}
+}
+
 // runExplainAnalyze is a helper function for EXPLAIN ANALYZE tests
 func runExplainAnalyze(t *testing.T, sql string, expectedVerbose, expectedAnalyze bool) {
 	dialects := utils.NewTestedDialects()

@@ -663,11 +663,9 @@ func (t *Tokenizer) tokenizeDoubleQuotedString(state *State) (Token, error) {
 
 func (t *Tokenizer) tokenizeQuotedIdentifier(state *State) (Token, error) {
 	ch, _ := state.Peek()
-	fmt.Printf("DEBUG tokenizeQuotedIdentifier: ch=%q remaining=%q\n", ch, state.Remaining())
 
 	if t.dialect.IsNestedDelimitedIdentifierStart(ch) {
 		startQuote, nestedQuote, ok := t.dialect.PeekNestedDelimitedIdentifierQuotes(state.Remaining())
-		fmt.Printf("DEBUG PeekNestedDelimitedIdentifierQuotes: startQuote=%q nestedQuote=%q ok=%v\n", startQuote, nestedQuote, ok)
 		if ok {
 			// If nestedQuote is 0, it's a simple pattern like [foo] not ["foo"]
 			// In that case, treat it as a regular quoted identifier with '[' as the quote
@@ -679,7 +677,6 @@ func (t *Tokenizer) tokenizeQuotedIdentifier(state *State) (Token, error) {
 					return nil, err
 				}
 				quoteStyle := byte(ch)
-				fmt.Printf("DEBUG tokenizeQuotedIdentifier result: word=%q quoteStyle=%q\n", word, quoteStyle)
 				return MakeWord(word, &quoteStyle), nil
 			}
 			// Nested pattern like ["foo"]
@@ -1811,9 +1808,7 @@ func (t *Tokenizer) tokenizeSingleQuotedStringLiteral(state *State, quoteChar ru
 }
 
 func (t *Tokenizer) tokenizeQuotedIdentifierLiteral(state *State, quoteEnd byte) (string, error) {
-	opening, _ := state.Peek()
 	state.Next() // consume opening quote
-	fmt.Printf("DEBUG tokenizeQuotedIdentifierLiteral: opening=%q quoteEnd=%q remaining=%q\n", opening, quoteEnd, state.Remaining())
 
 	var s strings.Builder
 	lastChar := rune(0)

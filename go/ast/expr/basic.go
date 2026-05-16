@@ -280,15 +280,12 @@ func escapeQuotedString(s string, quote rune) string {
 func (i *Ident) String() string {
 	if i.QuoteStyle != nil {
 		q := *i.QuoteStyle
-		fmt.Printf("DEBUG expr.Ident.String: Value=%q QuoteStyle=%q\n", i.Value, q)
 		switch q {
 		case '"', '\'', '`':
 			escaped := escapeQuotedString(i.Value, q)
 			return fmt.Sprintf("%c%s%c", q, escaped, q)
 		case '[':
-			result := fmt.Sprintf("[%s]", i.Value)
-			fmt.Printf("DEBUG expr.Ident.String result: %q\n", result)
-			return result
+			return fmt.Sprintf("[%s]", i.Value)
 		}
 	}
 	return i.Value
