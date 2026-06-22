@@ -18,8 +18,8 @@ var skipFields = map[string]bool{}
 var statementTypes = map[string]string{
 	"SelectStatement": "Query",
 	"QueryStatement":  "Query",
-	"SCreateTable":    "CreateTable",
 	"SQuery":          "Query",
+	"Query":           "Query",
 	"SInsert":         "Insert",
 	"SDelete":         "Delete",
 	"SUpdate":         "Update",
