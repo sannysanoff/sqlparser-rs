@@ -24,6 +24,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/clickhouse"
 	"github.com/sannysanoff/sqlparser-rs/go/tests/utils"
 )
 
@@ -85,6 +87,40 @@ func TestParseCTERenamedColumns(t *testing.T) {
 func TestMergeInCte(t *testing.T) {
 	// Note: MERGE in CTE is not yet fully implemented for all dialects
 	t.Skip("MERGE in CTE not yet fully implemented in Go port")
+}
+
+// TestParseClickHouseScalarCTE verifies ClickHouse scalar/expression Common Table
+// Expressions (WITH <expression> AS <name>), which can be mixed with ordinary
+// subquery CTEs. This feature is ClickHouse-specific, so it is only exercised
+// against the ClickHouse dialect.
+func TestParseClickHouseScalarCTE(t *testing.T) {
+	dial := utils.NewTestedDialectsWithFilter(func(d dialects.Dialect) bool {
+		_, isClickHouse := d.(*clickhouse.ClickHouseDialect)
+		return isClickHouse
+	})
+	require.NotEmpty(t, dial.Dialects, "ClickHouse dialect must be present")
+
+	valid := []string{
+		"WITH 'SCHWAB' AS tenant SELECT tenant",
+		"WITH 1 AS x SELECT x",
+		"WITH now() AS n SELECT n",
+		"WITH sum(bytes) AS s SELECT s FROM hits",
+		// Scalar and subquery CTEs can be mixed in a single WITH clause.
+		"WITH a AS (SELECT 1), 'b' AS sc SELECT * FROM a, sc",
+		"WITH '2019-08-01 15:23:00' AS ts_upper_bound SELECT * FROM hits WHERE EventDate = toDate(ts_upper_bound)",
+	}
+	for _, sql := range valid {
+		dial.VerifiedStmt(t, sql)
+	}
+
+	// Trailing semicolons are dropped during serialization, so the reported
+	// case is verified for parseability (no error) rather than exact round-trip.
+	stmts := dial.ParseSQL(t, "WITH 'SCHWAB' AS tenant SELECT tenant;")
+	require.Len(t, stmts, 1)
+
+	// Ordinary subquery CTEs must still parse identically.
+	dial.VerifiedStmt(t, "WITH x AS (SELECT 1) SELECT * FROM x")
+	dial.VerifiedStmt(t, "WITH cte AS (SELECT * FROM customer) SELECT * FROM cte")
 }
 
 // TestParseSubqueryLimit verifies subquery with LIMIT parsing.

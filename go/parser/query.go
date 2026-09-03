@@ -28,6 +28,7 @@ import (
 	"github.com/sannysanoff/sqlparser-rs/go/ast/query"
 	"github.com/sannysanoff/sqlparser-rs/go/ast/statement"
 	"github.com/sannysanoff/sqlparser-rs/go/dialects"
+	"github.com/sannysanoff/sqlparser-rs/go/dialects/clickhouse"
 	"github.com/sannysanoff/sqlparser-rs/go/dialects/postgresql"
 	"github.com/sannysanoff/sqlparser-rs/go/dialects/snowflake"
 	"github.com/sannysanoff/sqlparser-rs/go/parseriface"
@@ -4577,6 +4578,112 @@ func parseMergeInQuery(p *Parser, with interface{}) (ast.Statement, error) {
 }
 
 func parseCTE(p *Parser) (query.CTE, error) {
+	// ClickHouse supports scalar/expression Common Table Expressions of the form
+	// WITH <expression> AS <name> (e.g. WITH 'SCHWAB' AS tenant). These can be
+	// mixed, comma separated, with ordinary subquery CTEs (WITH <name> AS
+	// (subquery)). Route each item to the right parser.
+	if isScalarCTEDialect(p) && withItemIsScalarCTE(p) {
+		return parseScalarCTE(p)
+	}
+	return parseSubqueryCTE(p)
+}
+
+// isScalarCTEDialect reports whether the active dialect supports scalar/expression
+// Common Table Expressions (WITH <expression> AS <name>).
+func isScalarCTEDialect(p *Parser) bool {
+	_, isClickHouse := p.GetDialect().(*clickhouse.ClickHouseDialect)
+	return isClickHouse
+}
+
+// withItemIsScalarCTE reports whether the next WITH item is a scalar/expression
+// Common Table Expression rather than an ordinary subquery CTE.
+//
+// An ordinary subquery CTE looks like:  <name> AS [MATERIALIZED] ( subquery )
+// A scalar CTE looks like:             <expression> AS <name>
+//
+// So the two forms are distinguished by the token that follows the first
+// top-level AS of the item (after an optional MATERIALIZED keyword): an opening
+// parenthesis means subquery CTE, anything else (an identifier alias) means a
+// scalar CTE.
+func withItemIsScalarCTE(p *Parser) bool {
+	depth := 0
+	for i := 0; p.index+i < len(p.tokens); i++ {
+		t := p.tokens[p.index+i].Token
+		if _, ok := t.(token.TokenWhitespace); ok {
+			continue
+		}
+		switch t.(type) {
+		case token.TokenLParen:
+			depth++
+			continue
+		case token.TokenRParen:
+			depth--
+			continue
+		}
+		if depth != 0 {
+			continue
+		}
+		w, isWord := t.(token.TokenWord)
+		if !isWord || string(w.Word.Keyword) != "AS" {
+			continue
+		}
+		// Found the first top-level AS. Look at the token right after it,
+		// skipping an optional MATERIALIZED keyword.
+		for j := i + 1; p.index+j < len(p.tokens); j++ {
+			nt := p.tokens[p.index+j].Token
+			if _, ok := nt.(token.TokenWhitespace); ok {
+				continue
+			}
+			if nw, ok := nt.(token.TokenWord); ok && string(nw.Word.Keyword) == "MATERIALIZED" {
+				continue
+			}
+			_, afterIsLParen := nt.(token.TokenLParen)
+			// Scalar CTE iff the token after AS is NOT an opening paren.
+			return !afterIsLParen
+		}
+		return true // AS at end-of-input: treat as scalar so parsing reports a clean error
+	}
+	return false
+}
+
+// parseScalarCTE parses a ClickHouse-style scalar/expression Common Table
+// Expression: WITH <expression> AS <name>.
+func parseScalarCTE(p *Parser) (query.CTE, error) {
+	// Parse the scalar expression on the left-hand side.
+	ep := NewExpressionParser(p)
+	exprVal, err := ep.ParseExpr()
+	if err != nil {
+		return query.CTE{}, err
+	}
+
+	// Expect AS keyword
+	if !p.ParseKeyword("AS") {
+		return query.CTE{}, p.Expected("AS after expression in WITH", p.PeekToken())
+	}
+
+	// Parse the alias (the expression name)
+	name, err := p.ParseIdentifier()
+	if err != nil {
+		return query.CTE{}, err
+	}
+
+	alias := query.TableAlias{
+		Name: query.Ident{Value: name.Value},
+	}
+	// Convert QuoteStyle from *rune to *byte
+	if name.QuoteStyle != nil {
+		quoteByte := byte(*name.QuoteStyle)
+		alias.Name.QuoteStyle = &quoteByte
+	}
+
+	cte := query.CTE{
+		Alias: alias,
+		Expr:  exprVal,
+	}
+	return cte, nil
+}
+
+func parseSubqueryCTE(p *Parser) (query.CTE, error) {
 	// Parse CTE name
 	name, err := p.ParseIdentifier()
 	if err != nil {

@@ -44,23 +44,37 @@ func (w *With) String() string {
 	return strings.Join(parts, " ")
 }
 
-// CTE represents a single Common Table Expression
+// CTE represents a single Common Table Expression.
+//
+// For the ordinary subquery form (WITH <name> AS (subquery)) the subquery is
+// stored in Query. Some dialects (e.g. ClickHouse) also support scalar/expression
+// Common Table Expressions (WITH <expression> AS <name>); those are stored in
+// Expr instead. Exactly one of Query / Expr is set.
 type CTE struct {
 	span         token.Span
 	Alias        TableAlias
 	Query        *Query
+	Expr         Expr
 	From         *Ident
 	Materialized *CteAsMaterialized
 }
 
 func (c *CTE) String() string {
 	var parts []string
+	// Scalar/expression CTE: WITH <expr> AS <name>
+	if c.Expr != nil {
+		parts = append(parts, c.Expr.String())
+		parts = append(parts, "AS", c.Alias.Name.String())
+		return strings.Join(parts, " ")
+	}
 	parts = append(parts, c.Alias.String())
 	parts = append(parts, "AS")
 	if c.Materialized != nil {
 		parts = append(parts, c.Materialized.String())
 	}
-	parts = append(parts, fmt.Sprintf("(%s)", c.Query.String()))
+	if c.Query != nil {
+		parts = append(parts, fmt.Sprintf("(%s)", c.Query.String()))
+	}
 	if c.From != nil {
 		parts = append(parts, "FROM", c.From.String())
 	}
